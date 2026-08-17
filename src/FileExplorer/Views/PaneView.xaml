@@ -127,6 +127,16 @@
                   DragLeave="ItemsList_DragLeave"
                   Drop="ItemsList_Drop"
                   DoubleTapped="ItemsList_DoubleTapped"
-                  SelectionChanged="ItemsList_SelectionChanged" />
+                  SelectionChanged="ItemsList_SelectionChanged"
+                  KeyDown="ItemsList_KeyDown" />
+
+        <Popup x:Name="RenamePopup" IsLightDismissEnabled="True">
+            <Border Background="{ThemeResource SolidBackgroundFillColorBase}"
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                    BorderThickness="1.5" CornerRadius="4" Padding="4">
+                <TextBox x:Name="RenameTextBox" MinWidth="200"
+                         KeyDown="RenameTextBox_KeyDown" LostFocus="RenameTextBox_LostFocus" />
+            </Border>
+        </Popup>
     </Grid>
 </UserControl>

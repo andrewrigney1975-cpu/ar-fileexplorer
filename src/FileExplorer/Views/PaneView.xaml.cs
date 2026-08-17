@@ -136,6 +136,117 @@ public sealed partial class PaneView : UserControl
         }
     }
 
+    private FileSystemItem? _renamingItem;
+
+    private void ItemsList_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.F2 || ViewModel is null)
+        {
+            return;
+        }
+
+        if (ItemsList.SelectedItems.Count != 1 || ViewModel.SelectedItem is not { } item)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        BeginRename(item);
+    }
+
+    private void BeginRename(FileSystemItem item)
+    {
+        if (ItemsList.ContainerFromItem(item) is not FrameworkElement container)
+        {
+            return;
+        }
+
+        var point = container.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+
+        RenamePopup.XamlRoot = XamlRoot;
+        RenamePopup.HorizontalOffset = point.X + 8;
+        RenamePopup.VerticalOffset = point.Y + Math.Max(0, (container.ActualHeight - 32) / 2);
+
+        _renamingItem = item;
+        RenameTextBox.Text = item.Name;
+        RenamePopup.IsOpen = true;
+
+        RenameTextBox.Focus(FocusState.Programmatic);
+        RenameTextBox.SelectionStart = 0;
+        if (!item.IsDirectory)
+        {
+            var dot = item.Name.LastIndexOf('.');
+            RenameTextBox.SelectionLength = dot > 0 ? dot : item.Name.Length;
+        }
+        else
+        {
+            RenameTextBox.SelectionLength = item.Name.Length;
+        }
+    }
+
+    private void RenameTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            e.Handled = true;
+            CommitRename();
+        }
+        else if (e.Key == VirtualKey.Escape)
+        {
+            e.Handled = true;
+            RenamePopup.IsOpen = false;
+            _renamingItem = null;
+        }
+    }
+
+    private void RenameTextBox_LostFocus(object sender, RoutedEventArgs e) => CommitRename();
+
+    private void CommitRename()
+    {
+        if (!RenamePopup.IsOpen)
+        {
+            return;
+        }
+
+        RenamePopup.IsOpen = false;
+
+        var item = _renamingItem;
+        _renamingItem = null;
+        if (item is null || ViewModel is null)
+        {
+            return;
+        }
+
+        var newName = RenameTextBox.Text.Trim();
+        if (string.IsNullOrEmpty(newName) || newName == item.Name || newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(item.FullPath)!;
+        var newPath = Path.Combine(directory, newName);
+        if (File.Exists(newPath) || Directory.Exists(newPath))
+        {
+            return;
+        }
+
+        try
+        {
+            if (item.IsDirectory)
+            {
+                Directory.Move(item.FullPath, newPath);
+            }
+            else
+            {
+                File.Move(item.FullPath, newPath);
+            }
+
+            ViewModel.Refresh(newPath);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private void ItemsList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
         var paths = e.Items.OfType<FileSystemItem>().Select(i => i.FullPath).ToList();
