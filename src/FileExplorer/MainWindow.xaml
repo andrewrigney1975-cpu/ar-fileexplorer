@@ -28,6 +28,7 @@
               Background="{ThemeResource LayerFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -35,7 +36,43 @@
             <TextBlock Grid.Column="0" Text="File Explorer" FontWeight="SemiBold" FontSize="16"
                        VerticalAlignment="Center" Margin="4,0,16,0" />
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <Button x:Name="CutButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut"
+                        Click="CutButton_Click">
+                    <FontIcon Glyph="&#xE8C6;" FontSize="16" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="X" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <Button x:Name="CopyButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Copy" ToolTipService.ToolTip="Copy"
+                        Click="CopyButton_Click">
+                    <FontIcon Glyph="&#xE8C8;" FontSize="16" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="C" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <Button x:Name="PasteButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Paste" ToolTipService.ToolTip="Paste"
+                        Click="PasteButton_Click">
+                    <FontIcon Glyph="&#xE77F;" FontSize="16" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="V" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="NewFolderButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="New folder" ToolTipService.ToolTip="New folder"
+                        Click="NewFolderButton_Click">
+                    <FontIcon Glyph="&#xE8DE;" FontSize="16" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control,Shift" Key="N" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+            </StackPanel>
+
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
                 <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Icons view"
                               IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=Icons, Mode=OneWay}"

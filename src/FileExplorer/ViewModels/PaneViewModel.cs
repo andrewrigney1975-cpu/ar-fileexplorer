@@ -53,6 +53,9 @@ public sealed class PaneViewModel : ObservableObject
         set => SetProperty(ref _selectedItem, value);
     }
 
+    /// Full multi-selection snapshot, kept in sync by PaneView on SelectionChanged.
+    public List<FileSystemItem> SelectedItems { get; set; } = new();
+
     public bool IsActive
     {
         get => _isActive;
@@ -124,7 +127,7 @@ public sealed class PaneViewModel : ObservableObject
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void Refresh() => Load();
+    public void Refresh(string? selectPathAfterLoad = null) => Load(selectPathAfterLoad);
 
     private void RaiseNavCommands()
     {
@@ -134,7 +137,7 @@ public sealed class PaneViewModel : ObservableObject
         OnPropertyChanged(nameof(CanNavigateUp));
     }
 
-    private void Load()
+    private void Load(string? selectPathAfterLoad = null)
     {
         IsLoading = true;
         var path = CurrentPath;
@@ -154,6 +157,11 @@ public sealed class PaneViewModel : ObservableObject
                     Items.Add(item);
                 }
                 IsLoading = false;
+
+                if (selectPathAfterLoad is not null)
+                {
+                    SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectPathAfterLoad, StringComparison.OrdinalIgnoreCase));
+                }
             });
         }, TaskScheduler.Default);
     }

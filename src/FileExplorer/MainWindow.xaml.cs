@@ -37,6 +37,8 @@ public sealed partial class MainWindow : Window
     }
 
     private readonly FileOperationQueueService _operationQueue;
+    private List<string>? _clipboardPaths;
+    private bool _clipboardIsCut;
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
     {
@@ -183,6 +185,80 @@ public sealed partial class MainWindow : Window
     {
         var show = (sender as ToggleButton)?.IsChecked == true;
         TerminalRow.Height = show ? new GridLength(260) : new GridLength(0);
+    }
+
+    // ----- Cut / copy / paste / new folder -----
+
+    private void CutButton_Click(object sender, RoutedEventArgs e) => SetClipboard(isCut: true);
+
+    private void CopyButton_Click(object sender, RoutedEventArgs e) => SetClipboard(isCut: false);
+
+    private void SetClipboard(bool isCut)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        var pane = tab.ActivePane;
+        var items = pane.SelectedItems.Count > 0
+            ? pane.SelectedItems
+            : pane.SelectedItem is { } single ? new List<FileSystemItem> { single } : new List<FileSystemItem>();
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        _clipboardPaths = items.Select(i => i.FullPath).ToList();
+        _clipboardIsCut = isCut;
+    }
+
+    private void PasteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_clipboardPaths is not { Count: > 0 } || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        var destination = tab.ActivePane.CurrentPath;
+        if (!FileOperationService.IsValidDropTarget(_clipboardPaths, destination))
+        {
+            return;
+        }
+
+        var op = _clipboardIsCut ? FileDropOperation.Move : FileDropOperation.Copy;
+        _operationQueue.Enqueue(_clipboardPaths, destination, op);
+
+        if (_clipboardIsCut)
+        {
+            _clipboardPaths = null; // cut is a one-shot move
+        }
+    }
+
+    private void NewFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        var pane = tab.ActivePane;
+        var basePath = pane.CurrentPath;
+        var candidate = System.IO.Path.Combine(basePath, "New folder");
+
+        for (int i = 2; Directory.Exists(candidate) || File.Exists(candidate); i++)
+        {
+            candidate = System.IO.Path.Combine(basePath, $"New folder ({i})");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(candidate);
+            pane.Refresh(candidate);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private void CancelJob_Click(object sender, RoutedEventArgs e)

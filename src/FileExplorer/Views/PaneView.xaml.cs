@@ -88,6 +88,11 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (ViewModel is not null)
+        {
+            ViewModel.SelectedItems = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+        }
+
         Activated?.Invoke(this, EventArgs.Empty);
     }
 
