@@ -17,6 +17,37 @@ public static class FileOperationService
         return string.Equals(rootA, rootB, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// False if dropping sourcePaths onto targetFolder would be a no-op or corrupt the tree
+    /// (dropping an item onto itself, or a folder into its own subtree).
+    public static bool IsValidDropTarget(IEnumerable<string> sourcePaths, string targetFolder)
+    {
+        var normalizedTarget = Path.GetFullPath(targetFolder).TrimEnd(Path.DirectorySeparatorChar);
+
+        foreach (var source in sourcePaths)
+        {
+            var normalizedSource = Path.GetFullPath(source).TrimEnd(Path.DirectorySeparatorChar);
+
+            if (string.Equals(normalizedSource, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var parent = Path.GetDirectoryName(normalizedSource);
+            if (string.Equals(parent, normalizedTarget, StringComparison.OrdinalIgnoreCase))
+            {
+                return false; // already there
+            }
+
+            if (Directory.Exists(source) &&
+                normalizedTarget.StartsWith(normalizedSource + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return false; // would move a folder into its own descendant
+            }
+        }
+
+        return true;
+    }
+
     /// Appends " (2)", " (3)", ... to avoid overwriting an existing file or folder at the destination.
     public static string MakeUniqueDestination(string destination)
     {

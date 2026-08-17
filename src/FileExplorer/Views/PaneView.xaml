@@ -124,6 +124,7 @@
                   IsItemClickEnabled="False"
                   DragItemsStarting="ItemsList_DragItemsStarting"
                   DragOver="ItemsList_DragOver"
+                  DragLeave="ItemsList_DragLeave"
                   Drop="ItemsList_Drop"
                   DoubleTapped="ItemsList_DoubleTapped"
                   SelectionChanged="ItemsList_SelectionChanged" />

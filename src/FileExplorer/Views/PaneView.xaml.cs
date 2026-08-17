@@ -6,6 +6,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Windows.UI.Core;
@@ -162,13 +163,24 @@ public sealed partial class PaneView : UserControl
                 return;
             }
 
+            var container = FindDirectoryContainerUnderPoint(e.GetPosition(ItemsList));
+            SetDropHighlight(container);
+            var targetFolder = container is { Content: FileSystemItem dir } ? dir.FullPath : ViewModel.CurrentPath;
+
+            if (!FileOperationService.IsValidDropTarget(sourcePaths, targetFolder))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                return;
+            }
+
             bool forceMove = IsAltPressed();
-            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], ViewModel.CurrentPath);
+            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], targetFolder);
             var op = forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
 
             e.AcceptedOperation = op == FileDropOperation.Move ? DataPackageOperation.Move : DataPackageOperation.Copy;
             e.DragUIOverride.IsCaptionVisible = true;
-            e.DragUIOverride.Caption = op == FileDropOperation.Move ? "Move here" : "Copy here";
+            var targetName = Path.GetFileName(targetFolder.TrimEnd('\\'));
+            e.DragUIOverride.Caption = (op == FileDropOperation.Move ? "Move to " : "Copy to ") + targetName;
             e.DragUIOverride.IsGlyphVisible = true;
         }
         finally
@@ -194,16 +206,63 @@ public sealed partial class PaneView : UserControl
                 return;
             }
 
+            var container = FindDirectoryContainerUnderPoint(e.GetPosition(ItemsList));
+            var targetFolder = container is { Content: FileSystemItem dir } ? dir.FullPath : ViewModel.CurrentPath;
+
+            if (!FileOperationService.IsValidDropTarget(sourcePaths, targetFolder))
+            {
+                return;
+            }
+
             bool forceMove = IsAltPressed();
-            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], ViewModel.CurrentPath);
+            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], targetFolder);
             var op = forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
 
-            FileOperationQueueService.Current?.Enqueue(sourcePaths, ViewModel.CurrentPath, op);
+            FileOperationQueueService.Current?.Enqueue(sourcePaths, targetFolder, op);
         }
         finally
         {
+            SetDropHighlight(null);
             deferral.Complete();
         }
+    }
+
+    private void ItemsList_DragLeave(object sender, DragEventArgs e) => SetDropHighlight(null);
+
+    /// The directory row's container under this point, or null when hovering a file or empty space.
+    private ListViewItem? FindDirectoryContainerUnderPoint(Windows.Foundation.Point pointOnItemsList)
+    {
+        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(pointOnItemsList, ItemsList))
+        {
+            if (element is ListViewItem { Content: FileSystemItem { IsDirectory: true } } container)
+            {
+                return container;
+            }
+        }
+
+        return null;
+    }
+
+    private ListViewItem? _dropHighlightContainer;
+
+    private void SetDropHighlight(ListViewItem? container)
+    {
+        if (ReferenceEquals(_dropHighlightContainer, container))
+        {
+            return;
+        }
+
+        if (_dropHighlightContainer is not null)
+        {
+            _dropHighlightContainer.Background = null;
+        }
+
+        if (container is not null)
+        {
+            container.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(70, 0, 120, 215));
+        }
+
+        _dropHighlightContainer = container;
     }
 
     private static bool IsAltPressed()
