@@ -138,20 +138,99 @@ public sealed partial class PaneView : UserControl
 
     private FileSystemItem? _renamingItem;
 
-    private void ItemsList_KeyDown(object sender, KeyRoutedEventArgs e)
+    private async void ItemsList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != VirtualKey.F2 || ViewModel is null)
+        if (ViewModel is null)
         {
             return;
         }
 
-        if (ItemsList.SelectedItems.Count != 1 || ViewModel.SelectedItem is not { } item)
+        if (e.Key == VirtualKey.F2)
+        {
+            if (ItemsList.SelectedItems.Count != 1 || ViewModel.SelectedItem is not { } item)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            BeginRename(item);
+        }
+        else if (e.Key == VirtualKey.F3)
+        {
+            if (ItemsList.SelectedItems.Count == 0)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await MoveSelectionToNewFolderAsync();
+        }
+    }
+
+    private async Task MoveSelectionToNewFolderAsync()
+    {
+        if (ViewModel is null)
         {
             return;
         }
 
-        e.Handled = true;
-        BeginRename(item);
+        var items = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        const string defaultName = "New folder";
+        var nameBox = new TextBox { Text = defaultName, SelectionStart = 0, SelectionLength = defaultName.Length };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Move to folder",
+            PrimaryButtonText = "Move",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"Move {items.Count} item{(items.Count == 1 ? "" : "s")} into a new folder in {ViewModel.CurrentPath}:",
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    nameBox,
+                },
+            },
+        };
+
+        dialog.Opened += (_, _) => nameBox.Focus(FocusState.Programmatic);
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var name = nameBox.Text.Trim();
+        if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return;
+        }
+
+        var destination = FileOperationService.MakeUniqueDestination(Path.Combine(ViewModel.CurrentPath, name));
+
+        try
+        {
+            Directory.CreateDirectory(destination);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var sourcePaths = items.Select(i => i.FullPath).ToList();
+        FileOperationQueueService.Current?.Enqueue(sourcePaths, destination, FileDropOperation.Move);
     }
 
     private void BeginRename(FileSystemItem item)
