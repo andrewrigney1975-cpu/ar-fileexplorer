@@ -1,0 +1,48 @@
+<UserControl
+    x:Class="FileExplorer.Views.TerminalPane"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{ThemeResource LayerFillColorDefaultBrush}"
+          BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Padding="10,6" ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Terminal — PowerShell" FontWeight="SemiBold" FontSize="12"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" x:Name="GoToActiveFolderButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                    Click="GoToActiveFolderButton_Click" ToolTipService.ToolTip="Set location to active pane's folder">
+                <FontIcon Glyph="&#xE8DD;" FontSize="14" />
+            </Button>
+            <Button Grid.Column="2" x:Name="ClearButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                    Click="ClearButton_Click" ToolTipService.ToolTip="Clear">
+                <FontIcon Glyph="&#xE74D;" FontSize="14" />
+            </Button>
+        </Grid>
+
+        <ScrollViewer x:Name="OutputScroller" Grid.Row="1" Padding="10,0,10,4" VerticalScrollBarVisibility="Auto">
+            <TextBlock x:Name="OutputText" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                       TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Padding="10,6" ColumnSpacing="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="PS&gt;" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                       VerticalAlignment="Center" Opacity="0.8" />
+            <TextBox Grid.Column="1" x:Name="InputBox" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                      PlaceholderText="Type a command and press Enter" KeyDown="InputBox_KeyDown" />
+        </Grid>
+    </Grid>
+</UserControl>
