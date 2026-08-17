@@ -6,6 +6,7 @@ public enum FileDropOperation
     Copy,
 }
 
+/// Shared path helpers used by the file operation queue.
 public static class FileOperationService
 {
     /// True when two paths share the same drive/volume root.
@@ -16,59 +17,8 @@ public static class FileOperationService
         return string.Equals(rootA, rootB, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static async Task ExecuteAsync(IReadOnlyList<string> sourcePaths, string targetFolder, FileDropOperation operation)
-    {
-        await Task.Run(() =>
-        {
-            foreach (var source in sourcePaths)
-            {
-                try
-                {
-                    var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
-                    var destination = Path.Combine(targetFolder, name);
-
-                    if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue; // dropped onto its own folder
-                    }
-
-                    destination = MakeUniqueIfNeeded(destination);
-
-                    if (Directory.Exists(source))
-                    {
-                        if (operation == FileDropOperation.Copy)
-                        {
-                            CopyDirectory(source, destination);
-                        }
-                        else
-                        {
-                            Directory.Move(source, destination);
-                        }
-                    }
-                    else if (File.Exists(source))
-                    {
-                        if (operation == FileDropOperation.Copy)
-                        {
-                            File.Copy(source, destination, overwrite: false);
-                        }
-                        else
-                        {
-                            File.Move(source, destination);
-                        }
-                    }
-                }
-                catch (IOException)
-                {
-                    // Best-effort: skip items that fail (locked file, permissions, etc.) and continue with the rest.
-                }
-                catch (UnauthorizedAccessException)
-                {
-                }
-            }
-        });
-    }
-
-    private static string MakeUniqueIfNeeded(string destination)
+    /// Appends " (2)", " (3)", ... to avoid overwriting an existing file or folder at the destination.
+    public static string MakeUniqueDestination(string destination)
     {
         if (!File.Exists(destination) && !Directory.Exists(destination))
         {
@@ -86,23 +36,6 @@ public static class FileOperationService
             {
                 return candidate;
             }
-        }
-    }
-
-    private static void CopyDirectory(string sourceDir, string destinationDir)
-    {
-        Directory.CreateDirectory(destinationDir);
-
-        foreach (var file in Directory.EnumerateFiles(sourceDir))
-        {
-            var dest = Path.Combine(destinationDir, Path.GetFileName(file));
-            File.Copy(file, dest, overwrite: false);
-        }
-
-        foreach (var subDir in Directory.EnumerateDirectories(sourceDir))
-        {
-            var dest = Path.Combine(destinationDir, Path.GetFileName(subDir));
-            CopyDirectory(subDir, dest);
         }
     }
 }

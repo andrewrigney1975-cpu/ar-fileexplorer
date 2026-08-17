@@ -20,7 +20,6 @@ public sealed partial class PaneView : UserControl
         nameof(ViewModel), typeof(PaneViewModel), typeof(PaneView), new PropertyMetadata(null, OnViewModelChanged));
 
     public event EventHandler? Activated;
-    public event EventHandler? FilesDropped;
 
     public PaneView()
     {
@@ -199,8 +198,7 @@ public sealed partial class PaneView : UserControl
             bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], ViewModel.CurrentPath);
             var op = forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
 
-            await FileOperationService.ExecuteAsync(sourcePaths, ViewModel.CurrentPath, op);
-            FilesDropped?.Invoke(this, EventArgs.Empty);
+            FileOperationQueueService.Current?.Enqueue(sourcePaths, ViewModel.CurrentPath, op);
         }
         finally
         {

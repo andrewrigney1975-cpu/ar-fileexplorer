@@ -1,3 +1,4 @@
+using FileExplorer.Helpers;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
@@ -5,6 +6,7 @@ using FileExplorer.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Shapes;
 
 namespace FileExplorer;
 
@@ -24,6 +26,23 @@ public sealed partial class MainWindow : Window
 
         PopulateDriveTree();
         UpdatePreview();
+
+        _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
+        _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
+
+        _operationQueue = new FileOperationQueueService(DispatcherQueue);
+        _operationQueue.JobCompleted += (_, _) => _viewModel.RefreshAllPanes();
+        OperationsList.ItemsSource = _operationQueue.Jobs;
+    }
+
+    private readonly FileOperationQueueService _operationQueue;
+
+    private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Rectangle splitter && splitter.Parent is Grid grid && grid.ColumnDefinitions.Count >= 3)
+        {
+            _ = new ColumnSplitterController(splitter, grid.ColumnDefinitions[0], invert: false, min: 200, max: 4000);
+        }
     }
 
     private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -124,8 +143,6 @@ public sealed partial class MainWindow : Window
 
         pane.Activated -= PaneView_Activated;
         pane.Activated += PaneView_Activated;
-        pane.FilesDropped -= PaneView_FilesDropped;
-        pane.FilesDropped += PaneView_FilesDropped;
     }
 
     private void PaneView_Activated(object? sender, EventArgs e)
@@ -137,11 +154,6 @@ public sealed partial class MainWindow : Window
 
         tab.ActivePane = pane.ViewModel;
         Preview.ViewModel = pane.ViewModel;
-    }
-
-    private void PaneView_FilesDropped(object? sender, EventArgs e)
-    {
-        _viewModel.RefreshAllPanes();
     }
 
     // ----- View mode toolbar -----
@@ -170,6 +182,14 @@ public sealed partial class MainWindow : Window
     {
         var show = (sender as ToggleButton)?.IsChecked == true;
         TerminalRow.Height = show ? new GridLength(260) : new GridLength(0);
+    }
+
+    private void CancelJob_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: FileOperationJob job })
+        {
+            _operationQueue.Cancel(job);
+        }
     }
 
     private void Terminal_GoToActiveFolderRequested(object? sender, EventArgs e)
