@@ -19,6 +19,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
 
         Title = "File Explorer";
+        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _viewModel = new MainViewModel(DispatcherQueue);
         RootGrid.DataContext = _viewModel;
 
