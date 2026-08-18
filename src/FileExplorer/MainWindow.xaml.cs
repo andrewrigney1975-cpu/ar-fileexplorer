@@ -39,8 +39,6 @@ public sealed partial class MainWindow : Window
     }
 
     private readonly FileOperationQueueService _operationQueue;
-    private List<string>? _clipboardPaths;
-    private bool _clipboardIsCut;
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
     {
@@ -218,29 +216,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _clipboardPaths = items.Select(i => i.FullPath).ToList();
-        _clipboardIsCut = isCut;
+        FileClipboardService.Instance.Set(items.Select(i => i.FullPath).ToList(), isCut);
     }
 
     private void PasteButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_clipboardPaths is not { Count: > 0 } || _viewModel.SelectedTab is not { } tab)
+        if (_viewModel.SelectedTab is { } tab)
         {
-            return;
-        }
-
-        var destination = tab.ActivePane.CurrentPath;
-        if (!FileOperationService.IsValidDropTarget(_clipboardPaths, destination))
-        {
-            return;
-        }
-
-        var op = _clipboardIsCut ? FileDropOperation.Move : FileDropOperation.Copy;
-        _operationQueue.Enqueue(_clipboardPaths, destination, op);
-
-        if (_clipboardIsCut)
-        {
-            _clipboardPaths = null; // cut is a one-shot move
+            FileClipboardService.Instance.PasteInto(tab.ActivePane.CurrentPath);
         }
     }
 

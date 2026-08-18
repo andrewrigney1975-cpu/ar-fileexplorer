@@ -5,6 +5,7 @@ using FileExplorer.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
@@ -114,14 +115,17 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (ViewModel?.SelectedItem is not { } item)
+        if (ViewModel?.SelectedItem is { } item)
         {
-            return;
+            OpenItem(item);
         }
+    }
 
+    private void OpenItem(FileSystemItem item)
+    {
         if (item.IsDirectory)
         {
-            ViewModel.NavigateTo(item.FullPath);
+            ViewModel?.NavigateTo(item.FullPath);
         }
         else
         {
@@ -555,6 +559,121 @@ public sealed partial class PaneView : UserControl
         }
 
         _dropHighlightContainer = container;
+    }
+
+    private FileSystemItem? FindItemUnderPoint(Windows.Foundation.Point pointOnItemsList)
+    {
+        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(pointOnItemsList, ItemsList))
+        {
+            if (element is ListViewItem { Content: FileSystemItem item })
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    private void ItemsList_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var point = e.GetPosition(ItemsList);
+        var tapped = FindItemUnderPoint(point);
+
+        if (tapped is not null && !ItemsList.SelectedItems.Contains(tapped))
+        {
+            ItemsList.SelectedItem = tapped;
+        }
+
+        var selection = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+        var menu = tapped is not null ? BuildItemContextMenu(selection) : BuildEmptySpaceContextMenu();
+
+        menu.ShowAt(ItemsList, new FlyoutShowOptions { Position = point });
+        e.Handled = true;
+    }
+
+    private MenuFlyout BuildItemContextMenu(IReadOnlyList<FileSystemItem> selection)
+    {
+        var menu = new MenuFlyout();
+
+        if (selection.Count == 1)
+        {
+            var single = selection[0];
+            menu.Items.Add(NewMenuItem("Open", "", () => OpenItem(single)));
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
+
+        menu.Items.Add(NewMenuItem("Cut", "", () => SetClipboardFromSelection(selection, isCut: true)));
+        menu.Items.Add(NewMenuItem("Copy", "", () => SetClipboardFromSelection(selection, isCut: false)));
+
+        if (selection.Count == 1)
+        {
+            menu.Items.Add(NewMenuItem("Rename", "", () => BeginRename(selection[0])));
+        }
+
+        menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
+
+        return menu;
+    }
+
+    private MenuFlyout BuildEmptySpaceContextMenu()
+    {
+        var menu = new MenuFlyout();
+        var paste = NewMenuItem("Paste", "", () => FileClipboardService.Instance.PasteInto(ViewModel!.CurrentPath));
+        paste.IsEnabled = FileClipboardService.Instance.HasContent;
+        menu.Items.Add(paste);
+        menu.Items.Add(NewMenuItem("New folder", "", CreateNewFolderHere));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
+        return menu;
+    }
+
+    private void CreateNewFolderHere()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var basePath = ViewModel.CurrentPath;
+        var candidate = Path.Combine(basePath, "New folder");
+
+        for (int i = 2; Directory.Exists(candidate) || File.Exists(candidate); i++)
+        {
+            candidate = Path.Combine(basePath, $"New folder ({i})");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(candidate);
+            UndoService.Instance.Push(new CreateFolderUndo(candidate));
+            ViewModel.Refresh(candidate);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static void SetClipboardFromSelection(IReadOnlyList<FileSystemItem> selection, bool isCut)
+    {
+        if (selection.Count == 0)
+        {
+            return;
+        }
+
+        FileClipboardService.Instance.Set(selection.Select(i => i.FullPath).ToList(), isCut);
+    }
+
+    private static MenuFlyoutItem NewMenuItem(string text, string glyph, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text, Icon = new FontIcon { Glyph = glyph } };
+        item.Click += (_, _) => action();
+        return item;
     }
 
     private static bool IsAltPressed()
