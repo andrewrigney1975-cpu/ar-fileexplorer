@@ -74,13 +74,47 @@ public sealed partial class MainWindow : Window
         foreach (var drive in FileSystemService.GetReadyDrives())
         {
             var label = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+
+            double? usedPercent = null;
+            string? usageText = null;
+            try
+            {
+                var used = drive.TotalSize - drive.TotalFreeSpace;
+                usedPercent = drive.TotalSize > 0 ? used * 100.0 / drive.TotalSize : 0;
+                usageText = $"{FormatBytes(used)} of {FormatBytes(drive.TotalSize)} used ({usedPercent:F0}%)";
+            }
+            catch (IOException)
+            {
+                // usage unavailable (e.g. some removable media) - bar stays hidden
+            }
+
             var node = new TreeViewNode
             {
-                Content = new FolderNode { Name = label, FullPath = drive.RootDirectory.FullName, IsDrive = true },
+                Content = new FolderNode
+                {
+                    Name = label,
+                    FullPath = drive.RootDirectory.FullName,
+                    IsDrive = true,
+                    UsedPercent = usedPercent,
+                    UsageText = usageText,
+                },
                 HasUnrealizedChildren = FileSystemService.HasSubdirectories(drive.RootDirectory.FullName),
             };
             DriveTree.RootNodes.Add(node);
         }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+        return $"{size:F1} {units[unit]}";
     }
 
     private void DriveTree_Expanding(TreeView sender, TreeViewExpandingEventArgs args)

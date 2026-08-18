@@ -15,6 +15,7 @@
         <Grid.Resources>
             <conv:ViewModeToBoolConverter x:Key="ViewModeToBool" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+            <conv:NullToVisibilityConverter x:Key="NullToVis" />
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -183,10 +184,19 @@
                           Expanding="DriveTree_Expanding">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="{Binding Content.Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
-                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                <TextBlock Text="{Binding Content.Name}" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Orientation="Vertical" Spacing="2" Padding="0,2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="{Binding Content.Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="{Binding Content.Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <StackPanel Orientation="Vertical" Spacing="1" Margin="20,0,4,0"
+                                            Visibility="{Binding Content.UsedPercent, Converter={StaticResource NullToVis}}">
+                                    <ProgressBar Value="{Binding Content.UsedPercent}" Minimum="0" Maximum="100"
+                                                 Height="4" />
+                                    <TextBlock Text="{Binding Content.UsageText}" FontSize="10"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
                             </StackPanel>
                         </DataTemplate>
                     </TreeView.ItemTemplate>
