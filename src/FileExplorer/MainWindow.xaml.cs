@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
 
         PopulateDriveTree();
         PopulateSavedSearches();
+        PopulateNetworkLocations();
         UpdatePreview();
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
@@ -95,6 +96,7 @@ public sealed partial class MainWindow : Window
                     Name = label,
                     FullPath = drive.RootDirectory.FullName,
                     IsDrive = true,
+                    IsNetwork = drive.DriveType == DriveType.Network,
                     UsedPercent = usedPercent,
                     UsageText = usageText,
                 },
@@ -223,6 +225,66 @@ public sealed partial class MainWindow : Window
         {
             SavedSearchService.Remove(search);
             PopulateSavedSearches();
+        }
+    }
+
+    // ----- Network locations (left rail) -----
+
+    private void PopulateNetworkLocations()
+    {
+        NetworkLocationsList.ItemsSource = NetworkLocationService.Load();
+    }
+
+    private async void AddNetworkLocationButton_Click(object sender, RoutedEventArgs e)
+    {
+        var pathBox = new TextBox { PlaceholderText = @"\\server\share" };
+        var nameBox = new TextBox { PlaceholderText = "Display name (optional)" };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(pathBox);
+        panel.Children.Add(nameBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Add Network Location",
+            Content = panel,
+            PrimaryButtonText = "Add",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var path = pathBox.Text.Trim();
+        if (!path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(nameBox.Text) ? path : nameBox.Text.Trim();
+        NetworkLocationService.Add(new NetworkLocation(name, path));
+        PopulateNetworkLocations();
+    }
+
+    private void NetworkLocationsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not NetworkLocation location || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        tab.ActivePane.NavigateTo(location.UncPath);
+    }
+
+    private void RemoveNetworkLocationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: NetworkLocation location })
+        {
+            NetworkLocationService.Remove(location);
+            PopulateNetworkLocations();
         }
     }
 
