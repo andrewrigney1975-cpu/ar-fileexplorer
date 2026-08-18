@@ -66,6 +66,7 @@ public static class FileSystemService
                     FullPath = info.FullName,
                     IsDirectory = true,
                     Modified = info.LastWriteTimeUtc,
+                    TagColor = TagService.GetColor(info.FullName),
                 });
             }
         }
@@ -89,6 +90,7 @@ public static class FileSystemService
                     SizeBytes = info.Length,
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
+                    TagColor = TagService.GetColor(info.FullName),
                 });
             }
         }

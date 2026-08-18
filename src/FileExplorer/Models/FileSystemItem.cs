@@ -9,6 +9,7 @@ public sealed class FileSystemItem : ObservableObject
 {
     private BitmapImage? _thumbnail;
     private bool _thumbnailRequested;
+    private string? _tagColor;
 
     public required string Name { get; init; }
     public required string FullPath { get; init; }
@@ -16,6 +17,13 @@ public sealed class FileSystemItem : ObservableObject
     public long SizeBytes { get; init; }
     public DateTimeOffset Modified { get; init; }
     public string Extension { get; init; } = string.Empty;
+
+    /// Color-label name (e.g. "Red"), or null when untagged. Set by FileSystemService on load.
+    public string? TagColor
+    {
+        get => _tagColor;
+        set => SetProperty(ref _tagColor, value);
+    }
 
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
 

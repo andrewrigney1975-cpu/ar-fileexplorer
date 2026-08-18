@@ -10,6 +10,7 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:ActivePaneHighlightConverter x:Key="ActiveBrush" />
         <conv:NullToVisibilityConverter x:Key="NullToVis" />
+        <conv:TagColorToBrushConverter x:Key="TagBrush" />
 
         <DataTemplate x:Key="IconsTemplate" x:DataType="models:FileSystemItem">
             <StackPanel Width="96" Margin="6" Spacing="4" HorizontalAlignment="Center">
@@ -19,6 +20,10 @@
                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                     <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"
                            Visibility="{x:Bind Thumbnail, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                    <Ellipse Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                             Fill="{x:Bind TagColor, Converter={StaticResource TagBrush}}"
+                             Visibility="{x:Bind TagColor, Converter={StaticResource NullToVis}}"
+                             Stroke="{ThemeResource SolidBackgroundFillColorBaseBrush}" StrokeThickness="1" />
                 </Grid>
                 <TextBlock Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="Wrap"
                            MaxLines="2" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -29,6 +34,9 @@
             <StackPanel Orientation="Horizontal" Spacing="8" Padding="4,6" VerticalAlignment="Center">
                 <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" FontFamily="Segoe Fluent Icons"
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                         Fill="{x:Bind TagColor, Converter={StaticResource TagBrush}}"
+                         Visibility="{x:Bind TagColor, Converter={StaticResource NullToVis}}" />
                 <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
@@ -44,6 +52,9 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" Grid.Column="0">
                     <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" FontFamily="Segoe Fluent Icons"
                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                             Fill="{x:Bind TagColor, Converter={StaticResource TagBrush}}"
+                             Visibility="{x:Bind TagColor, Converter={StaticResource NullToVis}}" />
                     <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{x:Bind ModifiedDisplay}" VerticalAlignment="Center"
