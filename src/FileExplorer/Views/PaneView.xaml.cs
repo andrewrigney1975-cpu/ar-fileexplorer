@@ -247,13 +247,17 @@ public sealed partial class PaneView : UserControl
 
         if (e.Key == VirtualKey.F2)
         {
-            if (ItemsList.SelectedItems.Count != 1 || ViewModel.SelectedItem is not { } item)
+            var selected = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+            if (selected.Count == 1)
             {
-                return;
+                e.Handled = true;
+                BeginRename(selected[0]);
             }
-
-            e.Handled = true;
-            BeginRename(item);
+            else if (selected.Count > 1)
+            {
+                e.Handled = true;
+                await BatchRenameAsync(selected);
+            }
         }
         else if (e.Key == VirtualKey.F3)
         {
@@ -426,6 +430,108 @@ public sealed partial class PaneView : UserControl
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
         }
+    }
+
+    private async Task BatchRenameAsync(IReadOnlyList<FileSystemItem> selection)
+    {
+        if (selection.Count < 2 || ViewModel is null)
+        {
+            return;
+        }
+
+        var patternBox = new TextBox { Text = "{name}", PlaceholderText = "e.g. Vacation {n:000}" };
+        var previewText = new TextBlock { FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
+
+        void UpdatePreview()
+        {
+            var lines = selection.Take(4).Select((item, i) => $"{item.Name}  ->  {ApplyPattern(patternBox.Text, item, i)}{item.Extension}");
+            var extra = selection.Count > 4 ? $"\n... and {selection.Count - 4} more" : "";
+            previewText.Text = string.Join("\n", lines) + extra;
+        }
+
+        patternBox.TextChanged += (_, _) => UpdatePreview();
+        UpdatePreview();
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"Rename {selection.Count} items",
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "{name} is the original name; {n} or {n:000} is a sequence number.",
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 12,
+                        Opacity = 0.8,
+                    },
+                    patternBox,
+                    previewText,
+                },
+            },
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var pattern = patternBox.Text;
+        var renamed = new List<(string Source, string Destination)>();
+
+        for (int i = 0; i < selection.Count; i++)
+        {
+            var item = selection[i];
+            var newName = ApplyPattern(pattern, item, i) + item.Extension;
+            var newPath = Path.Combine(Path.GetDirectoryName(item.FullPath)!, newName);
+
+            if (string.Equals(newPath, item.FullPath, StringComparison.OrdinalIgnoreCase) ||
+                File.Exists(newPath) || Directory.Exists(newPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (item.IsDirectory)
+                {
+                    Directory.Move(item.FullPath, newPath);
+                }
+                else
+                {
+                    File.Move(item.FullPath, newPath);
+                }
+
+                renamed.Add((item.FullPath, newPath));
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        if (renamed.Count > 0)
+        {
+            UndoService.Instance.Push(new MoveUndo(renamed));
+        }
+
+        ViewModel.Refresh();
+    }
+
+    private static string ApplyPattern(string pattern, FileSystemItem item, int index)
+    {
+        var nameNoExt = item.IsDirectory ? item.Name : Path.GetFileNameWithoutExtension(item.Name);
+        var result = pattern.Replace("{name}", nameNoExt);
+
+        return System.Text.RegularExpressions.Regex.Replace(result, @"\{n(:([0#]+))?\}", m =>
+        {
+            var number = index + 1;
+            return m.Groups[2].Success ? number.ToString(m.Groups[2].Value) : number.ToString();
+        });
     }
 
     private async Task MoveSelectionToNewFolderAsync()
@@ -778,6 +884,10 @@ public sealed partial class PaneView : UserControl
         if (selection.Count == 1)
         {
             menu.Items.Add(NewMenuItem("Rename", "", () => BeginRename(selection[0])));
+        }
+        else if (selection.Count > 1)
+        {
+            menu.Items.Add(NewMenuItem("Rename...", "", async () => await BatchRenameAsync(selection)));
         }
 
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
