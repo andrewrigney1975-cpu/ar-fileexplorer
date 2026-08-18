@@ -93,6 +93,7 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="140" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <Button Grid.Column="0" Style="{StaticResource ToolbarIconButtonStyle}"
@@ -125,7 +126,13 @@
                      PlaceholderText="Search this folder" VerticalAlignment="Center"
                      KeyDown="SearchBox_KeyDown" />
 
-            <Button Grid.Column="5" Style="{StaticResource ToolbarIconButtonStyle}"
+            <ToggleButton Grid.Column="5" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                          IsChecked="{Binding IsRecursiveSearch, Mode=TwoWay}"
+                          ToolTipService.ToolTip="Search subfolders and file contents">
+                <FontIcon Glyph="&#xE773;" FontSize="14" />
+            </ToggleButton>
+
+            <Button Grid.Column="6" Style="{StaticResource ToolbarIconButtonStyle}"
                     Command="{Binding RefreshCommand}" ToolTipService.ToolTip="Refresh">
                 <FontIcon Glyph="&#xE72C;" FontSize="14" />
             </Button>
