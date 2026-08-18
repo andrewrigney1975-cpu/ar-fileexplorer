@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
         PopulateDriveTree();
         PopulateSavedSearches();
         PopulateNetworkLocations();
+        PopulateCloudLocations();
         UpdatePreview();
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
@@ -286,6 +287,23 @@ public sealed partial class MainWindow : Window
             NetworkLocationService.Remove(location);
             PopulateNetworkLocations();
         }
+    }
+
+    // ----- Cloud storage locations (left rail) -----
+
+    private void PopulateCloudLocations()
+    {
+        CloudLocationsList.ItemsSource = CloudProviderService.DetectLocations();
+    }
+
+    private void CloudLocationsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not CloudLocation location || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        tab.ActivePane.NavigateTo(location.Path);
     }
 
     // ----- Tabs -----

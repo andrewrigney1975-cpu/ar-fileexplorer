@@ -181,7 +181,10 @@
                     <RowDefinition Height="2*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
+                    <RowDefinition Height="120" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="120" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -283,6 +286,23 @@
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
                             </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Rectangle Grid.Row="8" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <TextBlock Grid.Row="9" Text="Cloud Storage" FontWeight="SemiBold" Margin="12,4,8,4" />
+
+                <ListView Grid.Row="10" x:Name="CloudLocationsList" Margin="4,0,4,4"
+                          SelectionMode="None" ItemClick="CloudLocationsList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="{Binding Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
