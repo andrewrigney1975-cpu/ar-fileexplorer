@@ -330,7 +330,98 @@ public sealed partial class MainWindow : Window
             new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
         };
 
+        if (pane is not null)
+        {
+            commands.Add(new PaletteCommand(
+                "Find Duplicate Files...",
+                $"Scan {pane.CurrentPath} and its subfolders",
+                () => _ = ShowDuplicateFinderAsync(pane.CurrentPath)));
+        }
+
         return commands;
+    }
+
+    private async Task ShowDuplicateFinderAsync(string rootPath)
+    {
+        var statusText = new TextBlock { Text = $"Scanning {rootPath} ...", TextWrapping = TextWrapping.Wrap };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Duplicate Files",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            Content = statusText,
+        };
+
+        var showTask = dialog.ShowAsync().AsTask();
+
+        List<List<string>> groups;
+        try
+        {
+            groups = await DuplicateFinderService.FindDuplicatesAsync(rootPath, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            groups = new List<List<string>>();
+        }
+
+        if (groups.Count == 0)
+        {
+            statusText.Text = "No duplicate files found.";
+            await showTask;
+            return;
+        }
+
+        var totalRedundant = groups.Sum(g => g.Count - 1);
+        var summary = new TextBlock
+        {
+            Text = $"{groups.Count} duplicate group(s), {totalRedundant} redundant file(s). " +
+                   "Delete Selected removes every copy except the first (marked [KEEP]) in each group, to the Recycle Bin.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Opacity = 0.8,
+        };
+
+        var lines = groups.SelectMany((group, gi) =>
+            new[] { $"Group {gi + 1} ({group.Count} copies):" }
+                .Concat(group.Select((f, i) => (i == 0 ? "  [KEEP] " : "  [DUP]  ") + f)));
+
+        var listBox = new TextBox
+        {
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+            FontSize = 11,
+            Height = 320,
+            Text = string.Join("\n", lines),
+        };
+
+        dialog.Content = new StackPanel { Spacing = 8, Children = { summary, listBox } };
+        dialog.PrimaryButtonText = "Delete Selected";
+
+        var result = await showTask;
+        if (result != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        foreach (var duplicate in groups.SelectMany(g => g.Skip(1)))
+        {
+            try
+            {
+                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                    duplicate,
+                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        _viewModel.RefreshAllPanes();
     }
 
     private async Task UndoAndRefreshAsync()
