@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
@@ -362,6 +363,71 @@ public sealed partial class PaneView : UserControl
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
+    private async Task CompressSelectionAsync(IReadOnlyList<FileSystemItem> selection)
+    {
+        if (selection.Count == 0 || ViewModel is null)
+        {
+            return;
+        }
+
+        var baseName = selection.Count == 1 ? Path.GetFileNameWithoutExtension(selection[0].Name) : "Archive";
+        var zipPath = FileOperationService.MakeUniqueDestination(Path.Combine(ViewModel.CurrentPath, baseName + ".zip"));
+
+        await Task.Run(() =>
+        {
+            try
+            {
+                using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+                foreach (var item in selection)
+                {
+                    if (item.IsDirectory)
+                    {
+                        AddDirectoryToZip(archive, item.FullPath, item.Name);
+                    }
+                    else
+                    {
+                        archive.CreateEntryFromFile(item.FullPath, item.Name, CompressionLevel.Optimal);
+                    }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        });
+
+        UndoService.Instance.Push(new CopyUndo(new List<string> { zipPath }));
+        ViewModel.Refresh(zipPath);
+    }
+
+    private static void AddDirectoryToZip(ZipArchive archive, string sourceDir, string entryPrefix)
+    {
+        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+            archive.CreateEntryFromFile(file, $"{entryPrefix}/{relative}", CompressionLevel.Optimal);
+        }
+    }
+
+    private async Task ExtractZipAsync(FileSystemItem item)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var destination = FileOperationService.MakeUniqueDestination(
+            Path.Combine(ViewModel.CurrentPath, Path.GetFileNameWithoutExtension(item.Name)));
+
+        try
+        {
+            await Task.Run(() => ZipFile.ExtractToDirectory(item.FullPath, destination));
+            UndoService.Instance.Push(new CopyUndo(new List<string> { destination }));
+            ViewModel.Refresh(destination);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+        }
+    }
+
     private async Task MoveSelectionToNewFolderAsync()
     {
         if (ViewModel is null)
@@ -715,6 +781,11 @@ public sealed partial class PaneView : UserControl
         }
 
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
+        menu.Items.Add(NewMenuItem("Compress to .zip", "", async () => await CompressSelectionAsync(selection)));
+        if (selection.Count == 1 && string.Equals(selection[0].Extension, ".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipAsync(selection[0])));
+        }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
 
