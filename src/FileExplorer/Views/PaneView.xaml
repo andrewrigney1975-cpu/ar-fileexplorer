@@ -95,8 +95,18 @@
                 <FontIcon Glyph="&#xE74A;" FontSize="14" />
             </Button>
 
-            <TextBox Grid.Column="3" x:Name="PathBox" Text="{Binding CurrentPath, Mode=OneWay}"
-                      VerticalAlignment="Center" KeyDown="PathBox_KeyDown" Margin="4,0" />
+            <Grid Grid.Column="3" Margin="4,0">
+                <Border x:Name="BreadcrumbHost" Background="{ThemeResource ControlFillColorDefaultBrush}"
+                        CornerRadius="4" Padding="8,0" MinHeight="32" Tapped="BreadcrumbHost_Tapped">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                  VerticalAlignment="Stretch" VerticalContentAlignment="Center">
+                        <StackPanel x:Name="BreadcrumbPanel" Orientation="Horizontal" Spacing="2"
+                                    VerticalAlignment="Center" />
+                    </ScrollViewer>
+                </Border>
+                <TextBox x:Name="PathBox" Text="{Binding CurrentPath, Mode=OneWay}" Visibility="Collapsed"
+                          VerticalAlignment="Center" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" />
+            </Grid>
 
             <Button Grid.Column="4" Style="{StaticResource ToolbarIconButtonStyle}"
                     Command="{Binding RefreshCommand}" ToolTipService.ToolTip="Refresh">
