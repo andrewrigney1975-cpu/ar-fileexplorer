@@ -162,6 +162,24 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ----- Collapsible left-rail sections -----
+
+    private static void ToggleSection(FontIcon chevron, UIElement content)
+    {
+        var expanded = content.Visibility == Visibility.Visible;
+        content.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+        chevron.Glyph = expanded ? "" : ""; // collapsed: chevron up, expanded: chevron down
+    }
+
+    private void SavedSearchesHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(SavedSearchesChevron, SavedSearchesList);
+
+    private void NetworkLocationsHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(NetworkLocationsChevron, NetworkLocationsList);
+
+    private void CloudLocationsHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(CloudLocationsChevron, CloudLocationsList);
+
     // ----- Saved searches (left rail) -----
 
     private void PopulateSavedSearches()
