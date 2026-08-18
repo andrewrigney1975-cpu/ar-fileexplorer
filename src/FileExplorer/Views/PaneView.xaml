@@ -80,6 +80,7 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="140" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -109,7 +110,11 @@
                           VerticalAlignment="Center" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" />
             </Grid>
 
-            <Button Grid.Column="4" Style="{StaticResource ToolbarIconButtonStyle}"
+            <TextBox Grid.Column="4" x:Name="SearchBox" Text="{Binding SearchText, Mode=TwoWay}"
+                     PlaceholderText="Search this folder" VerticalAlignment="Center"
+                     KeyDown="SearchBox_KeyDown" />
+
+            <Button Grid.Column="5" Style="{StaticResource ToolbarIconButtonStyle}"
                     Command="{Binding RefreshCommand}" ToolTipService.ToolTip="Refresh">
                 <FontIcon Glyph="&#xE72C;" FontSize="14" />
             </Button>

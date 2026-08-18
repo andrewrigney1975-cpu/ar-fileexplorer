@@ -11,12 +11,14 @@ public sealed class PaneViewModel : ObservableObject
     private readonly DispatcherQueue _dispatcher;
     private readonly List<string> _back = new();
     private readonly List<string> _forward = new();
+    private readonly List<FileSystemItem> _allItems = new();
 
     private string _currentPath;
     private ViewMode _viewMode = ViewMode.Details;
     private FileSystemItem? _selectedItem;
     private bool _isActive;
     private bool _isLoading;
+    private string _searchText = string.Empty;
 
     public PaneViewModel(DispatcherQueue dispatcher, string startPath)
     {
@@ -68,6 +70,19 @@ public sealed class PaneViewModel : ObservableObject
         set => SetProperty(ref _isLoading, value);
     }
 
+    /// Client-side filename filter applied to the already-loaded folder contents.
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
     public bool CanNavigateUp => Directory.GetParent(CurrentPath) is not null;
 
     public RelayCommand NavigateUpCommand { get; }
@@ -89,6 +104,7 @@ public sealed class PaneViewModel : ObservableObject
         }
 
         CurrentPath = path;
+        ClearSearchSilently();
         Load();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
@@ -110,6 +126,7 @@ public sealed class PaneViewModel : ObservableObject
         _back.RemoveAt(_back.Count - 1);
         _forward.Add(CurrentPath);
         CurrentPath = target;
+        ClearSearchSilently();
         Load();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
@@ -122,6 +139,7 @@ public sealed class PaneViewModel : ObservableObject
         _forward.RemoveAt(_forward.Count - 1);
         _back.Add(CurrentPath);
         CurrentPath = target;
+        ClearSearchSilently();
         Load();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
@@ -151,11 +169,9 @@ public sealed class PaneViewModel : ObservableObject
                     return; // navigated away while loading
                 }
 
-                Items.Clear();
-                foreach (var item in t.Result)
-                {
-                    Items.Add(item);
-                }
+                _allItems.Clear();
+                _allItems.AddRange(t.Result);
+                ApplyFilter();
                 IsLoading = false;
 
                 if (selectPathAfterLoad is not null)
@@ -164,5 +180,30 @@ public sealed class PaneViewModel : ObservableObject
                 }
             });
         }, TaskScheduler.Default);
+    }
+
+    private void ClearSearchSilently()
+    {
+        if (_searchText.Length > 0)
+        {
+            _searchText = string.Empty;
+            OnPropertyChanged(nameof(SearchText));
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        Items.Clear();
+
+        IEnumerable<FileSystemItem> source = _allItems;
+        if (!string.IsNullOrWhiteSpace(_searchText))
+        {
+            source = source.Where(i => i.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var item in source)
+        {
+            Items.Add(item);
+        }
     }
 }
