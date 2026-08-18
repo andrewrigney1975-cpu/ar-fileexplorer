@@ -13,7 +13,6 @@
 
     <Grid x:Name="RootGrid">
         <Grid.Resources>
-            <conv:ViewModeToBoolConverter x:Key="ViewModeToBool" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
         </Grid.Resources>
@@ -89,25 +88,21 @@
             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
                 <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Icons view"
-                              IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=Icons, Mode=OneWay}"
                               Click="IconsModeButton_Click" ToolTipService.ToolTip="Icons view">
                     <FontIcon Glyph="&#xE80A;" FontSize="16" />
                 </ToggleButton>
                 <ToggleButton x:Name="ListModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="List view"
-                              IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=List, Mode=OneWay}"
                               Click="ListModeButton_Click" ToolTipService.ToolTip="List view">
                     <FontIcon Glyph="&#xE71D;" FontSize="16" />
                 </ToggleButton>
                 <ToggleButton x:Name="DetailsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Details view"
-                              IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=Details, Mode=OneWay}"
                               Click="DetailsModeButton_Click" ToolTipService.ToolTip="Details view">
                     <FontIcon Glyph="&#xE71D;" FontSize="16" />
                 </ToggleButton>
                 <ToggleButton x:Name="GalleryModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Gallery view"
-                              IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=Gallery, Mode=OneWay}"
                               Click="GalleryModeButton_Click" ToolTipService.ToolTip="Gallery view">
                     <FontIcon Glyph="&#xE8B9;" FontSize="16" />
                 </ToggleButton>

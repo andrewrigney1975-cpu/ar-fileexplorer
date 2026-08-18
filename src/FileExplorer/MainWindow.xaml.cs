@@ -31,7 +31,7 @@ public sealed partial class MainWindow : Window
         PopulateSavedSearches();
         PopulateNetworkLocations();
         PopulateCloudLocations();
-        UpdatePreview();
+        SubscribeToActiveTab(_viewModel.SelectedTab);
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
@@ -59,8 +59,75 @@ public sealed partial class MainWindow : Window
     {
         if (e.PropertyName == nameof(MainViewModel.SelectedTab))
         {
-            UpdatePreview();
+            SubscribeToActiveTab(_viewModel.SelectedTab);
         }
+    }
+
+    // Toolbar view-mode buttons are plain ToggleButtons (not a mutually-exclusive RadioButtons
+    // group), so IsChecked is driven explicitly here instead of via data binding - clicking one
+    // ToggleButton sets a local IsChecked value that a one-way {Binding} on the others wouldn't
+    // reliably clear, leaving multiple buttons stuck showing "checked" at once.
+    private TabViewModel? _subscribedTab;
+    private PaneViewModel? _subscribedPane;
+
+    private void SubscribeToActiveTab(TabViewModel? tab)
+    {
+        if (_subscribedTab is not null)
+        {
+            _subscribedTab.PropertyChanged -= SubscribedTab_PropertyChanged;
+        }
+
+        _subscribedTab = tab;
+
+        if (_subscribedTab is not null)
+        {
+            _subscribedTab.PropertyChanged += SubscribedTab_PropertyChanged;
+        }
+
+        SubscribeToActivePane(tab?.ActivePane);
+    }
+
+    private void SubscribedTab_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TabViewModel.ActivePane))
+        {
+            SubscribeToActivePane(_subscribedTab?.ActivePane);
+        }
+    }
+
+    private void SubscribeToActivePane(PaneViewModel? pane)
+    {
+        if (_subscribedPane is not null)
+        {
+            _subscribedPane.PropertyChanged -= SubscribedPane_PropertyChanged;
+        }
+
+        _subscribedPane = pane;
+
+        if (_subscribedPane is not null)
+        {
+            _subscribedPane.PropertyChanged += SubscribedPane_PropertyChanged;
+        }
+
+        RefreshViewModeButtons();
+        UpdatePreview();
+    }
+
+    private void SubscribedPane_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PaneViewModel.ViewMode))
+        {
+            RefreshViewModeButtons();
+        }
+    }
+
+    private void RefreshViewModeButtons()
+    {
+        var mode = _subscribedPane?.ViewMode;
+        IconsModeButton.IsChecked = mode == ViewMode.Icons;
+        ListModeButton.IsChecked = mode == ViewMode.List;
+        DetailsModeButton.IsChecked = mode == ViewMode.Details;
+        GalleryModeButton.IsChecked = mode == ViewMode.Gallery;
     }
 
     private void UpdatePreview()

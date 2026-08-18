@@ -1,4 +1,3 @@
-using FileExplorer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 
@@ -32,27 +31,6 @@ public sealed partial class NullToVisibilityConverter : IValueConverter
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-}
-
-public sealed partial class ViewModeToBoolConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language)
-    {
-        if (value is ViewMode mode && parameter is string target && Enum.TryParse<ViewMode>(target, out var targetMode))
-        {
-            return mode == targetMode;
-        }
-        return false;
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language)
-    {
-        if (value is bool b && b && parameter is string target && Enum.TryParse<ViewMode>(target, out var targetMode))
-        {
-            return targetMode;
-        }
-        return DependencyProperty.UnsetValue;
-    }
 }
 
 public sealed partial class ActivePaneHighlightConverter : IValueConverter
