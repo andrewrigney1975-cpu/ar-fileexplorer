@@ -126,6 +126,14 @@ public sealed partial class PaneView : UserControl
 
     private void PathBox_LostFocus(object sender, RoutedEventArgs e) => ShowBreadcrumb();
 
+    private void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Escape && ViewModel is not null)
+        {
+            ViewModel.SearchText = string.Empty;
+        }
+    }
+
     private void ApplyViewMode(ViewMode mode)
     {
         switch (mode)
