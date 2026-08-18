@@ -10,6 +10,7 @@ public sealed class FileSystemItem : ObservableObject
     private BitmapImage? _thumbnail;
     private bool _thumbnailRequested;
     private string? _tagColor;
+    private string? _cloudBadge;
 
     public required string Name { get; init; }
     public required string FullPath { get; init; }
@@ -26,6 +27,14 @@ public sealed class FileSystemItem : ObservableObject
     }
 
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
+
+    /// Cloud placeholder glyph (online-only cloud icon or always-available checkmark), or null
+    /// outside a detected cloud sync folder. Set by FileSystemService on load.
+    public string? CloudBadge
+    {
+        get => _cloudBadge;
+        set => SetProperty(ref _cloudBadge, value);
+    }
 
     /// Decoded lazily the first time this item's Icons-view container is realized.
     public BitmapImage? Thumbnail

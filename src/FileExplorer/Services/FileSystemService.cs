@@ -68,6 +68,7 @@ public static class FileSystemService
                     IsDirectory = true,
                     Modified = info.LastWriteTimeUtc,
                     TagColor = TagService.GetColor(info.FullName),
+                    CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 });
             }
         }
@@ -92,6 +93,7 @@ public static class FileSystemService
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
                     TagColor = TagService.GetColor(info.FullName),
+                    CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 });
             }
         }
@@ -150,6 +152,7 @@ public static class FileSystemService
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
                     TagColor = TagService.GetColor(info.FullName),
+                    CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 }, nameMatched ? nameScore : ContentMatchScore));
 
                 if (candidates.Count >= MaxRecursiveSearchCandidates)
