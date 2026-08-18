@@ -105,6 +105,12 @@
                               Click="DetailsModeButton_Click" ToolTipService.ToolTip="Details view">
                     <FontIcon Glyph="&#xE71D;" FontSize="16" />
                 </ToggleButton>
+                <ToggleButton x:Name="GalleryModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                              AutomationProperties.Name="Gallery view"
+                              IsChecked="{Binding SelectedTab.ActivePane.ViewMode, Converter={StaticResource ViewModeToBool}, ConverterParameter=Gallery, Mode=OneWay}"
+                              Click="GalleryModeButton_Click" ToolTipService.ToolTip="Gallery view">
+                    <FontIcon Glyph="&#xE8B9;" FontSize="16" />
+                </ToggleButton>
                 <ToggleButton x:Name="PreviewToggleButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Toggle preview pane"
                               IsChecked="True" Click="PreviewToggleButton_Click" ToolTipService.ToolTip="Toggle preview pane">
