@@ -37,6 +37,8 @@ public sealed partial class MainWindow : Window
         OperationsList.ItemsSource = _operationQueue.Jobs;
 
         UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
+
+        Closed += (_, _) => _viewModel.SaveSession();
     }
 
     private readonly FileOperationQueueService _operationQueue;
@@ -126,6 +128,14 @@ public sealed partial class MainWindow : Window
     private void MainTabView_AddTabButtonClick(TabView sender, object args)
     {
         _viewModel.NewTabCommand.Execute(null);
+    }
+
+    private void DuplicateTabMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TabViewModel tab })
+        {
+            _viewModel.DuplicateTabCommand.Execute(tab);
+        }
     }
 
     private void MainTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -305,6 +315,7 @@ public sealed partial class MainWindow : Window
         var commands = new List<PaletteCommand>
         {
             new("New Tab", "Open a new tab", () => _viewModel.NewTabCommand.Execute(null)),
+            new("Duplicate Tab", "Open a copy of the current tab", () => { if (tab is not null) _viewModel.DuplicateTabCommand.Execute(tab); }),
             new("Close Tab", "Close the current tab", () => { if (tab is not null) _viewModel.CloseTabCommand.Execute(tab); }),
             new("Icons View", "Switch the active pane to icons", () => SetViewMode(ViewMode.Icons)),
             new("List View", "Switch the active pane to list", () => SetViewMode(ViewMode.List)),

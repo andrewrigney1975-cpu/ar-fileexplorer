@@ -9,9 +9,14 @@ public sealed class TabViewModel : ObservableObject
     private string _header = "New Tab";
 
     public TabViewModel(DispatcherQueue dispatcher, string startPath)
+        : this(dispatcher, startPath, startPath)
     {
-        LeftPane = new PaneViewModel(dispatcher, startPath);
-        RightPane = new PaneViewModel(dispatcher, startPath);
+    }
+
+    public TabViewModel(DispatcherQueue dispatcher, string leftPath, string rightPath)
+    {
+        LeftPane = new PaneViewModel(dispatcher, leftPath);
+        RightPane = new PaneViewModel(dispatcher, rightPath);
         _activePane = LeftPane;
 
         LeftPane.IsActive = true;

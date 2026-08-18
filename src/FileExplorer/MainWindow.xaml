@@ -207,6 +207,11 @@
                             <TabViewItem.IconSource>
                                 <FontIconSource Glyph="&#xE8B7;" />
                             </TabViewItem.IconSource>
+                            <TabViewItem.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Duplicate Tab" Click="DuplicateTabMenuItem_Click" />
+                                </MenuFlyout>
+                            </TabViewItem.ContextFlyout>
                             <TabViewItem.Content>
                                 <Grid Padding="6">
                                     <Grid.ColumnDefinitions>
