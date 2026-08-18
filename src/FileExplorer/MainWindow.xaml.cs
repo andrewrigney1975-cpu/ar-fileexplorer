@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "File Explorer";
+        Title = $"File Explorer (build {GetBuildNumber()})";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _viewModel = new MainViewModel(DispatcherQueue);
         RootGrid.DataContext = _viewModel;
@@ -46,6 +46,16 @@ public sealed partial class MainWindow : Window
     }
 
     private readonly FileOperationQueueService _operationQueue;
+
+    // Temporary: shown in the window title so a running instance's build can be confirmed at a
+    // glance during active bug-fixing. Remove once no longer needed.
+    private static string GetBuildNumber()
+    {
+        var attributes = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .Cast<System.Reflection.AssemblyMetadataAttribute>();
+        return attributes.FirstOrDefault(a => a.Key == "BuildNumber")?.Value ?? "dev";
+    }
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
     {

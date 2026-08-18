@@ -38,4 +38,27 @@
     </Content>
   </ItemGroup>
 
+  <!-- Auto-incrementing build counter, embedded as an assembly metadata attribute and shown in
+       the window title so a running instance's build can be identified at a glance. -->
+  <Target Name="SetBuildNumber" BeforeTargets="CoreGenerateAssemblyInfo">
+    <PropertyGroup>
+      <BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(BuildNumberFile)" Condition="Exists('$(BuildNumberFile)')">
+      <Output TaskParameter="Lines" ItemName="_BuildNumberLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <_CurrentBuildNumber>@(_BuildNumberLines)</_CurrentBuildNumber>
+      <_CurrentBuildNumber Condition="'$(_CurrentBuildNumber)' == ''">0</_CurrentBuildNumber>
+      <BuildNumber>$([MSBuild]::Add($(_CurrentBuildNumber), 1))</BuildNumber>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>BuildNumber</_Parameter1>
+        <_Parameter2>$(BuildNumber)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
 </Project>

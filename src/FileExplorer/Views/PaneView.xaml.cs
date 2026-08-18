@@ -942,18 +942,36 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_DragLeave(object sender, DragEventArgs e) => SetDropHighlight(null);
 
-    /// The directory row's container under this point, or null when hovering a file or empty space.
-    private ListViewItem? FindDirectoryContainerUnderPoint(Windows.Foundation.Point pointOnItemsList)
+    /// The realized ListViewItem container whose bounds contain this ItemsList-relative point, or
+    /// null if none (empty space, or a virtualized-out container). Avoids
+    /// VisualTreeHelper.FindElementsInHostCoordinates, which needs coordinates in the app's root
+    /// space (not ItemsList-relative) and was silently returning zero hits here.
+    private ListViewItem? FindContainerUnderPoint(Windows.Foundation.Point pointOnItemsList)
     {
-        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(pointOnItemsList, ItemsList))
+        foreach (var item in ItemsList.Items)
         {
-            if (element is ListViewItem { Content: FileSystemItem { IsDirectory: true } } container)
+            if (ItemsList.ContainerFromItem(item) is not ListViewItem container)
+            {
+                continue;
+            }
+
+            var bounds = container.TransformToVisual(ItemsList)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, container.ActualWidth, container.ActualHeight));
+
+            if (bounds.Contains(pointOnItemsList))
             {
                 return container;
             }
         }
 
         return null;
+    }
+
+    /// The directory row's container under this point, or null when hovering a file or empty space.
+    private ListViewItem? FindDirectoryContainerUnderPoint(Windows.Foundation.Point pointOnItemsList)
+    {
+        var container = FindContainerUnderPoint(pointOnItemsList);
+        return container?.Content is FileSystemItem { IsDirectory: true } ? container : null;
     }
 
     private ListViewItem? _dropHighlightContainer;
@@ -980,15 +998,7 @@ public sealed partial class PaneView : UserControl
 
     private FileSystemItem? FindItemUnderPoint(Windows.Foundation.Point pointOnItemsList)
     {
-        foreach (var element in VisualTreeHelper.FindElementsInHostCoordinates(pointOnItemsList, ItemsList))
-        {
-            if (element is ListViewItem { Content: FileSystemItem item })
-            {
-                return item;
-            }
-        }
-
-        return null;
+        return FindContainerUnderPoint(pointOnItemsList)?.Content as FileSystemItem;
     }
 
     private void ItemsList_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
