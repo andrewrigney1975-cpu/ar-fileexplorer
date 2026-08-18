@@ -3,6 +3,7 @@ using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
 using FileExplorer.Views;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -319,6 +320,52 @@ public sealed partial class MainWindow : Window
         {
             _viewModel.DuplicateTabCommand.Execute(tab);
         }
+    }
+
+    // Same custom drag marker PaneView uses to recognize its own item drags (kept as a
+    // duplicated literal rather than a cross-file constant for this one comparison).
+    private const string InternalDragFormat = "FileExplorer.InternalDrag";
+    private DispatcherQueueTimer? _dragToTabTimer;
+    private TabViewModel? _dragToTabPending;
+
+    private void TabViewItem_DragEnter(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Properties.ContainsKey(InternalDragFormat) || sender is not FrameworkElement { DataContext: TabViewModel tab })
+        {
+            return;
+        }
+
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
+
+        if (ReferenceEquals(tab, _viewModel.SelectedTab))
+        {
+            return;
+        }
+
+        _dragToTabPending = tab;
+
+        _dragToTabTimer ??= DispatcherQueue.CreateTimer();
+        _dragToTabTimer.Stop();
+        _dragToTabTimer.Interval = TimeSpan.FromMilliseconds(700);
+        _dragToTabTimer.IsRepeating = false;
+        _dragToTabTimer.Tick -= DragToTabTimer_Tick;
+        _dragToTabTimer.Tick += DragToTabTimer_Tick;
+        _dragToTabTimer.Start();
+    }
+
+    private void DragToTabTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Stop();
+        if (_dragToTabPending is { } pendingTab)
+        {
+            _viewModel.SelectedTab = pendingTab;
+        }
+    }
+
+    private void TabViewItem_DragLeave(object sender, DragEventArgs e)
+    {
+        _dragToTabPending = null;
+        _dragToTabTimer?.Stop();
     }
 
     private void MainTabView_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
