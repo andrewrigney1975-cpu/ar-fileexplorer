@@ -1,10 +1,15 @@
+using System.Runtime.InteropServices.WindowsRuntime;
 using FileExplorer.Helpers;
 using FileExplorer.Services;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace FileExplorer.Models;
 
 public sealed class FileSystemItem : ObservableObject
 {
+    private BitmapImage? _thumbnail;
+    private bool _thumbnailRequested;
+
     public required string Name { get; init; }
     public required string FullPath { get; init; }
     public required bool IsDirectory { get; init; }
@@ -13,6 +18,37 @@ public sealed class FileSystemItem : ObservableObject
     public string Extension { get; init; } = string.Empty;
 
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
+
+    /// Decoded lazily the first time this item's Icons-view container is realized.
+    public BitmapImage? Thumbnail
+    {
+        get => _thumbnail;
+        private set => SetProperty(ref _thumbnail, value);
+    }
+
+    public async Task EnsureThumbnailAsync()
+    {
+        if (_thumbnailRequested || IsDirectory || !IconHelper.IsPreviewableImage(Extension))
+        {
+            return;
+        }
+
+        _thumbnailRequested = true;
+
+        try
+        {
+            using var stream = File.OpenRead(FullPath);
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            var bitmap = new BitmapImage { DecodePixelWidth = 96 };
+            await bitmap.SetSourceAsync(memoryStream.AsRandomAccessStream());
+            Thumbnail = bitmap;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 
     public string Kind => IsDirectory
         ? "File folder"

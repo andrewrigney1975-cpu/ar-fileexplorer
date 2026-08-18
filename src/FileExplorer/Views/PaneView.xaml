@@ -8,12 +8,17 @@
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:ActivePaneHighlightConverter x:Key="ActiveBrush" />
+        <conv:NullToVisibilityConverter x:Key="NullToVis" />
 
         <DataTemplate x:Key="IconsTemplate" x:DataType="models:FileSystemItem">
             <StackPanel Width="96" Margin="6" Spacing="4" HorizontalAlignment="Center">
-                <FontIcon Glyph="{x:Bind Glyph}" FontSize="32" HorizontalAlignment="Center"
-                          FontFamily="Segoe Fluent Icons"
-                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <Grid Width="48" Height="48" HorizontalAlignment="Center" Loaded="ThumbnailHost_Loaded">
+                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="32" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              FontFamily="Segoe Fluent Icons"
+                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"
+                           Visibility="{x:Bind Thumbnail, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                </Grid>
                 <TextBlock Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="Wrap"
                            MaxLines="2" TextTrimming="CharacterEllipsis" FontSize="12" />
             </StackPanel>
