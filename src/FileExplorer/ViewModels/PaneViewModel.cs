@@ -21,6 +21,8 @@ public sealed class PaneViewModel : ObservableObject
     private string _searchText = string.Empty;
     private bool _isRecursiveSearch;
     private CancellationTokenSource? _searchCts;
+    private SortColumn? _sortColumn;
+    private bool _sortAscending = true;
 
     public PaneViewModel(DispatcherQueue dispatcher, string startPath)
     {
@@ -98,6 +100,36 @@ public sealed class PaneViewModel : ObservableObject
                 ApplyFilter();
             }
         }
+    }
+
+    /// Null until the user clicks a Details-view column header; once set, persists across
+    /// reloads/searches until another column is clicked.
+    public SortColumn? ActiveSortColumn
+    {
+        get => _sortColumn;
+        private set => SetProperty(ref _sortColumn, value);
+    }
+
+    public bool SortAscending
+    {
+        get => _sortAscending;
+        private set => SetProperty(ref _sortAscending, value);
+    }
+
+    /// Clicking the same column again flips direction; clicking a different column selects it, ascending.
+    public void ToggleSort(SortColumn column)
+    {
+        if (_sortColumn == column)
+        {
+            SortAscending = !_sortAscending;
+        }
+        else
+        {
+            ActiveSortColumn = column;
+            SortAscending = true;
+        }
+
+        ApplyFilter();
     }
 
     public bool CanNavigateUp => Directory.GetParent(CurrentPath) is not null;
@@ -228,6 +260,11 @@ public sealed class PaneViewModel : ObservableObject
             source = RankByFuzzyMatch(source, _searchText);
         }
 
+        if (_sortColumn is { } column)
+        {
+            source = ApplySort(source, column, _sortAscending);
+        }
+
         foreach (var item in source)
         {
             Items.Add(item);
@@ -245,6 +282,21 @@ public sealed class PaneViewModel : ObservableObject
             }
         }
         return scored.OrderByDescending(x => x.Score).Select(x => x.Item);
+    }
+
+    /// Folders always group before files (matching Explorer); within each group, sorts by the
+    /// chosen column and direction.
+    private static IEnumerable<FileSystemItem> ApplySort(IEnumerable<FileSystemItem> items, SortColumn column, bool ascending)
+    {
+        var byGroup = items.OrderBy(i => !i.IsDirectory);
+
+        return column switch
+        {
+            SortColumn.Modified => ascending ? byGroup.ThenBy(i => i.Modified) : byGroup.ThenByDescending(i => i.Modified),
+            SortColumn.Kind => ascending ? byGroup.ThenBy(i => i.Kind, StringComparer.OrdinalIgnoreCase) : byGroup.ThenByDescending(i => i.Kind, StringComparer.OrdinalIgnoreCase),
+            SortColumn.Size => ascending ? byGroup.ThenBy(i => i.SizeBytes) : byGroup.ThenByDescending(i => i.SizeBytes),
+            _ => ascending ? byGroup.ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase) : byGroup.ThenByDescending(i => i.Name, StringComparer.OrdinalIgnoreCase),
+        };
     }
 
     private async Task RunRecursiveSearchAsync(string root, string query, CancellationToken token)
@@ -266,8 +318,14 @@ public sealed class PaneViewModel : ObservableObject
             return;
         }
 
+        IEnumerable<FileSystemItem> ordered = results;
+        if (_sortColumn is { } column)
+        {
+            ordered = ApplySort(ordered, column, _sortAscending);
+        }
+
         Items.Clear();
-        foreach (var item in results)
+        foreach (var item in ordered)
         {
             Items.Add(item);
         }
