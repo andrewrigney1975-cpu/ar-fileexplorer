@@ -10,4 +10,8 @@ public sealed class FolderNode : ObservableObject
     public required string FullPath { get; init; }
     public bool IsDrive { get; init; }
     public string Glyph => IsDrive ? IconHelper.Drive : IconHelper.Folder;
+
+    /// 0-100 used-space percentage; null for non-drive nodes (hides the usage bar).
+    public double? UsedPercent { get; init; }
+    public string? UsageText { get; init; }
 }
