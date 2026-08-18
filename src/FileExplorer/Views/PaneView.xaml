@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:FileExplorer.Models"
-    xmlns:conv="using:FileExplorer.Converters">
+    xmlns:conv="using:FileExplorer.Converters"
+    xmlns:views="using:FileExplorer.Views">
 
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
@@ -143,7 +144,6 @@
                   Drop="ItemsList_Drop"
                   DoubleTapped="ItemsList_DoubleTapped"
                   SelectionChanged="ItemsList_SelectionChanged"
-                  KeyDown="ItemsList_KeyDown"
                   RightTapped="ItemsList_RightTapped" />
 
         <Popup x:Name="RenamePopup" IsLightDismissEnabled="True">
@@ -152,6 +152,24 @@
                     BorderThickness="1.5" CornerRadius="4" Padding="4">
                 <TextBox x:Name="RenameTextBox" MinWidth="200"
                          KeyDown="RenameTextBox_KeyDown" LostFocus="RenameTextBox_LostFocus" />
+            </Border>
+        </Popup>
+
+        <Popup x:Name="QuickLookPopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
+            <Border Width="440" Height="560" Background="{ThemeResource SolidBackgroundFillColorBase}"
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="1.5"
+                    CornerRadius="8" Padding="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0" HorizontalAlignment="Right" Margin="6"
+                            Style="{StaticResource ToolbarIconButtonStyle}" Click="QuickLookCloseButton_Click">
+                        <FontIcon Glyph="&#xE711;" FontSize="14" />
+                    </Button>
+                    <views:PreviewPane x:Name="QuickLookPreview" Grid.Row="1" />
+                </Grid>
             </Border>
         </Popup>
     </Grid>

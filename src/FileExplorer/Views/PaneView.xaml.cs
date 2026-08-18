@@ -27,6 +27,10 @@ public sealed partial class PaneView : UserControl
     public PaneView()
     {
         InitializeComponent();
+
+        // handledEventsToo: ListView's inner ScrollViewer consumes Space for page-down before it
+        // would otherwise bubble here, which would silently eat the quick-look shortcut.
+        ItemsList.AddHandler(KeyDownEvent, new KeyEventHandler(ItemsList_KeyDown), true);
     }
 
     public PaneViewModel? ViewModel
@@ -280,7 +284,38 @@ public sealed partial class PaneView : UserControl
             e.Handled = true;
             await DeleteItemsAsync(items, permanent: IsShiftPressed());
         }
+        else if (e.Key == VirtualKey.Space)
+        {
+            if (ViewModel.SelectedItem is null)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            ToggleQuickLook();
+        }
     }
+
+    private void ToggleQuickLook()
+    {
+        if (QuickLookPopup.IsOpen)
+        {
+            QuickLookPopup.IsOpen = false;
+            return;
+        }
+
+        QuickLookPreview.ViewModel = ViewModel;
+        QuickLookPopup.XamlRoot = XamlRoot;
+
+        var center = RootGrid.TransformToVisual(null).TransformPoint(
+            new Windows.Foundation.Point(RootGrid.ActualWidth / 2, RootGrid.ActualHeight / 2));
+        QuickLookPopup.HorizontalOffset = center.X - 220;
+        QuickLookPopup.VerticalOffset = center.Y - 280;
+
+        QuickLookPopup.IsOpen = true;
+    }
+
+    private void QuickLookCloseButton_Click(object sender, RoutedEventArgs e) => QuickLookPopup.IsOpen = false;
 
     public async Task DeleteItemsAsync(IReadOnlyList<FileSystemItem> items, bool permanent)
     {
