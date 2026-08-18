@@ -19,6 +19,8 @@ public sealed class PaneViewModel : ObservableObject
     private bool _isActive;
     private bool _isLoading;
     private string _searchText = string.Empty;
+    private bool _isRecursiveSearch;
+    private CancellationTokenSource? _searchCts;
 
     public PaneViewModel(DispatcherQueue dispatcher, string startPath)
     {
@@ -70,13 +72,28 @@ public sealed class PaneViewModel : ObservableObject
         set => SetProperty(ref _isLoading, value);
     }
 
-    /// Client-side filename filter applied to the already-loaded folder contents.
+    /// Client-side filename filter applied to the already-loaded folder contents (or, when
+    /// IsRecursiveSearch is on, a background filename+content scan of the whole subtree).
     public string SearchText
     {
         get => _searchText;
         set
         {
             if (SetProperty(ref _searchText, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    /// When on, a non-empty SearchText searches the current folder's entire subtree (filename and,
+    /// for text/code files, the first few KB of content) instead of just the loaded folder listing.
+    public bool IsRecursiveSearch
+    {
+        get => _isRecursiveSearch;
+        set
+        {
+            if (SetProperty(ref _isRecursiveSearch, value))
             {
                 ApplyFilter();
             }
@@ -193,6 +210,16 @@ public sealed class PaneViewModel : ObservableObject
 
     private void ApplyFilter()
     {
+        _searchCts?.Cancel();
+
+        if (_isRecursiveSearch && !string.IsNullOrWhiteSpace(_searchText))
+        {
+            var cts = new CancellationTokenSource();
+            _searchCts = cts;
+            _ = RunRecursiveSearchAsync(CurrentPath, _searchText, cts.Token);
+            return;
+        }
+
         Items.Clear();
 
         IEnumerable<FileSystemItem> source = _allItems;
@@ -205,5 +232,33 @@ public sealed class PaneViewModel : ObservableObject
         {
             Items.Add(item);
         }
+    }
+
+    private async Task RunRecursiveSearchAsync(string root, string query, CancellationToken token)
+    {
+        IsLoading = true;
+
+        List<FileSystemItem> results;
+        try
+        {
+            results = await Task.Run(() => FileSystemService.SearchRecursive(root, query, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        Items.Clear();
+        foreach (var item in results)
+        {
+            Items.Add(item);
+        }
+
+        IsLoading = false;
     }
 }
