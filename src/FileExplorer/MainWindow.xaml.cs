@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         PopulateDriveTree();
+        PopulateSavedSearches();
         UpdatePreview();
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
@@ -120,6 +121,74 @@ public sealed partial class MainWindow : Window
         if (folder is not null && _viewModel.SelectedTab is { } tab)
         {
             tab.ActivePane.NavigateTo(folder.FullPath);
+        }
+    }
+
+    // ----- Saved searches (left rail) -----
+
+    private void PopulateSavedSearches()
+    {
+        SavedSearchesList.ItemsSource = SavedSearchService.Load();
+    }
+
+    private async void SaveCurrentSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        var pane = _viewModel.SelectedTab?.ActivePane;
+        if (pane is null || string.IsNullOrWhiteSpace(pane.SearchText))
+        {
+            return;
+        }
+
+        var nameBox = new TextBox { PlaceholderText = "Search name", Text = pane.SearchText };
+        var dialog = new ContentDialog
+        {
+            Title = "Save Search",
+            Content = nameBox,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(nameBox.Text) ? pane.SearchText : nameBox.Text.Trim();
+        SavedSearchService.Add(new SavedSearch(name, pane.CurrentPath, pane.SearchText));
+        PopulateSavedSearches();
+    }
+
+    private void SavedSearchesList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not SavedSearch search)
+        {
+            return;
+        }
+
+        RunSavedSearch(search);
+    }
+
+    private void RunSavedSearch(SavedSearch search)
+    {
+        var pane = _viewModel.SelectedTab?.ActivePane;
+        if (pane is null || !Directory.Exists(search.RootPath))
+        {
+            return;
+        }
+
+        pane.NavigateTo(search.RootPath);
+        pane.IsRecursiveSearch = true;
+        pane.SearchText = search.Query;
+    }
+
+    private void RemoveSavedSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: SavedSearch search })
+        {
+            SavedSearchService.Remove(search);
+            PopulateSavedSearches();
         }
     }
 
@@ -336,6 +405,19 @@ public sealed partial class MainWindow : Window
                 "Find Duplicate Files...",
                 $"Scan {pane.CurrentPath} and its subfolders",
                 () => _ = ShowDuplicateFinderAsync(pane.CurrentPath)));
+
+            if (!string.IsNullOrWhiteSpace(pane.SearchText))
+            {
+                commands.Add(new PaletteCommand(
+                    "Save Current Search...",
+                    $"Pin \"{pane.SearchText}\" in {pane.CurrentPath}",
+                    () => SaveCurrentSearchButton_Click(this, new RoutedEventArgs())));
+            }
+        }
+
+        foreach (var search in SavedSearchService.Load())
+        {
+            commands.Add(new PaletteCommand($"Search: {search.Name}", search.RootPath, () => RunSavedSearch(search)));
         }
 
         return commands;
