@@ -87,6 +87,14 @@ public sealed partial class PaneView : UserControl
         Activated?.Invoke(this, EventArgs.Empty);
     }
 
+    private async void ThumbnailHost_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: FileSystemItem item })
+        {
+            await item.EnsureThumbnailAsync();
+        }
+    }
+
     private void ItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ViewModel is not null)
