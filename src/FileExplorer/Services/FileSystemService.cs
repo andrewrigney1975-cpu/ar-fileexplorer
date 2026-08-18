@@ -1,3 +1,4 @@
+using FileExplorer.Helpers;
 using FileExplorer.Models;
 
 namespace FileExplorer.Services;
@@ -101,20 +102,23 @@ public static class FileSystemService
     }
 
     private const int MaxRecursiveSearchResults = 500;
+    private const int MaxRecursiveSearchCandidates = 3000;
     private const int ContentSearchPeekChars = 8000;
+    private const int ContentMatchScore = -1;
 
-    /// Recursive filename + (for text/code files) content search under root, capped for responsiveness.
+    /// Recursive fuzzy filename + (for text/code files) content search under root, ranked by
+    /// relevance and capped for responsiveness.
     public static List<FileSystemItem> SearchRecursive(string root, string query, CancellationToken cancellationToken)
     {
-        var results = new List<FileSystemItem>();
+        var candidates = new List<(FileSystemItem Item, int Score)>();
 
         IEnumerable<string> files;
         try
         {
             files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories);
         }
-        catch (IOException) { return results; }
-        catch (UnauthorizedAccessException) { return results; }
+        catch (IOException) { return new List<FileSystemItem>(); }
+        catch (UnauthorizedAccessException) { return new List<FileSystemItem>(); }
 
         foreach (var file in files)
         {
@@ -132,12 +136,12 @@ public static class FileSystemService
                 continue;
             }
 
-            var nameMatch = info.Name.Contains(query, StringComparison.OrdinalIgnoreCase);
-            var contentMatch = !nameMatch && IconHelper.IsPreviewableText(info.Extension) && FileContentContains(file, query);
+            var nameMatched = FuzzyMatcher.TryScore(info.Name, query, out var nameScore);
+            var contentMatched = !nameMatched && IconHelper.IsPreviewableText(info.Extension) && FileContentContains(file, query);
 
-            if (nameMatch || contentMatch)
+            if (nameMatched || contentMatched)
             {
-                results.Add(new FileSystemItem
+                candidates.Add((new FileSystemItem
                 {
                     Name = info.Name,
                     FullPath = info.FullName,
@@ -146,16 +150,20 @@ public static class FileSystemService
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
                     TagColor = TagService.GetColor(info.FullName),
-                });
+                }, nameMatched ? nameScore : ContentMatchScore));
 
-                if (results.Count >= MaxRecursiveSearchResults)
+                if (candidates.Count >= MaxRecursiveSearchCandidates)
                 {
                     break;
                 }
             }
         }
 
-        return results;
+        return candidates
+            .OrderByDescending(c => c.Score)
+            .Take(MaxRecursiveSearchResults)
+            .Select(c => c.Item)
+            .ToList();
     }
 
     private static bool FileContentContains(string path, string query)
