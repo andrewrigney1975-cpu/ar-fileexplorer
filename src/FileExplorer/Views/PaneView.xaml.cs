@@ -215,6 +215,26 @@ public sealed partial class PaneView : UserControl
         }
     }
 
+    private static void OpenWithPicker(FileSystemItem item)
+    {
+        if (item.IsDirectory)
+        {
+            return;
+        }
+
+        try
+        {
+            // Invokes the native "Open with" dialog; no COM interop needed.
+            Process.Start(new ProcessStartInfo("rundll32.exe", $"shell32.dll,OpenAs_RunDLL \"{item.FullPath}\"")
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+        }
+    }
+
     private FileSystemItem? _renamingItem;
 
     private async void ItemsList_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -679,6 +699,10 @@ public sealed partial class PaneView : UserControl
         {
             var single = selection[0];
             menu.Items.Add(NewMenuItem("Open", "", () => OpenItem(single)));
+            if (!single.IsDirectory)
+            {
+                menu.Items.Add(NewMenuItem("Open with...", "", () => OpenWithPicker(single)));
+            }
             menu.Items.Add(new MenuFlyoutSeparator());
         }
 
