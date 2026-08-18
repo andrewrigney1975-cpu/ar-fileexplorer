@@ -66,6 +66,25 @@
             </Grid>
         </DataTemplate>
 
+        <DataTemplate x:Key="GalleryTemplate" x:DataType="models:FileSystemItem">
+            <StackPanel Width="200" Margin="8" Spacing="6" HorizontalAlignment="Center">
+                <Grid Width="184" Height="184" CornerRadius="6" Loaded="ThumbnailHost_Loaded"
+                      Background="{ThemeResource ControlFillColorDefaultBrush}">
+                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="64" HorizontalAlignment="Center" VerticalAlignment="Center"
+                              FontFamily="Segoe Fluent Icons"
+                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"
+                           Visibility="{x:Bind Thumbnail, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                    <Ellipse Width="14" Height="14" Margin="8" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                             Fill="{x:Bind TagColor, Converter={StaticResource TagBrush}}"
+                             Visibility="{x:Bind TagColor, Converter={StaticResource NullToVis}}"
+                             Stroke="{ThemeResource SolidBackgroundFillColorBaseBrush}" StrokeThickness="1.5" />
+                </Grid>
+                <TextBlock Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="Wrap"
+                           MaxLines="2" TextTrimming="CharacterEllipsis" FontSize="12" />
+            </StackPanel>
+        </DataTemplate>
+
         <ItemsPanelTemplate x:Key="WrapPanelTemplate">
             <ItemsWrapGrid Orientation="Horizontal" />
         </ItemsPanelTemplate>

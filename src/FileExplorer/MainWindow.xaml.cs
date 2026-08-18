@@ -281,6 +281,8 @@ public sealed partial class MainWindow : Window
 
     private void DetailsModeButton_Click(object sender, RoutedEventArgs e) => SetViewMode(ViewMode.Details);
 
+    private void GalleryModeButton_Click(object sender, RoutedEventArgs e) => SetViewMode(ViewMode.Gallery);
+
     private void SetViewMode(ViewMode mode)
     {
         if (_viewModel.SelectedTab is { } tab)
@@ -423,6 +425,7 @@ public sealed partial class MainWindow : Window
             new("Icons View", "Switch the active pane to icons", () => SetViewMode(ViewMode.Icons)),
             new("List View", "Switch the active pane to list", () => SetViewMode(ViewMode.List)),
             new("Details View", "Switch the active pane to details", () => SetViewMode(ViewMode.Details)),
+            new("Gallery View", "Switch the active pane to a large-thumbnail gallery", () => SetViewMode(ViewMode.Gallery)),
             new("New Folder", "Create a new folder in the active pane", () => NewFolderButton_Click(this, new RoutedEventArgs())),
             new("Toggle Preview Pane", "Show or hide the preview rail", () => TogglePreview()),
             new("Toggle Terminal", "Show or hide the terminal drawer", () => ToggleTerminal()),

@@ -148,6 +148,11 @@ public sealed partial class PaneView : UserControl
                 ItemsList.ItemsPanel = (ItemsPanelTemplate)Resources["StackPanelTemplate"];
                 DetailsHeader.Visibility = Visibility.Collapsed;
                 break;
+            case ViewMode.Gallery:
+                ItemsList.ItemTemplate = (DataTemplate)Resources["GalleryTemplate"];
+                ItemsList.ItemsPanel = (ItemsPanelTemplate)Resources["WrapPanelTemplate"];
+                DetailsHeader.Visibility = Visibility.Collapsed;
+                break;
             case ViewMode.Details:
             default:
                 ItemsList.ItemTemplate = (DataTemplate)Resources["DetailsTemplate"];
