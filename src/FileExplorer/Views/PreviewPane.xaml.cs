@@ -53,6 +53,14 @@ public sealed partial class PreviewPane : UserControl
         ImagePreview.Visibility = Visibility.Collapsed;
         TextScroller.Visibility = Visibility.Collapsed;
         IconPreview.Visibility = Visibility.Collapsed;
+        VideoPreview.Visibility = Visibility.Collapsed;
+        VideoPreview.MediaPlayer?.Pause();
+        VideoPreview.Source = null;
+        PdfPreview.Visibility = Visibility.Collapsed;
+        if (PdfPreview.CoreWebView2 is not null)
+        {
+            PdfPreview.CoreWebView2.Navigate("about:blank");
+        }
 
         if (item is null)
         {
@@ -106,6 +114,42 @@ public sealed partial class PreviewPane : UserControl
             {
                 // fall through to icon preview
             }
+        }
+
+        if (!item.IsDirectory && IconHelper.IsPreviewableVideo(item.Extension))
+        {
+            try
+            {
+                VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
+                VideoPreview.Visibility = Visibility.Visible;
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UriFormatException)
+            {
+                // fall through to icon preview
+            }
+        }
+
+        if (!item.IsDirectory && IconHelper.IsPreviewablePdf(item.Extension))
+        {
+            try
+            {
+                await PdfPreview.EnsureCoreWebView2Async();
+                PdfPreview.Source = new Uri(item.FullPath);
+                PdfPreview.Visibility = Visibility.Visible;
+                return;
+            }
+            catch (Exception)
+            {
+                // fall through to icon preview (e.g. WebView2 runtime not installed)
+            }
+        }
+
+        if (!item.IsDirectory && IconHelper.IsPreviewableOffice(item.Extension))
+        {
+            TextPreview.Text = OfficeTextExtractor.Extract(item.FullPath, item.Extension);
+            TextScroller.Visibility = Visibility.Visible;
+            return;
         }
 
         IconGlyph.Glyph = item.Glyph;
