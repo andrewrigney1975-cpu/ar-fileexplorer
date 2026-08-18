@@ -6,6 +6,7 @@ public static class IconHelper
     public const string Folder = "\uE8B7";
     public const string FolderOpen = "\uE838";
     public const string Drive = "\uEDA2";
+    public const string NetworkDrive = "\uE968";
     public const string GenericFile = "\uE8A5";
     public const string Document = "\uE8A5";
     public const string Image = "\uEB9F";
