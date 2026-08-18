@@ -149,7 +149,7 @@
                   Drop="ItemsList_Drop"
                   DoubleTapped="ItemsList_DoubleTapped"
                   SelectionChanged="ItemsList_SelectionChanged"
-                  RightTapped="ItemsList_RightTapped" />
+                  ContextRequested="ItemsList_ContextRequested" />
 
         <Popup x:Name="RenamePopup" IsLightDismissEnabled="True">
             <Border Background="{ThemeResource SolidBackgroundFillColorBase}"

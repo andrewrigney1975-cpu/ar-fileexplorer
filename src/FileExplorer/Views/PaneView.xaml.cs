@@ -410,6 +410,69 @@ public sealed partial class PaneView : UserControl
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
+    private async Task ComputeHashesAsync(IReadOnlyList<FileSystemItem> selection)
+    {
+        if (selection.Count == 0)
+        {
+            return;
+        }
+
+        var resultBox = new TextBox
+        {
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+            FontSize = 12,
+            Height = 220,
+            Text = "Computing...",
+        };
+
+        var copyButton = new Button { Content = "Copy to clipboard", Margin = new Thickness(0, 8, 0, 0) };
+        copyButton.Click += (_, _) =>
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(resultBox.Text);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        };
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "SHA-256 checksum",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new StackPanel { Spacing = 4, Children = { resultBox, copyButton } },
+        };
+
+        var showTask = dialog.ShowAsync().AsTask();
+
+        var lines = new List<string>();
+        foreach (var item in selection)
+        {
+            if (item.IsDirectory)
+            {
+                lines.Add($"{item.Name}: (folder - skipped)");
+                continue;
+            }
+
+            try
+            {
+                await using var stream = File.OpenRead(item.FullPath);
+                var hash = await System.Security.Cryptography.SHA256.HashDataAsync(stream);
+                lines.Add($"{item.Name}:\n{Convert.ToHexString(hash)}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                lines.Add($"{item.Name}: (could not read file)");
+            }
+
+            resultBox.Text = string.Join("\n\n", lines);
+        }
+
+        await showTask;
+    }
+
     private async Task CompressSelectionAsync(IReadOnlyList<FileSystemItem> selection)
     {
         if (selection.Count == 0 || ViewModel is null)
@@ -884,14 +947,18 @@ public sealed partial class PaneView : UserControl
         return null;
     }
 
-    private void ItemsList_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    private void ItemsList_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
         if (ViewModel is null)
         {
             return;
         }
 
-        var point = e.GetPosition(ItemsList);
+        if (!e.TryGetPosition(ItemsList, out var point))
+        {
+            point = new Windows.Foundation.Point(0, 0);
+        }
+
         var tapped = FindItemUnderPoint(point);
 
         if (tapped is not null && !ItemsList.SelectedItems.Contains(tapped))
@@ -939,6 +1006,7 @@ public sealed partial class PaneView : UserControl
         {
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipAsync(selection[0])));
         }
+        menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
 
