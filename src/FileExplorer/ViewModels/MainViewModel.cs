@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using FileExplorer.Helpers;
+using FileExplorer.Services;
 using Microsoft.UI.Dispatching;
 
 namespace FileExplorer.ViewModels;
@@ -14,8 +15,9 @@ public sealed class MainViewModel : ObservableObject
         _dispatcher = dispatcher;
         NewTabCommand = new RelayCommand(() => AddTab());
         CloseTabCommand = new RelayCommand(o => { if (o is TabViewModel tab) CloseTab(tab); });
+        DuplicateTabCommand = new RelayCommand(o => { if (o is TabViewModel tab) DuplicateTab(tab); });
 
-        AddTab();
+        RestoreSessionOrDefault();
     }
 
     public ObservableCollection<TabViewModel> Tabs { get; } = new();
@@ -28,6 +30,7 @@ public sealed class MainViewModel : ObservableObject
 
     public RelayCommand NewTabCommand { get; }
     public RelayCommand CloseTabCommand { get; }
+    public RelayCommand DuplicateTabCommand { get; }
 
     public TabViewModel AddTab(string? startPath = null)
     {
@@ -36,6 +39,37 @@ public sealed class MainViewModel : ObservableObject
         Tabs.Add(tab);
         SelectedTab = tab;
         return tab;
+    }
+
+    public TabViewModel DuplicateTab(TabViewModel source)
+    {
+        var tab = new TabViewModel(_dispatcher, source.LeftPane.CurrentPath, source.RightPane.CurrentPath);
+        var index = Tabs.IndexOf(source);
+        Tabs.Insert(index < 0 ? Tabs.Count : index + 1, tab);
+        SelectedTab = tab;
+        return tab;
+    }
+
+    private void RestoreSessionOrDefault()
+    {
+        var saved = SessionService.Load();
+        if (saved.Count == 0)
+        {
+            AddTab();
+            return;
+        }
+
+        foreach (var state in saved)
+        {
+            Tabs.Add(new TabViewModel(_dispatcher, state.LeftPath, state.RightPath));
+        }
+
+        SelectedTab = Tabs[0];
+    }
+
+    public void SaveSession()
+    {
+        SessionService.Save(Tabs.Select(t => new TabState(t.LeftPane.CurrentPath, t.RightPane.CurrentPath)));
     }
 
     public void CloseTab(TabViewModel tab)
