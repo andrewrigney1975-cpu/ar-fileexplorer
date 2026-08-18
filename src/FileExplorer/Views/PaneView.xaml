@@ -182,10 +182,30 @@
                 <ColumnDefinition Width="110" />
                 <ColumnDefinition Width="90" />
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Name" FontSize="12" Opacity="0.7" />
-            <TextBlock Grid.Column="1" Text="Date modified" FontSize="12" Opacity="0.7" />
-            <TextBlock Grid.Column="2" Text="Type" FontSize="12" Opacity="0.7" />
-            <TextBlock Grid.Column="3" Text="Size" FontSize="12" Opacity="0.7" HorizontalAlignment="Right" />
+            <Grid Grid.Column="0" Background="Transparent" Tapped="NameHeader_Tapped">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="Name" FontSize="12" Opacity="0.7" />
+                    <FontIcon x:Name="NameSortIcon" FontSize="10" Opacity="0.7" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+            <Grid Grid.Column="1" Background="Transparent" Tapped="ModifiedHeader_Tapped">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="Date modified" FontSize="12" Opacity="0.7" />
+                    <FontIcon x:Name="ModifiedSortIcon" FontSize="10" Opacity="0.7" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+            <Grid Grid.Column="2" Background="Transparent" Tapped="KindHeader_Tapped">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="Type" FontSize="12" Opacity="0.7" />
+                    <FontIcon x:Name="KindSortIcon" FontSize="10" Opacity="0.7" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+            <Grid Grid.Column="3" Background="Transparent" Tapped="SizeHeader_Tapped" HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <FontIcon x:Name="SizeSortIcon" FontSize="10" Opacity="0.7" Visibility="Collapsed" />
+                    <TextBlock Text="Size" FontSize="12" Opacity="0.7" />
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <ListView x:Name="ItemsList" Grid.Row="2"

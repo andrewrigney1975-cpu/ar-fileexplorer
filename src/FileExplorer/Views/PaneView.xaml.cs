@@ -54,6 +54,7 @@ public sealed partial class PaneView : UserControl
             newVm.PropertyChanged += pane.ViewModel_PropertyChanged;
             pane.ApplyViewMode(newVm.ViewMode);
             pane.UpdateBreadcrumb(newVm.CurrentPath);
+            pane.UpdateSortIndicators();
         }
     }
 
@@ -68,6 +69,44 @@ public sealed partial class PaneView : UserControl
             UpdateBreadcrumb(ViewModel.CurrentPath);
             ShowBreadcrumb();
         }
+        else if (e.PropertyName is nameof(PaneViewModel.ActiveSortColumn) or nameof(PaneViewModel.SortAscending))
+        {
+            UpdateSortIndicators();
+        }
+    }
+
+    private void NameHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Name);
+
+    private void ModifiedHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Modified);
+
+    private void KindHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Kind);
+
+    private void SizeHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Size);
+
+    private void UpdateSortIndicators()
+    {
+        var icons = new[] { NameSortIcon, ModifiedSortIcon, KindSortIcon, SizeSortIcon };
+        foreach (var icon in icons)
+        {
+            icon.Visibility = Visibility.Collapsed;
+        }
+
+        if (ViewModel?.ActiveSortColumn is not { } column)
+        {
+            return;
+        }
+
+        var activeIcon = column switch
+        {
+            SortColumn.Name => NameSortIcon,
+            SortColumn.Modified => ModifiedSortIcon,
+            SortColumn.Kind => KindSortIcon,
+            SortColumn.Size => SizeSortIcon,
+            _ => NameSortIcon,
+        };
+
+        activeIcon.Glyph = ViewModel.SortAscending ? "" : "";
+        activeIcon.Visibility = Visibility.Visible;
     }
 
     private void UpdateBreadcrumb(string path)
