@@ -67,3 +67,24 @@ public sealed partial class ActivePaneHighlightConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
+
+public sealed partial class TagColorToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var color = (value as string) switch
+        {
+            "Red" => Windows.UI.Color.FromArgb(255, 232, 17, 35),
+            "Orange" => Windows.UI.Color.FromArgb(255, 255, 140, 0),
+            "Yellow" => Windows.UI.Color.FromArgb(255, 255, 185, 0),
+            "Green" => Windows.UI.Color.FromArgb(255, 16, 137, 62),
+            "Blue" => Windows.UI.Color.FromArgb(255, 0, 99, 177),
+            "Purple" => Windows.UI.Color.FromArgb(255, 136, 23, 152),
+            _ => (Windows.UI.Color?)null,
+        };
+
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color ?? Microsoft.UI.Colors.Transparent);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}

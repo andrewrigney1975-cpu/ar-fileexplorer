@@ -1007,10 +1007,49 @@ public sealed partial class PaneView : UserControl
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipAsync(selection[0])));
         }
         menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));
+        menu.Items.Add(BuildTagSubMenu(selection));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
 
         return menu;
+    }
+
+    private MenuFlyoutSubItem BuildTagSubMenu(IReadOnlyList<FileSystemItem> selection)
+    {
+        var subMenu = new MenuFlyoutSubItem { Text = "Tag" };
+
+        foreach (var colorName in TagService.ColorNames)
+        {
+            var swatch = new MenuFlyoutItem
+            {
+                Text = colorName,
+                Icon = new FontIcon
+                {
+                    Glyph = "",
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)new Converters.TagColorToBrushConverter()
+                        .Convert(colorName, typeof(Microsoft.UI.Xaml.Media.Brush), null!, string.Empty),
+                },
+            };
+            swatch.Click += (_, _) => SetTagForSelection(selection, colorName);
+            subMenu.Items.Add(swatch);
+        }
+
+        subMenu.Items.Add(new MenuFlyoutSeparator());
+        var clear = new MenuFlyoutItem { Text = "Remove Tag" };
+        clear.Click += (_, _) => SetTagForSelection(selection, null);
+        subMenu.Items.Add(clear);
+
+        return subMenu;
+    }
+
+    private void SetTagForSelection(IReadOnlyList<FileSystemItem> selection, string? colorName)
+    {
+        foreach (var item in selection)
+        {
+            TagService.SetColor(item.FullPath, colorName);
+        }
+
+        ViewModel?.Refresh();
     }
 
     private MenuFlyout BuildEmptySpaceContextMenu()
