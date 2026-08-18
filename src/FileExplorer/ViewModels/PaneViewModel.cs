@@ -225,13 +225,26 @@ public sealed class PaneViewModel : ObservableObject
         IEnumerable<FileSystemItem> source = _allItems;
         if (!string.IsNullOrWhiteSpace(_searchText))
         {
-            source = source.Where(i => i.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+            source = RankByFuzzyMatch(source, _searchText);
         }
 
         foreach (var item in source)
         {
             Items.Add(item);
         }
+    }
+
+    private static IEnumerable<FileSystemItem> RankByFuzzyMatch(IEnumerable<FileSystemItem> items, string query)
+    {
+        var scored = new List<(FileSystemItem Item, int Score)>();
+        foreach (var item in items)
+        {
+            if (FuzzyMatcher.TryScore(item.Name, query, out var score))
+            {
+                scored.Add((item, score));
+            }
+        }
+        return scored.OrderByDescending(x => x.Score).Select(x => x.Item);
     }
 
     private async Task RunRecursiveSearchAsync(string root, string query, CancellationToken token)
