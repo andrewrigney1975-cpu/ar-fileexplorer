@@ -23,6 +23,10 @@
             <RowDefinition x:Name="TerminalRow" Height="0" />
         </Grid.RowDefinitions>
 
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Modifiers="Control" Key="K" Invoked="CommandPaletteAccelerator_Invoked" />
+        </Grid.KeyboardAccelerators>
+
         <!-- Toolbar -->
         <Grid Grid.Row="0" Padding="12,8" ColumnSpacing="8"
               Background="{ThemeResource LayerFillColorDefaultBrush}">
@@ -235,5 +239,32 @@
         <!-- Bottom drawer: terminal -->
         <views:TerminalPane x:Name="Terminal" Grid.Row="2"
                              GoToActiveFolderRequested="Terminal_GoToActiveFolderRequested" />
+
+        <Popup x:Name="CommandPalettePopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
+            <Border Width="520" Background="{ThemeResource SolidBackgroundFillColorBase}"
+                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="1.5"
+                    CornerRadius="8" Padding="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBox Grid.Row="0" x:Name="CommandPaletteBox" Margin="10"
+                              PlaceholderText="Type a command or a folder path..."
+                              TextChanged="CommandPaletteBox_TextChanged" KeyDown="CommandPaletteBox_KeyDown" />
+                    <ListView Grid.Row="1" x:Name="CommandPaletteList" MaxHeight="360"
+                              SelectionMode="Single" IsItemClickEnabled="True" ItemClick="CommandPaletteList_ItemClick">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="10,6">
+                                    <TextBlock Text="{Binding Title}" FontSize="13" />
+                                    <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.6" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
+        </Popup>
     </Grid>
 </Window>

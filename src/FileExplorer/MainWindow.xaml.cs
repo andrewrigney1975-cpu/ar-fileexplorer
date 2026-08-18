@@ -6,6 +6,7 @@ using FileExplorer.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace FileExplorer;
@@ -267,6 +268,133 @@ public sealed partial class MainWindow : Window
         {
             var path = tab.ActivePane.CurrentPath;
             Terminal.RunCommand($"Set-Location -LiteralPath \"{path}\"");
+        }
+    }
+
+    // ----- Command palette -----
+
+    private sealed record PaletteCommand(string Title, string Subtitle, Action Execute);
+
+    private List<PaletteCommand> _paletteCommands = new();
+
+    private void CommandPaletteAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        OpenCommandPalette();
+    }
+
+    private void OpenCommandPalette()
+    {
+        _paletteCommands = BuildPaletteCommands();
+        CommandPaletteBox.Text = string.Empty;
+        CommandPaletteList.ItemsSource = _paletteCommands;
+
+        CommandPalettePopup.XamlRoot = Content.XamlRoot;
+        CommandPalettePopup.HorizontalOffset = (RootGrid.ActualWidth - 520) / 2;
+        CommandPalettePopup.VerticalOffset = 90;
+        CommandPalettePopup.IsOpen = true;
+
+        CommandPaletteBox.Focus(FocusState.Programmatic);
+    }
+
+    private List<PaletteCommand> BuildPaletteCommands()
+    {
+        var tab = _viewModel.SelectedTab;
+        var pane = tab?.ActivePane;
+
+        var commands = new List<PaletteCommand>
+        {
+            new("New Tab", "Open a new tab", () => _viewModel.NewTabCommand.Execute(null)),
+            new("Close Tab", "Close the current tab", () => { if (tab is not null) _viewModel.CloseTabCommand.Execute(tab); }),
+            new("Icons View", "Switch the active pane to icons", () => SetViewMode(ViewMode.Icons)),
+            new("List View", "Switch the active pane to list", () => SetViewMode(ViewMode.List)),
+            new("Details View", "Switch the active pane to details", () => SetViewMode(ViewMode.Details)),
+            new("New Folder", "Create a new folder in the active pane", () => NewFolderButton_Click(this, new RoutedEventArgs())),
+            new("Toggle Preview Pane", "Show or hide the preview rail", () => TogglePreview()),
+            new("Toggle Terminal", "Show or hide the terminal drawer", () => ToggleTerminal()),
+            new("Undo", "Undo the last file operation", () => _ = UndoAndRefreshAsync()),
+            new("Go Up", "Navigate to the parent folder", () => pane?.NavigateUp()),
+            new("Go Back", "Navigate back", () => pane?.NavigateBack()),
+            new("Go Forward", "Navigate forward", () => pane?.NavigateForward()),
+            new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
+        };
+
+        return commands;
+    }
+
+    private async Task UndoAndRefreshAsync()
+    {
+        await UndoService.Instance.UndoAsync();
+        _viewModel.RefreshAllPanes();
+    }
+
+    private void TogglePreview()
+    {
+        PreviewToggleButton.IsChecked = !(PreviewToggleButton.IsChecked ?? false);
+        PreviewToggleButton_Click(PreviewToggleButton, new RoutedEventArgs());
+    }
+
+    private void ToggleTerminal()
+    {
+        TerminalToggleButton.IsChecked = !(TerminalToggleButton.IsChecked ?? false);
+        TerminalToggleButton_Click(TerminalToggleButton, new RoutedEventArgs());
+    }
+
+    private void CommandPaletteBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var query = CommandPaletteBox.Text.Trim();
+        IEnumerable<object> results = _paletteCommands;
+
+        if (!string.IsNullOrEmpty(query))
+        {
+            results = _paletteCommands.Where(c =>
+                c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                c.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase));
+
+            if (Directory.Exists(query))
+            {
+                var goTo = new PaletteCommand($"Go to \"{query}\"", "Navigate the active pane here", () =>
+                {
+                    if (_viewModel.SelectedTab is { } t)
+                    {
+                        t.ActivePane.NavigateTo(query);
+                    }
+                });
+                results = new object[] { goTo }.Concat(results);
+            }
+        }
+
+        CommandPaletteList.ItemsSource = results.ToList();
+    }
+
+    private void CommandPaletteBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            if (CommandPaletteList.Items.Count > 0)
+            {
+                ExecutePaletteCommand(CommandPaletteList.Items[0]);
+            }
+        }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            CommandPalettePopup.IsOpen = false;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Down && CommandPaletteList.Items.Count > 0)
+        {
+            CommandPaletteList.Focus(FocusState.Programmatic);
+            CommandPaletteList.SelectedIndex = 0;
+        }
+    }
+
+    private void CommandPaletteList_ItemClick(object sender, ItemClickEventArgs e) => ExecutePaletteCommand(e.ClickedItem);
+
+    private void ExecutePaletteCommand(object item)
+    {
+        if (item is PaletteCommand command)
+        {
+            CommandPalettePopup.IsOpen = false;
+            command.Execute();
         }
     }
 }
