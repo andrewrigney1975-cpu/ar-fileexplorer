@@ -38,6 +38,10 @@ public static class IconHelper
     private static readonly HashSet<string> TextExt = new(StringComparer.OrdinalIgnoreCase)
         { ".txt", ".md", ".log", ".ini", ".cfg", ".yml", ".yaml" };
 
+    // Modern XML-based Office formats only - the OpenXml SDK can't read legacy .doc/.xls/.ppt.
+    private static readonly HashSet<string> OfficeExt = new(StringComparer.OrdinalIgnoreCase)
+        { ".docx", ".xlsx", ".pptx" };
+
     public static string GlyphFor(string extension)
     {
         if (ImageExt.Contains(extension)) return Image;
@@ -54,4 +58,10 @@ public static class IconHelper
     public static bool IsPreviewableImage(string extension) => ImageExt.Contains(extension) && extension != ".svg";
 
     public static bool IsPreviewableText(string extension) => TextExt.Contains(extension) || CodeExt.Contains(extension);
+
+    public static bool IsPreviewableVideo(string extension) => VideoExt.Contains(extension);
+
+    public static bool IsPreviewablePdf(string extension) => string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsPreviewableOffice(string extension) => OfficeExt.Contains(extension);
 }

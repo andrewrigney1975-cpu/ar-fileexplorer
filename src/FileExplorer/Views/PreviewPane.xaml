@@ -27,6 +27,11 @@
             <Image x:Name="ImagePreview" Stretch="Uniform" Visibility="Collapsed"
                    VerticalAlignment="Top" MaxHeight="360" />
 
+            <MediaPlayerElement x:Name="VideoPreview" Visibility="Collapsed" AreTransportControlsEnabled="True"
+                                 VerticalAlignment="Top" MaxHeight="360" />
+
+            <WebView2 x:Name="PdfPreview" Visibility="Collapsed" MinHeight="360" />
+
             <ScrollViewer x:Name="TextScroller" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                 <TextBlock x:Name="TextPreview" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
             </ScrollViewer>
