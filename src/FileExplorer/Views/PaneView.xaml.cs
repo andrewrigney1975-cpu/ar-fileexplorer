@@ -165,6 +165,102 @@ public sealed partial class PaneView : UserControl
             e.Handled = true;
             await MoveSelectionToNewFolderAsync();
         }
+        else if (e.Key == VirtualKey.Delete)
+        {
+            var items = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await DeleteItemsAsync(items, permanent: IsShiftPressed());
+        }
+    }
+
+    public async Task DeleteItemsAsync(IReadOnlyList<FileSystemItem> items, bool permanent)
+    {
+        if (items.Count == 0 || ViewModel is null)
+        {
+            return;
+        }
+
+        if (permanent)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Delete permanently?",
+                Content = $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently. This can't be undone.",
+                PrimaryButtonText = "Delete",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+        }
+
+        var paths = items.Select(i => i.FullPath).ToList();
+
+        await Task.Run(() =>
+        {
+            foreach (var path in paths)
+            {
+                try
+                {
+                    DeleteOne(path, permanent);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // best-effort: skip items that fail (locked, permissions) and continue with the rest
+                }
+            }
+        });
+
+        ViewModel.Refresh();
+    }
+
+    private static void DeleteOne(string path, bool permanent)
+    {
+        var isDirectory = Directory.Exists(path);
+
+        if (permanent)
+        {
+            if (isDirectory)
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            else if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            return;
+        }
+
+        if (isDirectory)
+        {
+            Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
+                path,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+        }
+        else if (File.Exists(path))
+        {
+            Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                path,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+        }
+    }
+
+    private static bool IsShiftPressed()
+    {
+        var state = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
+        return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
     private async Task MoveSelectionToNewFolderAsync()
