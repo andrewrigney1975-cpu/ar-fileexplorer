@@ -48,6 +48,7 @@ public sealed partial class PaneView : UserControl
         {
             newVm.PropertyChanged += pane.ViewModel_PropertyChanged;
             pane.ApplyViewMode(newVm.ViewMode);
+            pane.UpdateBreadcrumb(newVm.CurrentPath);
         }
     }
 
@@ -57,7 +58,68 @@ public sealed partial class PaneView : UserControl
         {
             ApplyViewMode(ViewModel.ViewMode);
         }
+        else if (e.PropertyName == nameof(PaneViewModel.CurrentPath) && ViewModel is not null)
+        {
+            UpdateBreadcrumb(ViewModel.CurrentPath);
+            ShowBreadcrumb();
+        }
     }
+
+    private void UpdateBreadcrumb(string path)
+    {
+        BreadcrumbPanel.Children.Clear();
+
+        var root = Path.GetPathRoot(path);
+        if (string.IsNullOrEmpty(root))
+        {
+            return;
+        }
+
+        var segments = new List<(string Label, string FullPath)> { (root.TrimEnd('\\'), root) };
+        var accumulated = root;
+        foreach (var part in path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            accumulated = Path.Combine(accumulated, part);
+            segments.Add((part, accumulated));
+        }
+
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var (label, fullPath) = segments[i];
+            var button = new Button { Content = label, Style = (Style)Application.Current.Resources["BreadcrumbButtonStyle"] };
+            button.Click += (_, _) => ViewModel?.NavigateTo(fullPath);
+            BreadcrumbPanel.Children.Add(button);
+
+            if (i < segments.Count - 1)
+            {
+                BreadcrumbPanel.Children.Add(new FontIcon
+                {
+                    Glyph = "",
+                    FontSize = 10,
+                    Opacity = 0.5,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, 0),
+                });
+            }
+        }
+    }
+
+    private void BreadcrumbHost_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        BreadcrumbHost.Visibility = Visibility.Collapsed;
+        PathBox.Visibility = Visibility.Visible;
+        PathBox.Text = ViewModel?.CurrentPath ?? string.Empty;
+        PathBox.Focus(FocusState.Programmatic);
+        PathBox.SelectAll();
+    }
+
+    private void ShowBreadcrumb()
+    {
+        PathBox.Visibility = Visibility.Collapsed;
+        BreadcrumbHost.Visibility = Visibility.Visible;
+    }
+
+    private void PathBox_LostFocus(object sender, RoutedEventArgs e) => ShowBreadcrumb();
 
     private void ApplyViewMode(ViewMode mode)
     {
@@ -113,11 +175,16 @@ public sealed partial class PaneView : UserControl
             if (Directory.Exists(path))
             {
                 ViewModel.NavigateTo(path);
+                ShowBreadcrumb();
             }
             else
             {
                 PathBox.Text = ViewModel.CurrentPath;
             }
+        }
+        else if (e.Key == VirtualKey.Escape)
+        {
+            ShowBreadcrumb();
         }
     }
 
