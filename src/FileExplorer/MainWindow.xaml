@@ -15,6 +15,7 @@
         <Grid.Resources>
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
+            <conv:UsedPercentToBrushConverter x:Key="UsedPercentToBrush" />
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -200,6 +201,7 @@
                                 <StackPanel Orientation="Vertical" Spacing="1" Margin="20,0,4,0"
                                             Visibility="{Binding Content.UsedPercent, Converter={StaticResource NullToVis}}">
                                     <ProgressBar Value="{Binding Content.UsedPercent}" Minimum="0" Maximum="100"
+                                                 Foreground="{Binding Content.UsedPercent, Converter={StaticResource UsedPercentToBrush}}"
                                                  Height="4" />
                                     <TextBlock Text="{Binding Content.UsageText}" FontSize="10"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
