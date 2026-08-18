@@ -34,6 +34,8 @@ public sealed partial class MainWindow : Window
         _operationQueue = new FileOperationQueueService(DispatcherQueue);
         _operationQueue.JobCompleted += (_, _) => _viewModel.RefreshAllPanes();
         OperationsList.ItemsSource = _operationQueue.Jobs;
+
+        UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
     }
 
     private readonly FileOperationQueueService _operationQueue;
@@ -187,6 +189,12 @@ public sealed partial class MainWindow : Window
         TerminalRow.Height = show ? new GridLength(260) : new GridLength(0);
     }
 
+    private async void UndoButton_Click(object sender, RoutedEventArgs e)
+    {
+        await UndoService.Instance.UndoAsync();
+        _viewModel.RefreshAllPanes();
+    }
+
     // ----- Cut / copy / paste / new folder -----
 
     private void CutButton_Click(object sender, RoutedEventArgs e) => SetClipboard(isCut: true);
@@ -255,6 +263,7 @@ public sealed partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(candidate);
+            UndoService.Instance.Push(new CreateFolderUndo(candidate));
             pane.Refresh(candidate);
         }
         catch (IOException) { }

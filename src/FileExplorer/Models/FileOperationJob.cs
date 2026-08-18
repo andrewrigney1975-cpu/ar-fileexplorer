@@ -26,6 +26,10 @@ public sealed class FileOperationJob : ObservableObject
     public required IReadOnlyList<string> SourcePaths { get; init; }
     public required string DestinationFolder { get; init; }
 
+    /// True when the destination folder was just created to receive this job (e.g. "Move to new
+    /// folder..."), so undoing the move can also remove that folder once it's empty again.
+    public bool DestinationWasCreatedForThisJob { get; init; }
+
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 
     public string Title => $"{(Kind == FileDropOperation.Move ? "Move" : "Copy")} {SourcePaths.Count} item{(SourcePaths.Count == 1 ? "" : "s")} to {System.IO.Path.GetFileName(DestinationFolder.TrimEnd('\\'))}";

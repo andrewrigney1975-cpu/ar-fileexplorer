@@ -326,7 +326,7 @@ public sealed partial class PaneView : UserControl
         }
 
         var sourcePaths = items.Select(i => i.FullPath).ToList();
-        FileOperationQueueService.Current?.Enqueue(sourcePaths, destination, FileDropOperation.Move);
+        FileOperationQueueService.Current?.Enqueue(sourcePaths, destination, FileDropOperation.Move, destinationWasCreatedForThisJob: true);
     }
 
     private void BeginRename(FileSystemItem item)
@@ -416,6 +416,7 @@ public sealed partial class PaneView : UserControl
                 File.Move(item.FullPath, newPath);
             }
 
+            UndoService.Instance.Push(new RenameUndo(item.FullPath, newPath));
             ViewModel.Refresh(newPath);
         }
         catch (IOException) { }

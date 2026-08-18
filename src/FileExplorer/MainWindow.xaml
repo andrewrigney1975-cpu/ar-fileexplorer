@@ -37,6 +37,15 @@
                        VerticalAlignment="Center" Margin="4,0,16,0" />
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <Button x:Name="UndoButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"
+                        Click="UndoButton_Click" IsEnabled="False">
+                    <FontIcon Glyph="&#xE7A7;" FontSize="16" />
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="Z" />
+                    </Button.KeyboardAccelerators>
+                </Button>
+                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Name="CutButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut"
                         Click="CutButton_Click">

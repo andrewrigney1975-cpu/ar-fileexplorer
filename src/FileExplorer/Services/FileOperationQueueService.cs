@@ -28,7 +28,11 @@ public sealed class FileOperationQueueService
 
     public event EventHandler<FileOperationJob>? JobCompleted;
 
-    public FileOperationJob Enqueue(IReadOnlyList<string> sourcePaths, string destinationFolder, FileDropOperation kind)
+    public FileOperationJob Enqueue(
+        IReadOnlyList<string> sourcePaths,
+        string destinationFolder,
+        FileDropOperation kind,
+        bool destinationWasCreatedForThisJob = false)
     {
         var job = new FileOperationJob
         {
@@ -36,6 +40,7 @@ public sealed class FileOperationQueueService
             Kind = kind,
             SourcePaths = sourcePaths,
             DestinationFolder = destinationFolder,
+            DestinationWasCreatedForThisJob = destinationWasCreatedForThisJob,
         };
 
         _dispatcher.TryEnqueue(() => Jobs.Insert(0, job));
@@ -84,10 +89,20 @@ public sealed class FileOperationQueueService
             if (job.Kind == FileDropOperation.Move && allSameDrive)
             {
                 // Same-volume move is an atomic filesystem rename - already optimal, no streaming needed.
+                var moved = new List<(string Source, string Destination)>();
                 foreach (var source in job.SourcePaths)
                 {
                     token.ThrowIfCancellationRequested();
-                    MoveByRename(source, job.DestinationFolder);
+                    var destination = MoveByRename(source, job.DestinationFolder);
+                    if (destination is not null)
+                    {
+                        moved.Add((source, destination));
+                    }
+                }
+
+                if (moved.Count > 0)
+                {
+                    UndoService.Instance.Push(new MoveUndo(moved, job.DestinationWasCreatedForThisJob ? job.DestinationFolder : null));
                 }
             }
             else
@@ -137,6 +152,12 @@ public sealed class FileOperationQueueService
                     {
                         DeleteSource(source);
                     }
+
+                    UndoService.Instance.Push(new MoveUndo(plan.TopLevel, job.DestinationWasCreatedForThisJob ? job.DestinationFolder : null));
+                }
+                else
+                {
+                    UndoService.Instance.Push(new CopyUndo(plan.TopLevel.Select(p => p.Destination).ToList()));
                 }
             }
 
@@ -164,14 +185,14 @@ public sealed class FileOperationQueueService
         }
     }
 
-    private static void MoveByRename(string source, string destinationFolder)
+    private static string? MoveByRename(string source, string destinationFolder)
     {
         var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
         var destination = FileOperationService.MakeUniqueDestination(Path.Combine(destinationFolder, name));
 
         if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return null;
         }
 
         if (Directory.Exists(source))
@@ -182,6 +203,12 @@ public sealed class FileOperationQueueService
         {
             File.Move(source, destination);
         }
+        else
+        {
+            return null;
+        }
+
+        return destination;
     }
 
     private static void DeleteSource(string source)
@@ -205,12 +232,14 @@ public sealed class FileOperationQueueService
     {
         var files = new List<(string Source, string Destination)>();
         var directories = new List<string>();
+        var topLevel = new List<(string Source, string Destination)>();
         long total = 0;
 
         foreach (var source in sourcePaths)
         {
             var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
             var topDestination = FileOperationService.MakeUniqueDestination(Path.Combine(destinationFolder, name));
+            topLevel.Add((source, topDestination));
 
             if (Directory.Exists(source))
             {
@@ -237,8 +266,12 @@ public sealed class FileOperationQueueService
             }
         }
 
-        return new CopyPlan(files, directories, total);
+        return new CopyPlan(files, directories, topLevel, total);
     }
 
-    private sealed record CopyPlan(List<(string Source, string Destination)> Files, List<string> DirectoriesToCreate, long TotalBytes);
+    private sealed record CopyPlan(
+        List<(string Source, string Destination)> Files,
+        List<string> DirectoriesToCreate,
+        List<(string Source, string Destination)> TopLevel,
+        long TotalBytes);
 }
