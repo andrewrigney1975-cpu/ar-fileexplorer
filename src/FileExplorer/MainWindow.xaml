@@ -167,9 +167,12 @@
                 <ColumnDefinition x:Name="PreviewColumn" Width="300" MinWidth="240" MaxWidth="600" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left rail: drives + folder tree -->
+            <!-- Left rail: drives + folder tree + saved searches -->
             <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="2*" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
@@ -188,6 +191,44 @@
                         </DataTemplate>
                     </TreeView.ItemTemplate>
                 </TreeView>
+
+                <Rectangle Grid.Row="2" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <Grid Grid.Row="3" Margin="12,4,8,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Saved Searches" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                            Click="SaveCurrentSearchButton_Click" ToolTipService.ToolTip="Save the active pane's search">
+                        <FontIcon Glyph="&#xE710;" FontSize="12" />
+                    </Button>
+                </Grid>
+
+                <ListView Grid.Row="4" x:Name="SavedSearchesList" Margin="4,0,4,4"
+                          SelectionMode="None" ItemClick="SavedSearchesList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE721;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RemoveSavedSearchButton_Click" Tag="{Binding}"
+                                        ToolTipService.ToolTip="Remove">
+                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </Grid>
 
             <!-- Rail splitter -->
