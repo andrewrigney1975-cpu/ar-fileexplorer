@@ -561,25 +561,37 @@ public sealed partial class PaneView : UserControl
         }
     }
 
-    private async Task ExtractZipAsync(FileSystemItem item)
+    private async Task ExtractZipsAsync(IReadOnlyList<FileSystemItem> items)
     {
-        if (ViewModel is null)
+        if (ViewModel is null || items.Count == 0)
         {
             return;
         }
 
-        var destination = FileOperationService.MakeUniqueDestination(
-            Path.Combine(ViewModel.CurrentPath, Path.GetFileNameWithoutExtension(item.Name)));
+        var destinations = new List<string>();
 
-        try
+        foreach (var item in items)
         {
-            await Task.Run(() => ZipFile.ExtractToDirectory(item.FullPath, destination));
-            UndoService.Instance.Push(new CopyUndo(new List<string> { destination }));
-            ViewModel.Refresh(destination);
+            var destination = FileOperationService.MakeUniqueDestination(
+                Path.Combine(ViewModel.CurrentPath, Path.GetFileNameWithoutExtension(item.Name)));
+
+            try
+            {
+                await Task.Run(() => ZipFile.ExtractToDirectory(item.FullPath, destination));
+                destinations.Add(destination);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            {
+            }
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+
+        if (destinations.Count == 0)
         {
+            return;
         }
+
+        UndoService.Instance.Push(new CopyUndo(destinations));
+        ViewModel.Refresh(destinations[^1]);
     }
 
     private async Task BatchRenameAsync(IReadOnlyList<FileSystemItem> selection)
@@ -1056,9 +1068,9 @@ public sealed partial class PaneView : UserControl
 
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
         menu.Items.Add(NewMenuItem("Compress to .zip", "", async () => await CompressSelectionAsync(selection)));
-        if (selection.Count == 1 && string.Equals(selection[0].Extension, ".zip", StringComparison.OrdinalIgnoreCase))
+        if (selection.Count > 0 && selection.All(item => string.Equals(item.Extension, ".zip", StringComparison.OrdinalIgnoreCase)))
         {
-            menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipAsync(selection[0])));
+            menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipsAsync(selection)));
         }
         menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));
         menu.Items.Add(BuildTagSubMenu(selection));
