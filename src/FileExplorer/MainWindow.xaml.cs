@@ -22,6 +22,12 @@ public sealed partial class MainWindow : Window
 
         Title = "File Explorer";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+        ConfigureTitleBarButtons();
+        RootGrid.ActualThemeChanged += (_, _) => ConfigureTitleBarButtons();
+
         _viewModel = new MainViewModel(DispatcherQueue);
         RootGrid.DataContext = _viewModel;
 
@@ -36,16 +42,44 @@ public sealed partial class MainWindow : Window
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
 
+        _previewExpandedWidth = LayoutSettingsService.LoadPreviewWidth() ?? PreviewColumn.ActualWidth;
+        PreviewColumn.Width = new GridLength(_previewExpandedWidth);
+
         _operationQueue = new FileOperationQueueService(DispatcherQueue);
         _operationQueue.JobCompleted += (_, _) => _viewModel.RefreshAllPanes();
         OperationsList.ItemsSource = _operationQueue.Jobs;
 
         UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
 
-        Closed += (_, _) => _viewModel.SaveSession();
+        Closed += (_, _) =>
+        {
+            _viewModel.SaveSession();
+            var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
+            LayoutSettingsService.SavePreviewWidth(width);
+        };
     }
 
     private readonly FileOperationQueueService _operationQueue;
+    private double _previewExpandedWidth = 300;
+
+    // Matches the caption buttons to the app's own Mica/theme colors instead of the OS default
+    // white/black block, so the extended title bar reads as part of the app surface.
+    private void ConfigureTitleBarButtons()
+    {
+        var titleBar = AppWindow.TitleBar;
+        var isDark = RootGrid.ActualTheme == ElementTheme.Dark;
+        var glyphColor = isDark ? Windows.UI.Color.FromArgb(255, 255, 255, 255) : Windows.UI.Color.FromArgb(255, 0, 0, 0);
+        var hoverColor = isDark ? Windows.UI.Color.FromArgb(25, 255, 255, 255) : Windows.UI.Color.FromArgb(15, 0, 0, 0);
+        var pressedColor = isDark ? Windows.UI.Color.FromArgb(40, 255, 255, 255) : Windows.UI.Color.FromArgb(25, 0, 0, 0);
+
+        titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+        titleBar.ButtonForegroundColor = glyphColor;
+        titleBar.ButtonHoverBackgroundColor = hoverColor;
+        titleBar.ButtonHoverForegroundColor = glyphColor;
+        titleBar.ButtonPressedBackgroundColor = pressedColor;
+        titleBar.ButtonPressedForegroundColor = glyphColor;
+    }
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
     {
@@ -399,6 +433,26 @@ public sealed partial class MainWindow : Window
         _viewModel.NewTabCommand.Execute(null);
     }
 
+    // TabView (bound via TabItemsSource) reorders its own internal item list on drag-and-drop
+    // rather than the source collection, so mirror its resulting order back onto _viewModel.Tabs.
+    private void MainTabView_TabItemsChanged(TabView sender, Windows.Foundation.Collections.IVectorChangedEventArgs args)
+    {
+        var newOrder = sender.TabItems.OfType<TabViewModel>().ToList();
+        if (newOrder.Count != _viewModel.Tabs.Count)
+        {
+            return;
+        }
+
+        for (var i = 0; i < newOrder.Count; i++)
+        {
+            var target = newOrder[i];
+            if (!ReferenceEquals(_viewModel.Tabs[i], target))
+            {
+                _viewModel.Tabs.Move(_viewModel.Tabs.IndexOf(target), i);
+            }
+        }
+    }
+
     private void DuplicateTabMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: TabViewModel tab })
@@ -544,7 +598,13 @@ public sealed partial class MainWindow : Window
     private void PreviewToggleButton_Click(object sender, RoutedEventArgs e)
     {
         var show = (sender as ToggleButton)?.IsChecked == true;
-        PreviewColumn.Width = show ? new GridLength(300) : new GridLength(0);
+
+        if (!show && PreviewColumn.ActualWidth > 0)
+        {
+            _previewExpandedWidth = PreviewColumn.ActualWidth;
+        }
+
+        PreviewColumn.Width = show ? new GridLength(_previewExpandedWidth) : new GridLength(0);
     }
 
     private void TerminalToggleButton_Click(object sender, RoutedEventArgs e)

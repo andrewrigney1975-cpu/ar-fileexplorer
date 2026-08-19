@@ -19,6 +19,7 @@
         </Grid.Resources>
 
         <Grid.RowDefinitions>
+            <RowDefinition x:Name="AppTitleBarRow" Height="40" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition x:Name="TerminalRow" Height="0" />
@@ -28,20 +29,23 @@
             <KeyboardAccelerator Modifiers="Control" Key="K" Invoked="CommandPaletteAccelerator_Invoked" />
         </Grid.KeyboardAccelerators>
 
+        <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
+             so the window frame reads as one continuous surface instead of a separate white/black strip. -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <TextBlock Text="File Explorer" FontWeight="SemiBold" FontSize="13"
+                       Margin="48,0,0,0" VerticalAlignment="Center" />
+        </Grid>
+
         <!-- Toolbar -->
-        <Grid Grid.Row="0" Padding="12,8" ColumnSpacing="8"
+        <Grid Grid.Row="1" Padding="12,8" ColumnSpacing="8"
               Background="{ThemeResource LayerFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Column="0" Text="File Explorer" FontWeight="SemiBold" FontSize="16"
-                       VerticalAlignment="Center" Margin="4,0,16,0" />
-
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                 <Button x:Name="UndoButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"
                         Click="UndoButton_Click" IsEnabled="False">
@@ -86,7 +90,7 @@
                 </Button>
             </StackPanel>
 
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
                 <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                               AutomationProperties.Name="Icons view"
                               Click="IconsModeButton_Click" ToolTipService.ToolTip="Icons view">
@@ -161,7 +165,7 @@
         </Grid>
 
         <!-- Body: left rail | main content | right preview -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="RailColumn" Width="240" MinWidth="180" MaxWidth="480" />
                 <ColumnDefinition Width="6" />
@@ -329,7 +333,8 @@
                      SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                      AddTabButtonClick="MainTabView_AddTabButtonClick"
                      TabCloseRequested="MainTabView_TabCloseRequested"
-                     CanDragTabs="False" CanReorderTabs="False">
+                     TabItemsChanged="MainTabView_TabItemsChanged"
+                     CanDragTabs="True" CanReorderTabs="True">
                 <TabView.TabItemTemplate>
                     <DataTemplate x:DataType="vm:TabViewModel">
                         <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="True"
@@ -376,7 +381,7 @@
         </Grid>
 
         <!-- Bottom drawer: terminal -->
-        <views:TerminalPane x:Name="Terminal" Grid.Row="2"
+        <views:TerminalPane x:Name="Terminal" Grid.Row="3"
                              GoToActiveFolderRequested="Terminal_GoToActiveFolderRequested" />
 
         <Popup x:Name="CommandPalettePopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
