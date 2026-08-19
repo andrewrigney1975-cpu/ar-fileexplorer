@@ -88,12 +88,28 @@ public sealed partial class PreviewPane : UserControl
         {
             try
             {
+                // WIC/BitmapDecoder can't read AVIF without a separate OS codec install - decode via
+                // libheif first, into the same PNG bytes a normal image's raw file bytes would be.
+                byte[]? sourceBytes = null;
+                if (string.Equals(item.Extension, ".avif", StringComparison.OrdinalIgnoreCase))
+                {
+                    sourceBytes = await AvifImageService.DecodeToPngAsync(item.FullPath, maxDimension: null);
+                    if (sourceBytes is null)
+                    {
+                        throw new IOException("AVIF decode failed.");
+                    }
+                }
+                else
+                {
+                    using var stream = File.OpenRead(item.FullPath);
+                    using var memStream = new MemoryStream();
+                    await stream.CopyToAsync(memStream);
+                    sourceBytes = memStream.ToArray();
+                }
+
                 var bitmap = new BitmapImage();
-                using var stream = File.OpenRead(item.FullPath);
-                using var memStream = new MemoryStream();
-                await stream.CopyToAsync(memStream);
-                memStream.Position = 0;
-                await bitmap.SetSourceAsync(memStream.AsRandomAccessStream());
+                using var bytesStream = new MemoryStream(sourceBytes);
+                await bitmap.SetSourceAsync(bytesStream.AsRandomAccessStream());
                 ImagePreview.Source = bitmap;
                 ImagePreview.Visibility = Visibility.Visible;
                 return;

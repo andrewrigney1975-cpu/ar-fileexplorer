@@ -21,6 +21,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files
 - Real image thumbnails in Icons/Gallery views, cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
 - Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon
+- `.avif` thumbnails and preview: Windows' image codec (WIC) can't decode AVIF without a separate OS extension, so AVIF files are decoded via an embedded [libheif](https://github.com/strukturag/libheif) instead (`AvifImageService`), transparently alongside every other image format
 
 ### File operations
 - Drag-and-drop: same-drive drag moves, cross-drive drag copies, hold **Alt** to force a move
@@ -95,6 +96,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `Microsoft.Web.WebView2` | PDF preview (renders via WebView2's built-in PDF viewer) |
 | `DocumentFormat.OpenXml` | Text-only preview extraction for `.docx`/`.xlsx`/`.pptx` |
 | `Jint` | Embedded JavaScript interpreter for user scripts (pure C#, no native deps) |
+| `LibHeifSharp` + `LibHeif.Native.win-x64` | AVIF thumbnail/preview decoding via libheif — the only dependency here with a native (non-.NET) component |
 
 Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts).
 
@@ -145,8 +147,8 @@ src/FileExplorer/
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
                  user scripting (ScriptService, ScriptEngineService), thumbnail
-                 caching/generation (ThumbnailCacheService), collision prompts
-                 (FileCollisionService)
+                 caching/generation (ThumbnailCacheService), AVIF decoding
+                 (AvifImageService), collision prompts (FileCollisionService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring)

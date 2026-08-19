@@ -155,6 +155,18 @@ public static class ThumbnailCacheService
 
     private static async Task<byte[]?> EncodeThumbnailAsync(string sourcePath)
     {
+        // WIC/BitmapDecoder can't read AVIF without a separate OS codec install - libheif handles
+        // the decode instead, converging back to the same PNG-bytes result either way.
+        if (string.Equals(Path.GetExtension(sourcePath), ".avif", StringComparison.OrdinalIgnoreCase))
+        {
+            var avifPng = await AvifImageService.DecodeToPngAsync(sourcePath, MaxDimension);
+            if (avifPng is null)
+            {
+                LogFailure(sourcePath, new InvalidOperationException("AVIF decode failed."));
+            }
+            return avifPng;
+        }
+
         try
         {
             using var sourceStream = await FileRandomAccessStream.OpenAsync(sourcePath, FileAccessMode.Read);

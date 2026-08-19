@@ -18,7 +18,7 @@ public static class IconHelper
     public const string Pdf = "\uE8A5";
 
     private static readonly HashSet<string> ImageExt = new(StringComparer.OrdinalIgnoreCase)
-        { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".svg" };
+        { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".svg", ".avif" };
 
     private static readonly HashSet<string> AudioExt = new(StringComparer.OrdinalIgnoreCase)
         { ".mp3", ".wav", ".flac", ".aac", ".wma", ".ogg", ".m4a" };
