@@ -124,7 +124,7 @@
                 <Button x:Name="OperationsButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="File operations"
                         ToolTipService.ToolTip="File operations">
-                    <FontIcon Glyph="&#xE895;" FontSize="16" />
+                    <FontIcon Glyph="&#xE713;" FontSize="16" />
                     <Button.Flyout>
                         <Flyout Placement="Bottom">
                             <StackPanel Width="360" Spacing="4">
