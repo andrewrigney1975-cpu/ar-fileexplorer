@@ -18,6 +18,30 @@ public sealed class FileSystemItem : ObservableObject
     public long SizeBytes { get; init; }
     public DateTimeOffset Modified { get; init; }
     public string Extension { get; init; } = string.Empty;
+    public FileAttributes Attributes { get; init; }
+
+    /// Windows Explorer-style attribute letter codes (see
+    /// https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants),
+    /// most-common-first: Read-only, Hidden, System, Archive, then the less common ones.
+    public string AttributesDisplay
+    {
+        get
+        {
+            var letters = string.Empty;
+            if (Attributes.HasFlag(FileAttributes.ReadOnly)) letters += "R";
+            if (Attributes.HasFlag(FileAttributes.Hidden)) letters += "H";
+            if (Attributes.HasFlag(FileAttributes.System)) letters += "S";
+            if (Attributes.HasFlag(FileAttributes.Archive)) letters += "A";
+            if (Attributes.HasFlag(FileAttributes.Compressed)) letters += "C";
+            if (Attributes.HasFlag(FileAttributes.Encrypted)) letters += "E";
+            if (Attributes.HasFlag(FileAttributes.ReparsePoint)) letters += "L";
+            if (Attributes.HasFlag(FileAttributes.Temporary)) letters += "T";
+            if (Attributes.HasFlag(FileAttributes.Offline)) letters += "O";
+            if (Attributes.HasFlag(FileAttributes.NotContentIndexed)) letters += "I";
+            if (Attributes.HasFlag(FileAttributes.SparseFile)) letters += "P";
+            return letters;
+        }
+    }
 
     /// Color-label name (e.g. "Red"), or null when untagged. Set by FileSystemService on load.
     public string? TagColor

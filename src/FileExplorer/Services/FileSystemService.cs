@@ -67,6 +67,7 @@ public static class FileSystemService
                     FullPath = info.FullName,
                     IsDirectory = true,
                     Modified = info.LastWriteTimeUtc,
+                    Attributes = info.Attributes,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                     SyncRole = SyncTaskService.GetRole(info.FullName),
@@ -93,6 +94,7 @@ public static class FileSystemService
                     SizeBytes = info.Length,
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
+                    Attributes = info.Attributes,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 });
@@ -152,6 +154,7 @@ public static class FileSystemService
                     SizeBytes = info.Length,
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
+                    Attributes = info.Attributes,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 }, nameMatched ? nameScore : ContentMatchScore));

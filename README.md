@@ -19,7 +19,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 
 ### Views
 - Icons, List, Details, and Gallery (large-thumbnail) view modes per pane
-- Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files
+- Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files, plus an Attributes column showing Windows Explorer-style letter codes (R/H/S/A/C/E/L/T/O/I/P — see [file attribute constants](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants))
 - Drag-rectangle (marquee) multi-select: click-drag over empty space to rubber-band select everything the rectangle touches
 - Real image thumbnails in Icons/Gallery views, rendered at 192px (2× the Gallery tile size, so they don't look upscaled/blurry) and cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
 - Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon, with a small folder-glyph badge overlaid in the corner so it's still clearly a folder
