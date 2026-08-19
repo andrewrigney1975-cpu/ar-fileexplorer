@@ -1,4 +1,4 @@
-# Arexx Pro
+# arExx Pro
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
 
@@ -19,8 +19,8 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ### Views
 - Icons, List, Details, and Gallery (large-thumbnail) view modes per pane
 - Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files
-- Real image thumbnails in Icons/Gallery views, cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
-- Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon
+- Real image thumbnails in Icons/Gallery views, rendered at 192px (2× the Gallery tile size, so they don't look upscaled/blurry) and cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
+- Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon, with a small folder-glyph badge overlaid in the corner so it's still clearly a folder
 - `.avif` thumbnails and preview: Windows' image codec (WIC) can't decode AVIF without a separate OS extension, so AVIF files are decoded via an embedded [libheif](https://github.com/strukturag/libheif) instead (`AvifImageService`), transparently alongside every other image format
 
 ### File operations
@@ -34,6 +34,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Filename collisions on copy/move (drag-and-drop, paste, "Move to folder...") and sync tasks prompt **Overwrite / Skip / Rename / Cancel**, with an "apply to all remaining conflicts" option; Rename auto-appends a bracketed number (`file (2).txt`) with no further input needed
 - Undo for create-folder, rename, move, and copy operations
 - Resilient, parallel, queued file-copy engine with automatic restart on transient I/O errors
+- The File operations toolbar icon spins while any job is queued or running, so activity is visible without opening the flyout
 - "Open with..." context menu entry
 
 ### Folder sync

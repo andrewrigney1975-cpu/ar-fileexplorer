@@ -14,11 +14,15 @@ namespace FileExplorer.Services;
 public static class ThumbnailCacheService
 {
     private const string CacheFileName = ".arexx-thumbs.cache";
-    private const uint MaxDimension = 96;
+    private const uint MaxDimension = 192; // 2x the Gallery view's 184px tile so it doesn't look upscaled/blurry
     private const int FlushDelayMs = 800;
     private const int MaxFolderScanDepth = 3;
     private const int MaxFolderScanEntries = 500;
-    private static readonly byte[] Magic = { (byte)'A', (byte)'T', (byte)'C', (byte)'1' };
+
+    // Bumped from ATC1: MaxDimension changed, and entries are keyed only by (name, modified time),
+    // not resolution - without a magic bump, old low-res cache files would look "still valid" and
+    // never regenerate at the new size.
+    private static readonly byte[] Magic = { (byte)'A', (byte)'T', (byte)'C', (byte)'2' };
 
     private sealed record DiskEntry(long ModifiedTicks, byte[] Png);
 

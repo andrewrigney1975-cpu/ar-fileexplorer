@@ -47,8 +47,19 @@ public sealed class FileSystemItem : ObservableObject
     public BitmapImage? Thumbnail
     {
         get => _thumbnail;
-        private set => SetProperty(ref _thumbnail, value);
+        private set
+        {
+            if (SetProperty(ref _thumbnail, value))
+            {
+                OnPropertyChanged(nameof(IsFolderThumbnail));
+            }
+        }
     }
+
+    /// True once a folder has been given a derived-image thumbnail (found inside it) rather than
+    /// still showing the plain folder glyph - drives the small folder-icon overlay that marks it as
+    /// a folder, not a file, once its own thumbnail is covering the usual glyph.
+    public bool IsFolderThumbnail => IsDirectory && Thumbnail is not null;
 
     public async Task EnsureThumbnailAsync()
     {

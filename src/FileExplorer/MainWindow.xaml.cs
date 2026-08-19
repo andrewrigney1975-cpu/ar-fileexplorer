@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace FileExplorer;
@@ -20,7 +21,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "Arexx Pro";
+        Title = "arExx Pro";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
 
         ExtendsContentIntoTitleBar = true;
@@ -61,6 +62,7 @@ public sealed partial class MainWindow : Window
         _operationQueue.JobCompleted += (_, job) =>
         {
             _viewModel.RefreshAllPanes();
+            UpdateOperationsSpinner();
 
             if (job.Kind == FileDropOperation.Sync)
             {
@@ -74,6 +76,7 @@ public sealed partial class MainWindow : Window
                 }
             }
         };
+        _operationQueue.Jobs.CollectionChanged += (_, _) => UpdateOperationsSpinner();
         OperationsList.ItemsSource = _operationQueue.Jobs;
 
         UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
@@ -106,6 +109,23 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonHoverForegroundColor = glyphColor;
         titleBar.ButtonPressedBackgroundColor = pressedColor;
         titleBar.ButtonPressedForegroundColor = glyphColor;
+    }
+
+    private void UpdateOperationsSpinner()
+    {
+        var spin = (Storyboard)RootGrid.Resources["OperationsGearSpin"];
+        var inProgress = _operationQueue.Jobs.Any(j => j.Status is FileOperationStatus.Queued or FileOperationStatus.Running);
+        var spinning = spin.GetCurrentState() == ClockState.Active;
+
+        if (inProgress && !spinning)
+        {
+            spin.Begin();
+        }
+        else if (!inProgress && spinning)
+        {
+            spin.Stop();
+            OperationsGearRotation.Angle = 0;
+        }
     }
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)

@@ -16,6 +16,12 @@
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
             <conv:UsedPercentToBrushConverter x:Key="UsedPercentToBrush" />
+
+            <!-- Spins the File operations gear icon while at least one job is queued/running. -->
+            <Storyboard x:Key="OperationsGearSpin">
+                <DoubleAnimation Storyboard.TargetName="OperationsGearRotation" Storyboard.TargetProperty="Angle"
+                                  From="0" To="360" Duration="0:0:0.5" RepeatBehavior="Forever" />
+            </Storyboard>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -32,7 +38,7 @@
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
              so the window frame reads as one continuous surface instead of a separate white/black strip. -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <TextBlock Text="Arexx Pro" FontWeight="SemiBold" FontSize="13"
+            <TextBlock Text="arExx Pro" FontWeight="SemiBold" FontSize="13"
                        Margin="48,0,0,0" VerticalAlignment="Center" />
         </Grid>
 
@@ -157,7 +163,11 @@
                 <Button x:Name="OperationsButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="File operations"
                         ToolTipService.ToolTip="File operations">
-                    <FontIcon Glyph="&#xE713;" FontSize="16" />
+                    <FontIcon x:Name="OperationsGearIcon" Glyph="&#xE713;" FontSize="16" RenderTransformOrigin="0.5,0.5">
+                        <FontIcon.RenderTransform>
+                            <RotateTransform x:Name="OperationsGearRotation" Angle="0" />
+                        </FontIcon.RenderTransform>
+                    </FontIcon>
                     <Button.Flyout>
                         <Flyout Placement="Bottom">
                             <StackPanel Width="360" Spacing="4">
