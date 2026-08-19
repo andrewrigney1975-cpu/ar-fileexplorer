@@ -20,7 +20,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "File Explorer";
+        Title = "Arexx Pro";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
 
         ExtendsContentIntoTitleBar = true;
@@ -42,8 +42,13 @@ public sealed partial class MainWindow : Window
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
 
-        _previewExpandedWidth = LayoutSettingsService.LoadPreviewWidth() ?? PreviewColumn.ActualWidth;
+        var savedLayout = LayoutSettingsService.Load();
+
+        _previewExpandedWidth = savedLayout.PreviewWidth ?? PreviewColumn.ActualWidth;
         PreviewColumn.Width = new GridLength(_previewExpandedWidth);
+
+        TerminalToggleButton.IsChecked = savedLayout.TerminalOpen;
+        TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
 
         _operationQueue = new FileOperationQueueService(DispatcherQueue);
         _operationQueue.JobCompleted += (_, _) => _viewModel.RefreshAllPanes();
@@ -55,7 +60,7 @@ public sealed partial class MainWindow : Window
         {
             _viewModel.SaveSession();
             var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
-            LayoutSettingsService.SavePreviewWidth(width);
+            LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true));
         };
     }
 

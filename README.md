@@ -1,6 +1,8 @@
-# File Explorer
+# Arexx Pro
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
+
+> **Roadmap:** scripting and a folder-sync engine are planned for the next iteration.
 
 ## Features
 

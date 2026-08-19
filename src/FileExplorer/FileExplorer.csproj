@@ -19,6 +19,8 @@
     <LangVersion>latest</LangVersion>
     <NeutralLanguage>en-US</NeutralLanguage>
     <AssemblyName>FileExplorer</AssemblyName>
+    <Product>Arexx Pro</Product>
+    <AssemblyTitle>Arexx Pro</AssemblyTitle>
   </PropertyGroup>
 
   <ItemGroup>

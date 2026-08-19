@@ -32,7 +32,7 @@
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
              so the window frame reads as one continuous surface instead of a separate white/black strip. -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <TextBlock Text="File Explorer" FontWeight="SemiBold" FontSize="13"
+            <TextBlock Text="Arexx Pro" FontWeight="SemiBold" FontSize="13"
                        Margin="48,0,0,0" VerticalAlignment="Center" />
         </Grid>
 
