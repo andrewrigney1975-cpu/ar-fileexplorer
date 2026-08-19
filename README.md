@@ -2,8 +2,6 @@
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
 
-> **Roadmap:** scripting is planned for the next iteration.
-
 ## Features
 
 ### Navigation & layout
@@ -41,6 +39,12 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - A toolbar dropdown (next to File operations) lists the sync tasks whose source folder is visible in the current Workspace's Left or Right pane, with a trash icon (and confirmation) to delete a task; running a task enqueues it into the same File operations queue/list as any copy or move, with live progress
 - One-way, copy-only: copies new/changed files from source → target; never deletes or touches files that exist only in the target
 - A Windows notification reports success or failure (with the error) when a sync task finishes
+
+### Scripting
+- Command palette (`Ctrl+K`) → "Manage Scripts..." opens an in-app Script Manager: a list of saved scripts on the left, a code editor + Run/Save on the right, and an "API Reference..." button with the full function list
+- Scripts are plain **JavaScript** (ES5.1, run by the embedded [Jint](https://github.com/sebastienros/jint) interpreter), each saved as a `.js` file; every saved script also gets its own `"Run Script: <name>"` entry in the command palette for one-key execution against the active pane's current selection
+- API surface: `selection()` / `listFiles(path)` (folder contents), `currentPath`, `rename`/`copyTo`/`moveTo`/`deleteItem`/`createFolder`, `readText`/`writeText`/`exists`, `prompt`/`confirm` (blocking input dialogs), `notify` (Windows toast), `refresh` (reload open panes), and `log` (shown in the run's output)
+- Scripts run off the UI thread with a 30-second timeout guard; `deleteItem` defaults to the Recycle Bin; script-driven file changes are **not** tracked by Undo, and there's no sandboxing beyond the timeout (the app already ships a full terminal, so a script has no more reach than the user already does)
 
 ### Search & organization
 - Per-folder filename search with typo-tolerant fuzzy matching (e.g. `rdme` matches `readme.txt`)
@@ -88,6 +92,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `Microsoft.Windows.SDK.BuildTools` | PRI/manifest build tooling |
 | `Microsoft.Web.WebView2` | PDF preview (renders via WebView2's built-in PDF viewer) |
 | `DocumentFormat.OpenXml` | Text-only preview extraction for `.docx`/`.xlsx`/`.pptx` |
+| `Jint` | Embedded JavaScript interpreter for user scripts (pure C#, no native deps) |
 
 Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts).
 
@@ -133,10 +138,11 @@ No installer or MSIX packaging step is required — the exe runs directly.
 src/FileExplorer/
   Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
-  Views/         PaneView, PreviewPane, TerminalPane (XAML + code-behind)
+  Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
-                 persistence, folder sync (SyncTaskService), toast notifications
+                 persistence, folder sync (SyncTaskService), toast notifications,
+                 user scripting (ScriptService, ScriptEngineService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring)
@@ -144,4 +150,5 @@ src/FileExplorer/
 ```
 
 Per-user application data (tags, saved searches, network locations, session state, window
-layout, sync tasks) is stored as JSON under `%LocalAppData%\FileExplorerApp\`.
+layout, sync tasks) is stored as JSON under `%LocalAppData%\FileExplorerApp\`; saved scripts are
+plain `.js` files under `%LocalAppData%\FileExplorerApp\Scripts\`.

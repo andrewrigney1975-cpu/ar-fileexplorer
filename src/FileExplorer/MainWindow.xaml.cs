@@ -852,6 +852,7 @@ public sealed partial class MainWindow : Window
             new("Go Back", "Navigate back", () => pane?.NavigateBack()),
             new("Go Forward", "Navigate forward", () => pane?.NavigateForward()),
             new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
+            new("Manage Scripts...", "Create, edit, and run scripts", () => _ = OpenScriptManagerAsync()),
         };
 
         if (pane is not null)
@@ -875,7 +876,69 @@ public sealed partial class MainWindow : Window
             commands.Add(new PaletteCommand($"Search: {search.Name}", search.RootPath, () => RunSavedSearch(search)));
         }
 
+        foreach (var scriptName in ScriptService.List())
+        {
+            commands.Add(new PaletteCommand($"Run Script: {scriptName}", "", () => _ = RunScriptAsync(scriptName)));
+        }
+
         return commands;
+    }
+
+    private async Task OpenScriptManagerAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Scripts",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var manager = new ScriptManagerDialog
+        {
+            MainViewModel = _viewModel,
+            ActivePane = _viewModel.SelectedTab?.ActivePane,
+            RequestClose = () => dialog.Hide(),
+        };
+        dialog.Content = manager;
+
+        // ContentDialog clips its content to a themed default (548x756) unless overridden - the
+        // Script Manager needs real width for the editor, so raise the cap to fit it comfortably.
+        // The dialog has no built-in Close button (see RequestClose above) - ContentDialog stretches
+        // a lone footer button across the full width, which looks wrong at this size, so the Script
+        // Manager draws its own right-aligned Close button instead.
+        dialog.Resources["ContentDialogMaxWidth"] = 1180d;
+        dialog.Resources["ContentDialogMaxHeight"] = 760d;
+
+        await dialog.ShowAsync();
+    }
+
+    private async Task RunScriptAsync(string scriptName)
+    {
+        var code = ScriptService.Load(scriptName);
+        if (code is null)
+        {
+            return;
+        }
+
+        var result = await ScriptEngineService.RunAsync(
+            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+
+        if (result.Success)
+        {
+            var summary = result.Log.Count > 0 ? string.Join(" | ", result.Log.TakeLast(3)) : "Completed.";
+            NotificationService.Show($"Script '{scriptName}' finished", summary);
+        }
+        else
+        {
+            var dialog = new ContentDialog
+            {
+                Title = $"Script '{scriptName}' failed",
+                Content = new TextBlock { Text = result.Error, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "Close",
+                XamlRoot = Content.XamlRoot,
+            };
+
+            await dialog.ShowAsync();
+        }
     }
 
     private async Task ShowDuplicateFinderAsync(string rootPath)
