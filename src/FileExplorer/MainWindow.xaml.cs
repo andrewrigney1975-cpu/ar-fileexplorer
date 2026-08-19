@@ -56,7 +56,7 @@ public sealed partial class MainWindow : Window
         TerminalToggleButton.IsChecked = savedLayout.TerminalOpen;
         TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
 
-        _operationQueue = new FileOperationQueueService(DispatcherQueue);
+        _operationQueue = new FileOperationQueueService(DispatcherQueue, () => Content.XamlRoot);
         _operationQueue.JobCompleted += (_, job) =>
         {
             _viewModel.RefreshAllPanes();
@@ -711,7 +711,12 @@ public sealed partial class MainWindow : Window
             _previewExpandedWidth = PreviewColumn.ActualWidth;
         }
 
+        // MinWidth="240" on the column (needed so dragging the splitter can't shrink it below a
+        // usable size) also stops Width=0 from actually collapsing it unless MinWidth is cleared too.
+        PreviewColumn.MinWidth = show ? 240 : 0;
         PreviewColumn.Width = show ? new GridLength(_previewExpandedWidth) : new GridLength(0);
+        PreviewSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        Preview.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void TerminalToggleButton_Click(object sender, RoutedEventArgs e)

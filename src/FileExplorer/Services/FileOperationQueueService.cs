@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using FileExplorer.Models;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 
 namespace FileExplorer.Services;
 
@@ -11,13 +12,15 @@ public sealed class FileOperationQueueService
     private const int MaxParallelFiles = 4;
 
     private readonly DispatcherQueue _dispatcher;
+    private readonly Func<XamlRoot> _getXamlRoot;
     private readonly SemaphoreSlim _signal = new(0);
     private readonly Queue<FileOperationJob> _pending = new();
     private readonly object _lock = new();
 
-    public FileOperationQueueService(DispatcherQueue dispatcher)
+    public FileOperationQueueService(DispatcherQueue dispatcher, Func<XamlRoot> getXamlRoot)
     {
         _dispatcher = dispatcher;
+        _getXamlRoot = getXamlRoot;
         _ = Task.Run(ProcessLoopAsync);
         Current = this;
     }
@@ -118,17 +121,17 @@ public sealed class FileOperationQueueService
                 return;
             }
 
+            var resolved = await ResolveTopLevelCollisionsAsync(job.SourcePaths, job.DestinationFolder, token).ConfigureAwait(false);
             var allSameDrive = job.SourcePaths.All(p => FileOperationService.SameDrive(p, job.DestinationFolder));
 
             if (job.Kind == FileDropOperation.Move && allSameDrive)
             {
                 // Same-volume move is an atomic filesystem rename - already optimal, no streaming needed.
                 var moved = new List<(string Source, string Destination)>();
-                foreach (var source in job.SourcePaths)
+                foreach (var (source, destination) in resolved)
                 {
                     token.ThrowIfCancellationRequested();
-                    var destination = MoveByRename(source, job.DestinationFolder);
-                    if (destination is not null)
+                    if (MoveByRename(source, destination))
                     {
                         moved.Add((source, destination));
                     }
@@ -141,7 +144,7 @@ public sealed class FileOperationQueueService
             }
             else
             {
-                var plan = BuildCopyPlan(job.SourcePaths, job.DestinationFolder);
+                var plan = BuildCopyPlan(resolved);
                 _dispatcher.TryEnqueue(() => job.BytesTotal = plan.TotalBytes);
 
                 foreach (var dir in plan.DirectoriesToCreate)
@@ -182,7 +185,9 @@ public sealed class FileOperationQueueService
 
                 if (job.Kind == FileDropOperation.Move)
                 {
-                    foreach (var source in job.SourcePaths)
+                    // Only delete sources that were actually copied - a Skip'd collision must leave
+                    // its original untouched rather than vanishing without ever reaching the destination.
+                    foreach (var (source, _) in plan.TopLevel)
                     {
                         DeleteSource(source);
                     }
@@ -213,9 +218,107 @@ public sealed class FileOperationQueueService
                 job.Status = FileOperationStatus.Failed;
             });
         }
+        catch (Exception ex)
+        {
+            // Any other unexpected failure must still end this one job rather than escape - an
+            // unhandled exception here would otherwise kill ProcessLoopAsync's while(true) forever,
+            // silently freezing every future file operation for the rest of the app session.
+            _dispatcher.TryEnqueue(() =>
+            {
+                job.ErrorMessage = ex.Message;
+                job.Status = FileOperationStatus.Failed;
+            });
+        }
         finally
         {
             _dispatcher.TryEnqueue(() => JobCompleted?.Invoke(this, job));
+        }
+    }
+
+    /// Walks the top-level selected items, asking Overwrite/Skip/Rename/Cancel for any that already
+    /// exist at the destination (honoring "apply to all" once given), and returns the resolved
+    /// (Source, Destination) pairs - Skip'd items excluded. An Overwrite choice sends the prior
+    /// occupant to the Recycle Bin immediately so nothing stale is left for ResilientFileCopy's
+    /// resume-offset logic to misinterpret as a partial copy.
+    private async Task<List<(string Source, string Destination)>> ResolveTopLevelCollisionsAsync(
+        IReadOnlyList<string> sourcePaths, string destinationFolder, CancellationToken token)
+    {
+        var resolved = new List<(string Source, string Destination)>();
+        CollisionAction? appliedToAll = null;
+
+        foreach (var source in sourcePaths)
+        {
+            token.ThrowIfCancellationRequested();
+
+            var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
+            var destination = Path.Combine(destinationFolder, name);
+
+            if (!File.Exists(destination) && !Directory.Exists(destination))
+            {
+                resolved.Add((source, destination));
+                continue;
+            }
+
+            CollisionAction action;
+            string? renameTo;
+
+            if (appliedToAll is { } applied)
+            {
+                action = applied;
+                renameTo = null;
+            }
+            else
+            {
+                var resolution = await FileCollisionService.ResolveAsync(
+                    name, FileOperationService.MakeUniqueDestination(destination), allowApplyToAll: true, _dispatcher, _getXamlRoot).ConfigureAwait(false);
+
+                action = resolution.Action;
+                renameTo = resolution.RenameTo;
+
+                if (resolution.ApplyToAll)
+                {
+                    appliedToAll = action;
+                }
+            }
+
+            switch (action)
+            {
+                case CollisionAction.Cancel:
+                    throw new OperationCanceledException();
+
+                case CollisionAction.Skip:
+                    continue;
+
+                case CollisionAction.Rename:
+                    var renamed = !string.IsNullOrWhiteSpace(renameTo) ? Path.Combine(destinationFolder, renameTo) : destination;
+                    resolved.Add((source, FileOperationService.MakeUniqueDestination(renamed)));
+                    continue;
+
+                case CollisionAction.Overwrite:
+                    DeleteToRecycleBin(destination);
+                    resolved.Add((source, destination));
+                    continue;
+            }
+        }
+
+        return resolved;
+    }
+
+    private static void DeleteToRecycleBin(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
+                path,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+        }
+        else if (File.Exists(path))
+        {
+            Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                path,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         }
     }
 
@@ -236,17 +339,66 @@ public sealed class FileOperationQueueService
         var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
         var toCopy = new List<(string Source, string Destination)>();
         long totalBytes = 0;
+        CollisionAction? appliedToAll = null;
 
         foreach (var file in files)
         {
+            token.ThrowIfCancellationRequested();
+
             var relative = Path.GetRelativePath(source, file);
             var destination = Path.Combine(target, relative);
             var sourceInfo = new FileInfo(file);
+            var destinationExists = File.Exists(destination);
 
-            var needsCopy = !File.Exists(destination) || new FileInfo(destination).LastWriteTimeUtc < sourceInfo.LastWriteTimeUtc;
+            var needsCopy = !destinationExists || new FileInfo(destination).LastWriteTimeUtc < sourceInfo.LastWriteTimeUtc;
             if (!needsCopy)
             {
                 continue;
+            }
+
+            // A file only in source (nothing at the destination yet) is normal sync growth, not a
+            // collision - only prompt when there's already a differing file at this relative path.
+            if (destinationExists)
+            {
+                CollisionAction action;
+                string? renameTo;
+
+                if (appliedToAll is { } applied)
+                {
+                    action = applied;
+                    renameTo = null;
+                }
+                else
+                {
+                    var resolution = await FileCollisionService.ResolveAsync(
+                        relative, FileOperationService.MakeUniqueDestination(destination), allowApplyToAll: true, _dispatcher, _getXamlRoot).ConfigureAwait(false);
+
+                    action = resolution.Action;
+                    renameTo = resolution.RenameTo;
+
+                    if (resolution.ApplyToAll)
+                    {
+                        appliedToAll = action;
+                    }
+                }
+
+                switch (action)
+                {
+                    case CollisionAction.Cancel:
+                        throw new OperationCanceledException();
+
+                    case CollisionAction.Skip:
+                        continue;
+
+                    case CollisionAction.Rename:
+                        var renamed = !string.IsNullOrWhiteSpace(renameTo) ? Path.Combine(target, renameTo) : destination;
+                        destination = FileOperationService.MakeUniqueDestination(renamed);
+                        break;
+
+                    case CollisionAction.Overwrite:
+                        DeleteToRecycleBin(destination);
+                        break;
+                }
             }
 
             toCopy.Add((file, destination));
@@ -297,14 +449,13 @@ public sealed class FileOperationQueueService
             }).ConfigureAwait(false);
     }
 
-    private static string? MoveByRename(string source, string destinationFolder)
+    /// destination is already collision-resolved (unique, or the prior occupant already cleared for
+    /// an Overwrite) by ResolveTopLevelCollisionsAsync - this just performs the rename-move.
+    private static bool MoveByRename(string source, string destination)
     {
-        var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
-        var destination = FileOperationService.MakeUniqueDestination(Path.Combine(destinationFolder, name));
-
         if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
         {
-            return null;
+            return false;
         }
 
         if (Directory.Exists(source))
@@ -317,10 +468,10 @@ public sealed class FileOperationQueueService
         }
         else
         {
-            return null;
+            return false;
         }
 
-        return destination;
+        return true;
     }
 
     private static void DeleteSource(string source)
@@ -340,17 +491,17 @@ public sealed class FileOperationQueueService
         catch (UnauthorizedAccessException) { }
     }
 
-    private static CopyPlan BuildCopyPlan(IReadOnlyList<string> sourcePaths, string destinationFolder)
+    /// resolvedTopLevel is already collision-resolved (unique, or the prior occupant already cleared
+    /// for an Overwrite) by ResolveTopLevelCollisionsAsync.
+    private static CopyPlan BuildCopyPlan(IReadOnlyList<(string Source, string Destination)> resolvedTopLevel)
     {
         var files = new List<(string Source, string Destination)>();
         var directories = new List<string>();
         var topLevel = new List<(string Source, string Destination)>();
         long total = 0;
 
-        foreach (var source in sourcePaths)
+        foreach (var (source, topDestination) in resolvedTopLevel)
         {
-            var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
-            var topDestination = FileOperationService.MakeUniqueDestination(Path.Combine(destinationFolder, name));
             topLevel.Add((source, topDestination));
 
             if (Directory.Exists(source))

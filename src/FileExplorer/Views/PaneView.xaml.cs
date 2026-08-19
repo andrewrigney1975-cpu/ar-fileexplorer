@@ -395,6 +395,7 @@ public sealed partial class PaneView : UserControl
         }
 
         var paths = items.Select(i => i.FullPath).ToList();
+        var failures = new List<(string Path, string Error)>();
 
         await Task.Run(() =>
         {
@@ -406,12 +407,47 @@ public sealed partial class PaneView : UserControl
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // best-effort: skip items that fail (locked, permissions) and continue with the rest
+                    // Skip items that fail (locked, permissions, non-empty edge cases) and continue
+                    // with the rest, but the failure must be visible - silently doing nothing here
+                    // makes a real error indistinguishable from "it just didn't work".
+                    failures.Add((path, ex.Message));
                 }
             }
         });
 
         ViewModel.Refresh();
+
+        if (failures.Count > 0)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = failures.Count == 1 ? "Couldn't delete item" : $"Couldn't delete {failures.Count} items",
+                Content = new TextBlock
+                {
+                    Text = string.Join("\n\n", failures.Select(f => FormatDeleteFailure(f.Path, f.Error))),
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                CloseButtonText = "Close",
+            };
+
+            await dialog.ShowAsync();
+        }
+    }
+
+    /// "Access is denied" on a non-empty folder is almost always either a locked/open file inside
+    /// it or (very commonly, when the path is under OneDrive/etc.) an online-only cloud placeholder
+    /// that hasn't finished downloading - the raw exception text alone doesn't hint at either.
+    private static string FormatDeleteFailure(string path, string error)
+    {
+        var isAccessDenied = error.Contains("denied", StringComparison.OrdinalIgnoreCase);
+        var hint = isAccessDenied
+            ? CloudProviderService.IsUnderCloudRoot(path)
+                ? " This folder is inside a cloud-sync location - a file inside it may still be online-only and not fully downloaded yet. Try opening the folder and waiting for it to finish syncing, then delete again."
+                : " A file inside this folder may be open in another program, or read-only/protected."
+            : string.Empty;
+
+        return $"{Path.GetFileName(path)}:\n{error}{hint}";
     }
 
     private static void DeleteOne(string path, bool permanent)

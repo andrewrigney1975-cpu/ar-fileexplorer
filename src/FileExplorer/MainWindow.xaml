@@ -121,6 +121,39 @@
                               IsChecked="False" Click="TerminalToggleButton_Click" ToolTipService.ToolTip="Toggle terminal">
                     <FontIcon Glyph="&#xE756;" FontSize="16" />
                 </ToggleButton>
+                <Button x:Name="SyncButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Sync tasks"
+                        ToolTipService.ToolTip="Sync tasks">
+                    <FontIcon Glyph="&#xE895;" FontSize="16" />
+                    <Button.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel Width="280" Spacing="4">
+                                <TextBlock Text="Sync tasks" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                <TextBlock x:Name="SyncTasksEmptyText" Text="No sync tasks" Opacity="0.6" FontSize="12" />
+                                <ListView x:Name="SyncTasksList" MaxHeight="360" SelectionMode="None"
+                                          IsItemClickEnabled="True" ItemClick="SyncTasksList_ItemClick">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="200" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                                        Padding="4" Click="DeleteSyncTask_Click" Tag="{Binding}"
+                                                        ToolTipService.ToolTip="Delete sync task">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
                 <Button x:Name="OperationsButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="File operations"
                         ToolTipService.ToolTip="File operations">
@@ -153,39 +186,6 @@
                                                     <ProgressBar Value="{Binding ProgressPercent}" Maximum="100" />
                                                     <TextBlock Text="{Binding Status}" FontSize="11" Opacity="0.7" />
                                                 </StackPanel>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ListView.ItemTemplate>
-                                </ListView>
-                            </StackPanel>
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
-                <Button x:Name="SyncButton" Style="{StaticResource ToolbarIconButtonStyle}"
-                        AutomationProperties.Name="Sync tasks"
-                        ToolTipService.ToolTip="Sync tasks">
-                    <FontIcon Glyph="&#xE895;" FontSize="16" />
-                    <Button.Flyout>
-                        <Flyout Placement="Bottom">
-                            <StackPanel Width="280" Spacing="4">
-                                <TextBlock Text="Sync tasks" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <TextBlock x:Name="SyncTasksEmptyText" Text="No sync tasks" Opacity="0.6" FontSize="12" />
-                                <ListView x:Name="SyncTasksList" MaxHeight="360" SelectionMode="None"
-                                          IsItemClickEnabled="True" ItemClick="SyncTasksList_ItemClick">
-                                    <ListView.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid ColumnSpacing="8">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="200" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
-                                                        Padding="4" Click="DeleteSyncTask_Click" Tag="{Binding}"
-                                                        ToolTipService.ToolTip="Delete sync task">
-                                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
-                                                </Button>
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>

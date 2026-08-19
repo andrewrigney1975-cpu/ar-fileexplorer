@@ -26,9 +26,10 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Drag-to-tab: hover a drag over a background tab to switch to it before dropping
 - Cut / Copy / Paste toolbar and context menu, with a shared clipboard between panes
 - Rename (`F2`), "Move to folder..." (`F3`, creates a new folder from the current multi-selection)
-- Delete to Recycle Bin (`Del`), permanent delete (`Shift+Del`)
+- Delete to Recycle Bin (`Del`), permanent delete (`Shift+Del`); a failed delete (locked file, permissions, or an unsynced cloud-only file) shows a dialog naming the item and why — including a specific hint when the folder is under a detected OneDrive/Google Drive/Dropbox/Box root — instead of silently doing nothing
 - Batch rename with pattern-based multi-selection renaming
 - Compress selection to `.zip` from the context menu; extract one or many selected `.zip` files at once, each to its own destination folder
+- Filename collisions on copy/move (drag-and-drop, paste, "Move to folder...") and sync tasks prompt **Overwrite / Skip / Rename / Cancel**, with an "apply to all remaining conflicts" option; Rename auto-appends a bracketed number (`file (2).txt`) with no further input needed
 - Undo for create-folder, rename, move, and copy operations
 - Resilient, parallel, queued file-copy engine with automatic restart on transient I/O errors
 - "Open with..." context menu entry
@@ -37,7 +38,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Right-click any folder → "Set sync source...", then right-click another folder (any pane, any Workspace) → "Set sync target"; both get an immediate highlight bar (orange for the source, green for the target) so the pairing is visible while you set it up
 - Confirming a name in the resulting dialog saves the pairing as a named sync task; source/target folders keep their highlight bar afterward, wherever they're browsed
 - A toolbar dropdown (next to File operations) lists the sync tasks whose source folder is visible in the current Workspace's Left or Right pane, with a trash icon (and confirmation) to delete a task; running a task enqueues it into the same File operations queue/list as any copy or move, with live progress
-- One-way, copy-only: copies new/changed files from source → target; never deletes or touches files that exist only in the target
+- One-way, copy-only: copies new/changed files from source → target; never deletes or touches files that exist only in the target. When a file differs at the same relative path in both, it's a collision handled the same way as any copy/move (Overwrite/Skip/Rename/Cancel, with "apply to all")
 - A Windows notification reports success or failure (with the error) when a sync task finishes
 
 ### Scripting
