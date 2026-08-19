@@ -93,7 +93,7 @@ Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, f
 
 **Runtime prerequisite:** PDF preview requires the WebView2 runtime, which ships with Windows 11 and current Windows 10 by default. On an older or locked-down Windows 10 install without it, PDF preview falls back to a generic file icon instead of crashing.
 
-**Known limitation:** toast notifications use `AppNotificationManager`, which is best-supported for packaged (MSIX) apps. This app is unpackaged (no `Package.appxmanifest`), so registration/activation is the least battle-tested corner of the app; `NotificationService` wraps every call defensively so a platform quirk here can't crash or block the app, but a toast may not always appear.
+**Note:** toast notifications use `AppNotificationManager`, which is best-supported for packaged (MSIX) apps. This app is unpackaged (no `Package.appxmanifest`) but toast registration/activation has been confirmed working from this unpackaged exe on this dev machine; `NotificationService` still wraps every call defensively so a platform quirk on another machine/OS build can't crash or block the app.
 
 ## Build process
 
