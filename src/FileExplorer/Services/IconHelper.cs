@@ -59,6 +59,8 @@ public static class IconHelper
 
     public static bool IsPreviewableText(string extension) => TextExt.Contains(extension) || CodeExt.Contains(extension);
 
+    public static bool IsCodeExtension(string extension) => CodeExt.Contains(extension);
+
     public static bool IsPreviewableVideo(string extension) => VideoExt.Contains(extension);
 
     public static bool IsPreviewablePdf(string extension) => string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase);

@@ -1,8 +1,11 @@
+using FileExplorer.Helpers;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace FileExplorer.Views;
@@ -15,6 +18,7 @@ public sealed partial class PreviewPane : UserControl
     public PreviewPane()
     {
         InitializeComponent();
+        ActualThemeChanged += (_, _) => Refresh(ViewModel?.SelectedItem);
     }
 
     public PaneViewModel? ViewModel
@@ -52,6 +56,7 @@ public sealed partial class PreviewPane : UserControl
     {
         ImagePreview.Visibility = Visibility.Collapsed;
         TextScroller.Visibility = Visibility.Collapsed;
+        CodeScroller.Visibility = Visibility.Collapsed;
         IconPreview.Visibility = Visibility.Collapsed;
         VideoPreview.Visibility = Visibility.Collapsed;
         VideoPreview.MediaPlayer?.Pause();
@@ -106,8 +111,17 @@ public sealed partial class PreviewPane : UserControl
                 using var stream = File.OpenText(item.FullPath);
                 var buffer = new char[4000];
                 var count = await stream.ReadAsync(buffer, 0, buffer.Length);
-                TextPreview.Text = new string(buffer, 0, count);
-                TextScroller.Visibility = Visibility.Visible;
+                var text = new string(buffer, 0, count);
+
+                if (IconHelper.IsCodeExtension(item.Extension))
+                {
+                    ShowCodePreview(text, item.Extension);
+                }
+                else
+                {
+                    TextPreview.Text = text;
+                    TextScroller.Visibility = Visibility.Visible;
+                }
                 return;
             }
             catch (IOException)
@@ -154,5 +168,45 @@ public sealed partial class PreviewPane : UserControl
 
         IconGlyph.Glyph = item.Glyph;
         IconPreview.Visibility = Visibility.Visible;
+    }
+
+    private void ShowCodePreview(string text, string extension)
+    {
+        var lines = SyntaxHighlighter.Tokenize(text, extension);
+        var isDark = ActualTheme == ElementTheme.Dark;
+
+        CodeLineNumbers.Text = string.Join('\n', Enumerable.Range(1, lines.Count));
+
+        CodePreview.Blocks.Clear();
+        foreach (var lineTokens in lines)
+        {
+            var paragraph = new Paragraph();
+            foreach (var token in lineTokens)
+            {
+                paragraph.Inlines.Add(new Run { Text = token.Text, Foreground = BrushFor(token.Kind, isDark) });
+            }
+            if (lineTokens.Count == 0)
+            {
+                paragraph.Inlines.Add(new Run { Text = " " });
+            }
+            CodePreview.Blocks.Add(paragraph);
+        }
+
+        CodeScroller.Visibility = Visibility.Visible;
+    }
+
+    private static Brush BrushFor(SyntaxTokenKind kind, bool isDark)
+    {
+        var color = kind switch
+        {
+            SyntaxTokenKind.Keyword => isDark ? Windows.UI.Color.FromArgb(255, 86, 156, 214) : Windows.UI.Color.FromArgb(255, 0, 0, 255),
+            SyntaxTokenKind.String => isDark ? Windows.UI.Color.FromArgb(255, 214, 157, 133) : Windows.UI.Color.FromArgb(255, 163, 21, 21),
+            SyntaxTokenKind.Comment => isDark ? Windows.UI.Color.FromArgb(255, 96, 139, 78) : Windows.UI.Color.FromArgb(255, 0, 128, 0),
+            SyntaxTokenKind.Number => isDark ? Windows.UI.Color.FromArgb(255, 181, 206, 168) : Windows.UI.Color.FromArgb(255, 9, 134, 88),
+            SyntaxTokenKind.Tag => isDark ? Windows.UI.Color.FromArgb(255, 86, 156, 214) : Windows.UI.Color.FromArgb(255, 163, 21, 21),
+            SyntaxTokenKind.Attribute => isDark ? Windows.UI.Color.FromArgb(255, 156, 220, 254) : Windows.UI.Color.FromArgb(255, 255, 0, 0),
+            _ => isDark ? Windows.UI.Color.FromArgb(255, 220, 220, 220) : Windows.UI.Color.FromArgb(255, 30, 30, 30),
+        };
+        return new SolidColorBrush(color);
     }
 }

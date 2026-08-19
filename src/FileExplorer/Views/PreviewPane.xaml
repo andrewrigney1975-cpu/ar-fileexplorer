@@ -36,6 +36,20 @@
                 <TextBlock x:Name="TextPreview" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" FontSize="12" />
             </ScrollViewer>
 
+            <ScrollViewer x:Name="CodeScroller" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="CodeLineNumbers" Grid.Column="0" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                               TextAlignment="Right" Opacity="0.45" Margin="0,0,10,0" IsTextSelectionEnabled="False" />
+                    <RichTextBlock x:Name="CodePreview" Grid.Column="1" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                                   TextWrapping="NoWrap" />
+                </Grid>
+            </ScrollViewer>
+
             <StackPanel x:Name="IconPreview" Visibility="Collapsed" Spacing="8" VerticalAlignment="Top">
                 <FontIcon x:Name="IconGlyph" FontSize="64" FontFamily="Segoe Fluent Icons"
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
