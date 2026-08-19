@@ -1,0 +1,68 @@
+<UserControl
+    x:Class="FileExplorer.Views.PropertiesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Width="380" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+            <FontIcon x:Name="IconGlyph" FontSize="32" FontFamily="Segoe Fluent Icons"
+                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+            <TextBlock x:Name="NameText" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" MaxLines="1" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnSpacing="12" RowSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" x:Name="ItemCountRow" />
+                <RowDefinition Height="1" />
+                <RowDefinition Height="Auto" x:Name="CreatedRow" />
+                <RowDefinition Height="Auto" x:Name="ModifiedRow" />
+                <RowDefinition Height="Auto" x:Name="AccessedRow" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Type:" Opacity="0.7" />
+            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TypeText" TextWrapping="Wrap" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Location:" Opacity="0.7" />
+            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="LocationText" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size:" Opacity="0.7" />
+            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SizeText" TextWrapping="Wrap" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" x:Name="ItemCountLabel" Text="Contains:" Opacity="0.7" Visibility="Collapsed" />
+            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="ItemCountText" TextWrapping="Wrap" Visibility="Collapsed" />
+
+            <Rectangle Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Created:" Opacity="0.7" />
+            <TextBlock Grid.Row="5" Grid.Column="1" x:Name="CreatedText" />
+
+            <TextBlock Grid.Row="6" Grid.Column="0" Text="Modified:" Opacity="0.7" />
+            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="ModifiedText" />
+
+            <TextBlock Grid.Row="7" Grid.Column="0" Text="Accessed:" Opacity="0.7" />
+            <TextBlock Grid.Row="7" Grid.Column="1" x:Name="AccessedText" />
+        </Grid>
+
+        <StackPanel x:Name="AttributesRow" Grid.Row="2" Spacing="4">
+            <TextBlock Text="Attributes:" Opacity="0.7" />
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <CheckBox x:Name="ReadOnlyCheck" Content="Read-only" />
+                <CheckBox x:Name="HiddenCheck" Content="Hidden" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</UserControl>

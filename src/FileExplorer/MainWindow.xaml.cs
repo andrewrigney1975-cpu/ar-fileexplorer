@@ -38,6 +38,8 @@ public sealed partial class MainWindow : Window
         PopulateSavedSearches();
         PopulateNetworkLocations();
         PopulateCloudLocations();
+        PopulateFavourites();
+        FavouriteService.Changed += (_, _) => DispatcherQueue.TryEnqueue(PopulateFavourites);
         SubscribeToActiveTab(_viewModel.SelectedTab);
         SubscribeSyncDropdown(_viewModel.SelectedTab);
         SyncTaskService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -408,6 +410,56 @@ public sealed partial class MainWindow : Window
 
     private void CloudLocationsHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
         ToggleSection(CloudLocationsChevron, CloudLocationsList);
+
+    private void FavouritesHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(FavouritesChevron, FavouritesList);
+
+    // ----- Favourites (left rail) -----
+
+    private void PopulateFavourites()
+    {
+        // ToList() so this is always a fresh reference - FavouriteService.Load() returns the same
+        // cached list instance across calls, and re-assigning ItemsSource to an unchanged reference
+        // is a no-op for WinUI's binding (it only rebinds when the reference itself changes).
+        FavouritesList.ItemsSource = FavouriteService.Load().ToList();
+    }
+
+    private void AddFavouriteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedTab?.ActivePane is { } pane)
+        {
+            AddFavourite(pane.CurrentPath);
+        }
+    }
+
+    private void FavouritesList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not FavouriteLocation favourite || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        tab.ActivePane.NavigateTo(favourite.Path);
+    }
+
+    private void RemoveFavouriteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: FavouriteLocation favourite })
+        {
+            FavouriteService.Remove(favourite);
+        }
+    }
+
+    private static void AddFavourite(string path)
+    {
+        if (FavouriteService.IsFavourite(path))
+        {
+            return;
+        }
+
+        var name = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+        FavouriteService.Add(new FavouriteLocation(string.IsNullOrEmpty(name) ? path : name, path));
+    }
 
     // ----- Saved searches (left rail) -----
 

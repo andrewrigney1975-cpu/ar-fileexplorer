@@ -27,7 +27,12 @@ public static class IconHelper
         { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v" };
 
     private static readonly HashSet<string> ArchiveExt = new(StringComparer.OrdinalIgnoreCase)
-        { ".zip", ".rar", ".7z", ".tar", ".gz", ".iso" };
+        { ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".iso" };
+
+    /// Formats SharpCompress can read - a subset of ArchiveExt (no .iso; that's a disk image, not
+    /// a compression format SharpCompress handles).
+    private static readonly HashSet<string> ExtractableArchiveExt = new(StringComparer.OrdinalIgnoreCase)
+        { ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz" };
 
     private static readonly HashSet<string> ExeExt = new(StringComparer.OrdinalIgnoreCase)
         { ".exe", ".msi", ".bat", ".cmd", ".ps1" };
@@ -66,4 +71,6 @@ public static class IconHelper
     public static bool IsPreviewablePdf(string extension) => string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsPreviewableOffice(string extension) => OfficeExt.Contains(extension);
+
+    public static bool IsExtractableArchive(string extension) => ExtractableArchiveExt.Contains(extension);
 }

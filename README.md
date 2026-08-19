@@ -13,12 +13,14 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Back / forward / up navigation with history per pane
 - Session restore: Workspaces (including custom names) and pane paths persist across restarts
 - Command palette (`Ctrl+K`) for navigation, view switching, and running actions by name
-- Collapsible left-rail sections (Saved Searches, Network Locations, Cloud Storage), VS Code style
+- Collapsible left-rail sections (Favourites, Saved Searches, Network Locations, Cloud Storage), VS Code style
+- Favourites: pin any folder from the left rail's own `+` button or a folder's context menu ("Add to Favourites"), click to navigate, `−` to unpin
 - Custom title bar: app content (and its Mica backdrop) extends up into the OS caption area, with theme-matched caption buttons, so the window frame reads as one continuous surface
 
 ### Views
 - Icons, List, Details, and Gallery (large-thumbnail) view modes per pane
 - Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files
+- Drag-rectangle (marquee) multi-select: click-drag over empty space to rubber-band select everything the rectangle touches
 - Real image thumbnails in Icons/Gallery views, rendered at 192px (2× the Gallery tile size, so they don't look upscaled/blurry) and cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
 - Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon, with a small folder-glyph badge overlaid in the corner so it's still clearly a folder
 - `.avif` thumbnails and preview: Windows' image codec (WIC) can't decode AVIF without a separate OS extension, so AVIF files are decoded via an embedded [libheif](https://github.com/strukturag/libheif) instead (`AvifImageService`), transparently alongside every other image format
@@ -30,7 +32,8 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Rename (`F2`), "Move to folder..." (`F3`, creates a new folder from the current multi-selection)
 - Delete to Recycle Bin (`Del`), permanent delete (`Shift+Del`); a failed delete (locked file, permissions, or an unsynced cloud-only file) shows a dialog naming the item and why — including a specific hint when the folder is under a detected OneDrive/Google Drive/Dropbox/Box root — instead of silently doing nothing
 - Batch rename with pattern-based multi-selection renaming
-- Compress selection to `.zip` from the context menu; extract one or many selected `.zip` files at once, each to its own destination folder
+- Compress selection to `.zip` from the context menu; extract one or many selected archives at once (`.zip`/`.rar`/`.7z`/`.tar`/`.gz`/`.tgz`/`.bz2`/`.xz`, auto-detected by content via [SharpCompress](https://github.com/adamhathcock/sharpcompress)), each to its own destination folder
+- Properties dialog (context menu → "Properties"): type, location, size, created/modified/accessed timestamps, and editable Read-only/Hidden attributes for a single item; aggregate file/folder counts and combined size for a multi-selection, with folder sizes computed recursively in the background
 - Filename collisions on copy/move (drag-and-drop, paste, "Move to folder...") and sync tasks prompt **Overwrite / Skip / Rename / Cancel**, with an "apply to all remaining conflicts" option; Rename auto-appends a bracketed number (`file (2).txt`) with no further input needed
 - Undo for create-folder, rename, move, and copy operations
 - Resilient, parallel, queued file-copy engine with automatic restart on transient I/O errors
@@ -98,6 +101,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `DocumentFormat.OpenXml` | Text-only preview extraction for `.docx`/`.xlsx`/`.pptx` |
 | `Jint` | Embedded JavaScript interpreter for user scripts (pure C#, no native deps) |
 | `LibHeifSharp` + `LibHeif.Native.win-x64` | AVIF thumbnail/preview decoding via libheif — the only dependency here with a native (non-.NET) component |
+| `SharpCompress` | Multi-format archive extraction (RAR/7z/TAR/GZ/BZip2/XZ, in addition to .zip) — pure C#, no native deps |
 
 Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts).
 
@@ -143,13 +147,15 @@ No installer or MSIX packaging step is required — the exe runs directly.
 src/FileExplorer/
   Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
-  Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog (XAML + code-behind)
+  Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, PropertiesDialog
+                 (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
                  user scripting (ScriptService, ScriptEngineService), thumbnail
                  caching/generation (ThumbnailCacheService), AVIF decoding
-                 (AvifImageService), collision prompts (FileCollisionService)
+                 (AvifImageService), collision prompts (FileCollisionService),
+                 Favourites (FavouriteService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring)

@@ -9,6 +9,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using SharpCompress.Archives;
+using SharpCompress.Common;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Windows.UI.Core;
@@ -447,6 +449,31 @@ public sealed partial class PaneView : UserControl
         }
     }
 
+    private async Task ShowPropertiesAsync(IReadOnlyList<FileSystemItem> selection)
+    {
+        if (selection.Count == 0)
+        {
+            return;
+        }
+
+        var content = new PropertiesDialog(selection);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = selection.Count == 1 ? $"{selection[0].Name} Properties" : $"Properties - {selection.Count} items",
+            Content = content,
+            PrimaryButtonText = "OK",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        dialog.Closed += (_, _) => content.CancelSizeComputation();
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            content.ApplyAttributeChanges();
+        }
+    }
+
     /// "Access is denied" on a non-empty folder is almost always either a locked/open file inside
     /// it or (very commonly, when the path is under OneDrive/etc.) an online-only cloud placeholder
     /// that hasn't finished downloading - the raw exception text alone doesn't hint at either.
@@ -500,6 +527,22 @@ public sealed partial class PaneView : UserControl
     {
         var state = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+    }
+
+    private static void ToggleFavourite(string path)
+    {
+        if (FavouriteService.IsFavourite(path))
+        {
+            var existing = FavouriteService.Load().FirstOrDefault(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                FavouriteService.Remove(existing);
+            }
+            return;
+        }
+
+        var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+        FavouriteService.Add(new FavouriteLocation(string.IsNullOrEmpty(name) ? path : name, path));
     }
 
     private async Task SetSyncTargetAsync(string targetPath)
@@ -645,6 +688,8 @@ public sealed partial class PaneView : UserControl
         }
     }
 
+    /// Extracts .zip/.rar/.7z/.tar/.gz/.tgz/.bz2/.xz - SharpCompress auto-detects the actual format
+    /// from content (so e.g. "backup.tgz" or "logs.tar.gz" work the same as a plain .tar).
     private async Task ExtractZipsAsync(IReadOnlyList<FileSystemItem> items)
     {
         if (ViewModel is null || items.Count == 0)
@@ -661,10 +706,18 @@ public sealed partial class PaneView : UserControl
 
             try
             {
-                await Task.Run(() => ZipFile.ExtractToDirectory(item.FullPath, destination));
+                await Task.Run(() =>
+                {
+                    using var archive = ArchiveFactory.OpenArchive(item.FullPath);
+                    archive.WriteToDirectory(destination, new ExtractionOptions
+                    {
+                        ExtractFullPath = true,
+                        Overwrite = true,
+                    });
+                });
                 destinations.Add(destination);
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
             }
         }
@@ -1038,6 +1091,108 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_DragLeave(object sender, DragEventArgs e) => SetDropHighlight(null);
 
+    private Windows.Foundation.Point? _marqueeStart;
+    private bool _marqueeActive;
+
+    /// Starts a drag-rectangle multi-select when the pointer goes down on empty space (not on an
+    /// item - that's the native ListView click/drag-reorder path). No Ctrl/Shift-additive support
+    /// yet: a marquee always replaces the current selection, matching Explorer's default drag.
+    private void ItemsList_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(ItemsList);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        if (FindContainerUnderPoint(point.Position) is not null)
+        {
+            return;
+        }
+
+        _marqueeStart = point.Position;
+        _marqueeActive = false;
+        ItemsList.CapturePointer(e.Pointer);
+    }
+
+    private void ItemsList_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_marqueeStart is not { } start)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(ItemsList).Position;
+
+        if (!_marqueeActive)
+        {
+            if (Math.Abs(point.X - start.X) < 4 && Math.Abs(point.Y - start.Y) < 4)
+            {
+                return;
+            }
+
+            _marqueeActive = true;
+            MarqueeRect.Visibility = Visibility.Visible;
+            ItemsList.SelectedItems.Clear();
+        }
+
+        var x = Math.Min(start.X, point.X);
+        var y = Math.Min(start.Y, point.Y);
+        var w = Math.Abs(point.X - start.X);
+        var h = Math.Abs(point.Y - start.Y);
+
+        Canvas.SetLeft(MarqueeRect, x);
+        Canvas.SetTop(MarqueeRect, y);
+        MarqueeRect.Width = w;
+        MarqueeRect.Height = h;
+
+        UpdateMarqueeSelection(new Windows.Foundation.Rect(x, y, w, h));
+    }
+
+    private void ItemsList_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_marqueeStart is not null)
+        {
+            ItemsList.ReleasePointerCapture(e.Pointer);
+        }
+
+        _marqueeStart = null;
+        _marqueeActive = false;
+        MarqueeRect.Visibility = Visibility.Collapsed;
+    }
+
+    private void UpdateMarqueeSelection(Windows.Foundation.Rect marqueeRectOnItemsList)
+    {
+        var intersecting = FindContainersIntersecting(marqueeRectOnItemsList)
+            .Select(c => c.Content).OfType<FileSystemItem>().ToList();
+
+        ItemsList.SelectedItems.Clear();
+        foreach (var item in intersecting)
+        {
+            ItemsList.SelectedItems.Add(item);
+        }
+    }
+
+    private IEnumerable<ListViewItem> FindContainersIntersecting(Windows.Foundation.Rect rectOnItemsList)
+    {
+        foreach (var item in ItemsList.Items)
+        {
+            if (ItemsList.ContainerFromItem(item) is not ListViewItem container)
+            {
+                continue;
+            }
+
+            var bounds = container.TransformToVisual(ItemsList)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, container.ActualWidth, container.ActualHeight));
+            bounds.Intersect(rectOnItemsList);
+
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                yield return container;
+            }
+        }
+    }
+
     /// The realized ListViewItem container whose bounds contain this ItemsList-relative point, or
     /// null if none (empty space, or a virtualized-out container). Avoids
     /// VisualTreeHelper.FindElementsInHostCoordinates, which needs coordinates in the app's root
@@ -1152,13 +1307,17 @@ public sealed partial class PaneView : UserControl
 
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
         menu.Items.Add(NewMenuItem("Compress to .zip", "", async () => await CompressSelectionAsync(selection)));
-        if (selection.Count > 0 && selection.All(item => string.Equals(item.Extension, ".zip", StringComparison.OrdinalIgnoreCase)))
+        if (selection.Count > 0 && selection.All(item => IconHelper.IsExtractableArchive(item.Extension)))
         {
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipsAsync(selection)));
         }
         if (selection.Count == 1 && selection[0].IsDirectory)
         {
             var folder = selection[0];
+            menu.Items.Add(NewMenuItem(
+                FavouriteService.IsFavourite(folder.FullPath) ? "Remove from Favourites" : "Add to Favourites",
+                "",
+                () => ToggleFavourite(folder.FullPath)));
             menu.Items.Add(NewMenuItem("Set sync source...", "", () => SyncTaskService.SetPendingSource(folder.FullPath)));
 
             if (SyncTaskService.PendingSourcePath is { } pendingSource &&
@@ -1172,6 +1331,8 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(BuildTagSubMenu(selection));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Properties", "", async () => await ShowPropertiesAsync(selection)));
 
         return menu;
     }

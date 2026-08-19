@@ -231,6 +231,9 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="This PC" FontWeight="SemiBold" Margin="12,10,12,4" />
                 <TreeView x:Name="DriveTree" Grid.Row="1" Margin="4,0,4,4"
@@ -260,7 +263,48 @@
 
                 <Rectangle Grid.Row="2" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="3" Background="Transparent" Margin="4,4,8,4" Tapped="SavedSearchesHeader_Tapped">
+                <Grid Grid.Row="3" Background="Transparent" Margin="4,4,8,4" Tapped="FavouritesHeader_Tapped">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="FavouritesChevron" Grid.Column="0" Glyph="&#xE70D;" FontSize="10"
+                              Margin="4,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="Favourites" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
+                            Click="AddFavouriteButton_Click" ToolTipService.ToolTip="Pin the active pane's folder to Favourites">
+                        <FontIcon Glyph="&#xE710;" FontSize="12" />
+                    </Button>
+                </Grid>
+
+                <ListView Grid.Row="4" x:Name="FavouritesList" Margin="4,0,4,4" MaxHeight="200"
+                          SelectionMode="None" ItemClick="FavouritesList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE734;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RemoveFavouriteButton_Click" Tag="{Binding}"
+                                        ToolTipService.ToolTip="Remove">
+                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Rectangle Grid.Row="5" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <Grid Grid.Row="6" Background="Transparent" Margin="4,4,8,4" Tapped="SavedSearchesHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -275,7 +319,7 @@
                     </Button>
                 </Grid>
 
-                <ListView Grid.Row="4" x:Name="SavedSearchesList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="7" x:Name="SavedSearchesList" Margin="4,0,4,4" MaxHeight="200"
                           SelectionMode="None" ItemClick="SavedSearchesList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -299,9 +343,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="5" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="8" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="6" Background="Transparent" Margin="4,4,8,4" Tapped="NetworkLocationsHeader_Tapped">
+                <Grid Grid.Row="9" Background="Transparent" Margin="4,4,8,4" Tapped="NetworkLocationsHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -316,7 +360,7 @@
                     </Button>
                 </Grid>
 
-                <ListView Grid.Row="7" x:Name="NetworkLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="10" x:Name="NetworkLocationsList" Margin="4,0,4,4" MaxHeight="200"
                           SelectionMode="None" ItemClick="NetworkLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -340,9 +384,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="8" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="11" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="9" Background="Transparent" Margin="4,4,8,4" Tapped="CloudLocationsHeader_Tapped">
+                <Grid Grid.Row="12" Background="Transparent" Margin="4,4,8,4" Tapped="CloudLocationsHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -352,7 +396,7 @@
                     <TextBlock Grid.Column="1" Text="Cloud Storage" FontWeight="SemiBold" VerticalAlignment="Center" />
                 </Grid>
 
-                <ListView Grid.Row="10" x:Name="CloudLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="13" x:Name="CloudLocationsList" Margin="4,0,4,4" MaxHeight="200"
                           SelectionMode="None" ItemClick="CloudLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>

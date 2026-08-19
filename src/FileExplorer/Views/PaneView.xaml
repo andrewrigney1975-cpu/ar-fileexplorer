@@ -244,7 +244,19 @@
                   DoubleTapped="ItemsList_DoubleTapped"
                   ContainerContentChanging="ItemsList_ContainerContentChanging"
                   SelectionChanged="ItemsList_SelectionChanged"
-                  ContextRequested="ItemsList_ContextRequested" />
+                  ContextRequested="ItemsList_ContextRequested"
+                  PointerPressed="ItemsList_PointerPressed"
+                  PointerMoved="ItemsList_PointerMoved"
+                  PointerReleased="ItemsList_PointerReleased"
+                  PointerCaptureLost="ItemsList_PointerReleased" />
+
+        <!-- Drag-rectangle multi-select overlay - drawn over ItemsList, never intercepts pointer
+             input itself (IsHitTestVisible="False"), driven entirely by ItemsList's own pointer events. -->
+        <Canvas Grid.Row="2" IsHitTestVisible="False">
+            <Rectangle x:Name="MarqueeRect" Visibility="Collapsed"
+                       Fill="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.18"
+                       Stroke="{ThemeResource AccentFillColorDefaultBrush}" StrokeThickness="1" />
+        </Canvas>
 
         <Popup x:Name="RenamePopup" IsLightDismissEnabled="True">
             <Border Background="{ThemeResource SolidBackgroundFillColorBase}"
