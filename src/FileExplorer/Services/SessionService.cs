@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace FileExplorer.Services;
 
-public sealed record TabState(string LeftPath, string RightPath);
+public sealed record TabState(string LeftPath, string RightPath, string? Name = null);
 
 /// Persists which tabs (and each pane's folder) were open, so the next launch can restore them.
 public static class SessionService

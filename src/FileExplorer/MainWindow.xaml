@@ -335,13 +335,15 @@
                         <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="True"
                                      AllowDrop="True"
                                      DragEnter="TabViewItem_DragEnter"
-                                     DragLeave="TabViewItem_DragLeave">
+                                     DragLeave="TabViewItem_DragLeave"
+                                     DoubleTapped="TabViewItem_DoubleTapped">
                             <TabViewItem.IconSource>
                                 <FontIconSource Glyph="&#xE8B7;" />
                             </TabViewItem.IconSource>
                             <TabViewItem.ContextFlyout>
                                 <MenuFlyout>
-                                    <MenuFlyoutItem Text="Duplicate Tab" Click="DuplicateTabMenuItem_Click" />
+                                    <MenuFlyoutItem Text="Rename Workspace..." Click="RenameTabMenuItem_Click" />
+                                    <MenuFlyoutItem Text="Duplicate Workspace" Click="DuplicateTabMenuItem_Click" />
                                 </MenuFlyout>
                             </TabViewItem.ContextFlyout>
                             <TabViewItem.Content>

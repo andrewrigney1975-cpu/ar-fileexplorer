@@ -43,7 +43,8 @@ public sealed class MainViewModel : ObservableObject
 
     public TabViewModel DuplicateTab(TabViewModel source)
     {
-        var tab = new TabViewModel(_dispatcher, source.LeftPane.CurrentPath, source.RightPane.CurrentPath);
+        var name = source.HasCustomHeader ? source.Header : null;
+        var tab = new TabViewModel(_dispatcher, source.LeftPane.CurrentPath, source.RightPane.CurrentPath, name);
         var index = Tabs.IndexOf(source);
         Tabs.Insert(index < 0 ? Tabs.Count : index + 1, tab);
         SelectedTab = tab;
@@ -61,7 +62,7 @@ public sealed class MainViewModel : ObservableObject
 
         foreach (var state in saved)
         {
-            Tabs.Add(new TabViewModel(_dispatcher, state.LeftPath, state.RightPath));
+            Tabs.Add(new TabViewModel(_dispatcher, state.LeftPath, state.RightPath, state.Name));
         }
 
         SelectedTab = Tabs[0];
@@ -69,7 +70,8 @@ public sealed class MainViewModel : ObservableObject
 
     public void SaveSession()
     {
-        SessionService.Save(Tabs.Select(t => new TabState(t.LeftPane.CurrentPath, t.RightPane.CurrentPath)));
+        SessionService.Save(Tabs.Select(t => new TabState(
+            t.LeftPane.CurrentPath, t.RightPane.CurrentPath, t.HasCustomHeader ? t.Header : null)));
     }
 
     public void CloseTab(TabViewModel tab)

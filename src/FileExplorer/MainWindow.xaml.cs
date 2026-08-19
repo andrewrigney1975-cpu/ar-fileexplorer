@@ -407,6 +407,44 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void RenameTabMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TabViewModel tab })
+        {
+            await RenameWorkspaceAsync(tab);
+        }
+    }
+
+    private async void TabViewItem_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TabViewModel tab })
+        {
+            e.Handled = true;
+            await RenameWorkspaceAsync(tab);
+        }
+    }
+
+    private async Task RenameWorkspaceAsync(TabViewModel tab)
+    {
+        var nameBox = new TextBox { Text = tab.Header };
+        var dialog = new ContentDialog
+        {
+            Title = "Rename Workspace",
+            Content = nameBox,
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        tab.Rename(nameBox.Text);
+    }
+
     // Same custom drag marker PaneView uses to recognize its own item drags (kept as a
     // duplicated literal rather than a cross-file constant for this one comparison).
     private const string InternalDragFormat = "FileExplorer.InternalDrag";
@@ -631,9 +669,10 @@ public sealed partial class MainWindow : Window
 
         var commands = new List<PaletteCommand>
         {
-            new("New Tab", "Open a new tab", () => _viewModel.NewTabCommand.Execute(null)),
-            new("Duplicate Tab", "Open a copy of the current tab", () => { if (tab is not null) _viewModel.DuplicateTabCommand.Execute(tab); }),
-            new("Close Tab", "Close the current tab", () => { if (tab is not null) _viewModel.CloseTabCommand.Execute(tab); }),
+            new("New Workspace", "Open a new workspace", () => _viewModel.NewTabCommand.Execute(null)),
+            new("Duplicate Workspace", "Open a copy of the current workspace", () => { if (tab is not null) _viewModel.DuplicateTabCommand.Execute(tab); }),
+            new("Close Workspace", "Close the current workspace", () => { if (tab is not null) _viewModel.CloseTabCommand.Execute(tab); }),
+            new("Rename Workspace...", "Give the current workspace a custom name", () => { if (tab is not null) _ = RenameWorkspaceAsync(tab); }),
             new("Icons View", "Switch the active pane to icons", () => SetViewMode(ViewMode.Icons)),
             new("List View", "Switch the active pane to list", () => SetViewMode(ViewMode.List)),
             new("Details View", "Switch the active pane to details", () => SetViewMode(ViewMode.Details)),
