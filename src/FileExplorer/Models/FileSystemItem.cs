@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices.WindowsRuntime;
 using FileExplorer.Helpers;
 using FileExplorer.Services;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -53,26 +52,13 @@ public sealed class FileSystemItem : ObservableObject
 
     public async Task EnsureThumbnailAsync()
     {
-        if (_thumbnailRequested || IsDirectory || !IconHelper.IsPreviewableImage(Extension))
+        if (_thumbnailRequested || (!IsDirectory && !IconHelper.IsPreviewableImage(Extension)))
         {
             return;
         }
 
         _thumbnailRequested = true;
-
-        try
-        {
-            using var stream = File.OpenRead(FullPath);
-            using var memoryStream = new MemoryStream();
-            await stream.CopyToAsync(memoryStream);
-            memoryStream.Position = 0;
-
-            var bitmap = new BitmapImage { DecodePixelWidth = 96 };
-            await bitmap.SetSourceAsync(memoryStream.AsRandomAccessStream());
-            Thumbnail = bitmap;
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        Thumbnail = await ThumbnailCacheService.GetOrCreateAsync(FullPath, Modified, IsDirectory);
     }
 
     public string Kind => IsDirectory

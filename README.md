@@ -8,7 +8,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Left rail: drive list (with used-space bar + percentage per drive) and an expandable folder tree
 - Dual-pane, **Workspace**-based browsing — each Workspace tab holds two independently-navigable panes side by side
 - Workspaces can be renamed (right-click a tab → "Rename Workspace...", or double-click its header) and reordered by drag-and-drop
-- Resizable left rail, pane splitter, and right-hand preview rail; preview pane width and the terminal drawer's open/closed state both persist across restarts
+- Resizable left rail, pane splitter, and right-hand preview rail; the preview pane's width and open/closed state, and the terminal drawer's open/closed state, all persist across restarts
 - Clickable breadcrumb path bar (click to edit as raw text, click a segment to jump to it)
 - Back / forward / up navigation with history per pane
 - Session restore: Workspaces (including custom names) and pane paths persist across restarts
@@ -19,7 +19,8 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ### Views
 - Icons, List, Details, and Gallery (large-thumbnail) view modes per pane
 - Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files
-- Real image thumbnails in Icons/Gallery views
+- Real image thumbnails in Icons/Gallery views, cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time
+- Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon
 
 ### File operations
 - Drag-and-drop: same-drive drag moves, cross-drive drag copies, hold **Alt** to force a move
@@ -143,7 +144,9 @@ src/FileExplorer/
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
-                 user scripting (ScriptService, ScriptEngineService)
+                 user scripting (ScriptService, ScriptEngineService), thumbnail
+                 caching/generation (ThumbnailCacheService), collision prompts
+                 (FileCollisionService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring)
@@ -152,4 +155,6 @@ src/FileExplorer/
 
 Per-user application data (tags, saved searches, network locations, session state, window
 layout, sync tasks) is stored as JSON under `%LocalAppData%\FileExplorerApp\`; saved scripts are
-plain `.js` files under `%LocalAppData%\FileExplorerApp\Scripts\`.
+plain `.js` files under `%LocalAppData%\FileExplorerApp\Scripts\`. The one exception is the
+thumbnail cache, which lives as a hidden `.arexx-thumbs.cache` file inside each folder it caches
+(not centrally), so it travels with that folder if it's moved or copied elsewhere.

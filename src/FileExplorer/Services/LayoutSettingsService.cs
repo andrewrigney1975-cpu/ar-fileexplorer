@@ -2,9 +2,10 @@ using System.Text.Json;
 
 namespace FileExplorer.Services;
 
-public sealed record LayoutState(double? PreviewWidth, bool TerminalOpen);
+public sealed record LayoutState(double? PreviewWidth, bool TerminalOpen, bool PreviewOpen = true);
 
-/// Persists simple window-layout preferences (preview pane width, terminal drawer open/closed) between sessions.
+/// Persists simple window-layout preferences (preview pane width/open state, terminal drawer
+/// open/closed) between sessions.
 public static class LayoutSettingsService
 {
     private static string FilePath => Path.Combine(

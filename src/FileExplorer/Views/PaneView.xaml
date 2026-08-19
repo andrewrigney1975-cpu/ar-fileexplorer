@@ -230,6 +230,7 @@
                   DragLeave="ItemsList_DragLeave"
                   Drop="ItemsList_Drop"
                   DoubleTapped="ItemsList_DoubleTapped"
+                  ContainerContentChanging="ItemsList_ContainerContentChanging"
                   SelectionChanged="ItemsList_SelectionChanged"
                   ContextRequested="ItemsList_ContextRequested" />
 

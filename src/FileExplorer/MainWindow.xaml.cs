@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
 
         _previewExpandedWidth = savedLayout.PreviewWidth ?? PreviewColumn.ActualWidth;
         PreviewColumn.Width = new GridLength(_previewExpandedWidth);
+        SetPreviewVisible(savedLayout.PreviewOpen);
 
         TerminalToggleButton.IsChecked = savedLayout.TerminalOpen;
         TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
@@ -81,7 +82,7 @@ public sealed partial class MainWindow : Window
         {
             _viewModel.SaveSession();
             var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
-            LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true));
+            LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true, PreviewToggleButton.IsChecked == true));
         };
     }
 
@@ -702,10 +703,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void PreviewToggleButton_Click(object sender, RoutedEventArgs e)
-    {
-        var show = (sender as ToggleButton)?.IsChecked == true;
+    private void PreviewToggleButton_Click(object sender, RoutedEventArgs e) =>
+        SetPreviewVisible((sender as ToggleButton)?.IsChecked == true);
 
+    private void SetPreviewVisible(bool show)
+    {
         if (!show && PreviewColumn.ActualWidth > 0)
         {
             _previewExpandedWidth = PreviewColumn.ActualWidth;
@@ -717,6 +719,7 @@ public sealed partial class MainWindow : Window
         PreviewColumn.Width = show ? new GridLength(_previewExpandedWidth) : new GridLength(0);
         PreviewSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         Preview.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        PreviewToggleButton.IsChecked = show;
     }
 
     private void TerminalToggleButton_Click(object sender, RoutedEventArgs e)

@@ -214,6 +214,18 @@ public sealed partial class PaneView : UserControl
         }
     }
 
+    // ListView recycles containers as you scroll: the same Grid gets rebound to new data instead of
+    // being freshly added to the tree, so its Loaded event (ThumbnailHost_Loaded, above) only ever
+    // fires once per container - never again for whichever items later get virtualized into it. This
+    // is the reliable per-recycle hook that actually covers every item, not just the first screenful.
+    private void ItemsList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.Item is FileSystemItem item)
+        {
+            _ = item.EnsureThumbnailAsync();
+        }
+    }
+
     private void ItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (ViewModel is not null)
