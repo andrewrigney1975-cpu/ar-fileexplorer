@@ -67,6 +67,23 @@ public sealed partial class TagColorToBrushConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+public sealed partial class SyncRoleToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var color = value switch
+        {
+            FileExplorer.Models.SyncRole.Source => Windows.UI.Color.FromArgb(255, 255, 140, 0),
+            FileExplorer.Models.SyncRole.Target => Windows.UI.Color.FromArgb(255, 16, 137, 62),
+            _ => Microsoft.UI.Colors.Transparent,
+        };
+
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 public sealed partial class UsedPercentToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)

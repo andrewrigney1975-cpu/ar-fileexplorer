@@ -11,6 +11,7 @@ public sealed class FileSystemItem : ObservableObject
     private bool _thumbnailRequested;
     private string? _tagColor;
     private string? _cloudBadge;
+    private SyncRole _syncRole;
 
     public required string Name { get; init; }
     public required string FullPath { get; init; }
@@ -27,6 +28,13 @@ public sealed class FileSystemItem : ObservableObject
     }
 
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
+
+    /// Whether this folder is a sync task's source or target (or neither). Set by FileSystemService on load.
+    public SyncRole SyncRole
+    {
+        get => _syncRole;
+        set => SetProperty(ref _syncRole, value);
+    }
 
     /// Cloud placeholder glyph (online-only cloud icon or always-available checkmark), or null
     /// outside a detected cloud sync folder. Set by FileSystemService on load.

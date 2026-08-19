@@ -30,9 +30,17 @@ public sealed class FileOperationJob : ObservableObject
     /// folder..."), so undoing the move can also remove that folder once it's empty again.
     public bool DestinationWasCreatedForThisJob { get; init; }
 
+    /// Set only for Kind == Sync; the sync task's user-chosen name, used in its title and notification text.
+    public string? SyncTaskName { get; init; }
+
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 
-    public string Title => $"{(Kind == FileDropOperation.Move ? "Move" : "Copy")} {SourcePaths.Count} item{(SourcePaths.Count == 1 ? "" : "s")} to {System.IO.Path.GetFileName(DestinationFolder.TrimEnd('\\'))}";
+    public string Title => Kind switch
+    {
+        FileDropOperation.Sync => $"Sync: {SyncTaskName}",
+        FileDropOperation.Move => $"Move {SourcePaths.Count} item{(SourcePaths.Count == 1 ? "" : "s")} to {System.IO.Path.GetFileName(DestinationFolder.TrimEnd('\\'))}",
+        _ => $"Copy {SourcePaths.Count} item{(SourcePaths.Count == 1 ? "" : "s")} to {System.IO.Path.GetFileName(DestinationFolder.TrimEnd('\\'))}",
+    };
 
     public FileOperationStatus Status
     {

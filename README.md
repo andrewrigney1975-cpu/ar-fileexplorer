@@ -2,19 +2,21 @@
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
 
-> **Roadmap:** scripting and a folder-sync engine are planned for the next iteration.
+> **Roadmap:** scripting is planned for the next iteration.
 
 ## Features
 
 ### Navigation & layout
 - Left rail: drive list (with used-space bar + percentage per drive) and an expandable folder tree
-- Dual-pane, tab-based browsing — each tab holds two independently-navigable panes side by side
-- Resizable left rail, pane splitter, and right-hand preview rail
+- Dual-pane, **Workspace**-based browsing — each Workspace tab holds two independently-navigable panes side by side
+- Workspaces can be renamed (right-click a tab → "Rename Workspace...", or double-click its header) and reordered by drag-and-drop
+- Resizable left rail, pane splitter, and right-hand preview rail; preview pane width and the terminal drawer's open/closed state both persist across restarts
 - Clickable breadcrumb path bar (click to edit as raw text, click a segment to jump to it)
 - Back / forward / up navigation with history per pane
-- Session restore: tabs and pane paths persist across restarts
+- Session restore: Workspaces (including custom names) and pane paths persist across restarts
 - Command palette (`Ctrl+K`) for navigation, view switching, and running actions by name
 - Collapsible left-rail sections (Saved Searches, Network Locations, Cloud Storage), VS Code style
+- Custom title bar: app content (and its Mica backdrop) extends up into the OS caption area, with theme-matched caption buttons, so the window frame reads as one continuous surface
 
 ### Views
 - Icons, List, Details, and Gallery (large-thumbnail) view modes per pane
@@ -28,10 +30,17 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Rename (`F2`), "Move to folder..." (`F3`, creates a new folder from the current multi-selection)
 - Delete to Recycle Bin (`Del`), permanent delete (`Shift+Del`)
 - Batch rename with pattern-based multi-selection renaming
-- Compress selection to `.zip` / extract `.zip` from the context menu
+- Compress selection to `.zip` from the context menu; extract one or many selected `.zip` files at once, each to its own destination folder
 - Undo for create-folder, rename, move, and copy operations
 - Resilient, parallel, queued file-copy engine with automatic restart on transient I/O errors
 - "Open with..." context menu entry
+
+### Folder sync
+- Right-click any folder → "Set sync source...", then right-click another folder (any pane, any Workspace) → "Set sync target"; both get an immediate highlight bar (orange for the source, green for the target) so the pairing is visible while you set it up
+- Confirming a name in the resulting dialog saves the pairing as a named sync task; source/target folders keep their highlight bar afterward, wherever they're browsed
+- A toolbar dropdown (next to File operations) lists the sync tasks whose source folder is visible in the current Workspace's Left or Right pane, with a trash icon (and confirmation) to delete a task; running a task enqueues it into the same File operations queue/list as any copy or move, with live progress
+- One-way, copy-only: copies new/changed files from source → target; never deletes or touches files that exist only in the target
+- A Windows notification reports success or failure (with the error) when a sync task finishes
 
 ### Search & organization
 - Per-folder filename search with typo-tolerant fuzzy matching (e.g. `rdme` matches `readme.txt`)
@@ -42,7 +51,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - SHA-256 checksum command with copy-to-clipboard
 
 ### Preview pane
-- Text and code file preview (first few KB)
+- Text and code file preview (first few KB); programming source files (`.cs`, `.js`/`.ts`, `.py`, `.java`, `.c`/`.cpp`, `.go`, `.rs`, `.json`, `.css`, `.xml`/`.xaml`/`.html`) get a line-number gutter and color-coded syntax highlighting (keywords/strings/comments/numbers), following the app's light/dark theme
 - Image preview
 - Video preview (native `MediaPlayerElement`)
 - PDF preview (via an embedded WebView2, using its built-in PDF viewer)
@@ -57,6 +66,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Built-in terminal drawer, opens at the active pane's folder
 - Right-click context menu (via `ContextRequested`, covers mouse, keyboard, and touch)
 - Custom hi-res application icon
+- Windows toast notifications (e.g. sync task completion/failure)
 
 ## Toolchain
 
@@ -79,9 +89,11 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `Microsoft.Web.WebView2` | PDF preview (renders via WebView2's built-in PDF viewer) |
 | `DocumentFormat.OpenXml` | Text-only preview extraction for `.docx`/`.xlsx`/`.pptx` |
 
-Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip).
+Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts).
 
 **Runtime prerequisite:** PDF preview requires the WebView2 runtime, which ships with Windows 11 and current Windows 10 by default. On an older or locked-down Windows 10 install without it, PDF preview falls back to a generic file icon instead of crashing.
+
+**Known limitation:** toast notifications use `AppNotificationManager`, which is best-supported for packaged (MSIX) apps. This app is unpackaged (no `Package.appxmanifest`), so registration/activation is the least battle-tested corner of the app; `NotificationService` wraps every call defensively so a platform quirk here can't crash or block the app, but a toast may not always appear.
 
 ## Build process
 
@@ -119,14 +131,17 @@ No installer or MSIX packaging step is required — the exe runs directly.
 
 ```
 src/FileExplorer/
-  Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, ...)
+  Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
   Views/         PaneView, PreviewPane, TerminalPane (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
-                 detection, duplicate finder, Office text extraction, session persistence
+                 detection, duplicate finder, Office text extraction, session/layout
+                 persistence, folder sync (SyncTaskService), toast notifications
   Converters/    XAML value converters
-  Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher
+  Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
+                 SyntaxHighlighter (preview-pane code coloring)
   Assets/        App icon
 ```
 
-Per-user application data (tags, saved searches, network locations, session state) is stored as JSON under `%LocalAppData%\FileExplorerApp\`.
+Per-user application data (tags, saved searches, network locations, session state, window
+layout, sync tasks) is stored as JSON under `%LocalAppData%\FileExplorerApp\`.

@@ -4,6 +4,7 @@ public enum FileDropOperation
 {
     Move,
     Copy,
+    Sync,
 }
 
 /// Shared path helpers used by the file operation queue.

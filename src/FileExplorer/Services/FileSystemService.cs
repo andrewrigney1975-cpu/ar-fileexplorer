@@ -69,6 +69,7 @@ public static class FileSystemService
                     Modified = info.LastWriteTimeUtc,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
+                    SyncRole = SyncTaskService.GetRole(info.FullName),
                 });
             }
         }

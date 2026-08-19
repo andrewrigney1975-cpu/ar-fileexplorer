@@ -454,6 +454,42 @@ public sealed partial class PaneView : UserControl
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
+    private async Task SetSyncTargetAsync(string targetPath)
+    {
+        var source = SyncTaskService.PendingSourcePath;
+        if (source is null)
+        {
+            return;
+        }
+
+        SyncTaskService.SetPendingTarget(targetPath);
+
+        var nameBox = new TextBox
+        {
+            PlaceholderText = "Sync task name",
+            Text = $"{Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar))} -> {Path.GetFileName(targetPath.TrimEnd(Path.DirectorySeparatorChar))}",
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Name This Sync Task",
+            Content = nameBox,
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(nameBox.Text))
+        {
+            SyncTaskService.ClearPending();
+            return;
+        }
+
+        SyncTaskService.AddTask(nameBox.Text.Trim(), source, targetPath);
+        SyncTaskService.ClearPending();
+    }
+
     private async Task ComputeHashesAsync(IReadOnlyList<FileSystemItem> selection)
     {
         if (selection.Count == 0)
@@ -1072,6 +1108,18 @@ public sealed partial class PaneView : UserControl
         {
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipsAsync(selection)));
         }
+        if (selection.Count == 1 && selection[0].IsDirectory)
+        {
+            var folder = selection[0];
+            menu.Items.Add(NewMenuItem("Set sync source...", "", () => SyncTaskService.SetPendingSource(folder.FullPath)));
+
+            if (SyncTaskService.PendingSourcePath is { } pendingSource &&
+                !string.Equals(pendingSource, folder.FullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                menu.Items.Add(NewMenuItem("Set sync target", "", async () => await SetSyncTargetAsync(folder.FullPath)));
+            }
+        }
+
         menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));
         menu.Items.Add(BuildTagSubMenu(selection));
         menu.Items.Add(new MenuFlyoutSeparator());

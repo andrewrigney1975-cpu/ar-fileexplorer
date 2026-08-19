@@ -38,6 +38,12 @@ public sealed partial class MainWindow : Window
         PopulateNetworkLocations();
         PopulateCloudLocations();
         SubscribeToActiveTab(_viewModel.SelectedTab);
+        SubscribeSyncDropdown(_viewModel.SelectedTab);
+        SyncTaskService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            _viewModel.RefreshAllPanes();
+            RefreshSyncDropdown();
+        });
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
@@ -51,7 +57,22 @@ public sealed partial class MainWindow : Window
         TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
 
         _operationQueue = new FileOperationQueueService(DispatcherQueue);
-        _operationQueue.JobCompleted += (_, _) => _viewModel.RefreshAllPanes();
+        _operationQueue.JobCompleted += (_, job) =>
+        {
+            _viewModel.RefreshAllPanes();
+
+            if (job.Kind == FileDropOperation.Sync)
+            {
+                if (job.Status == FileOperationStatus.Completed)
+                {
+                    NotificationService.Show("Sync complete", $"Sync task '{job.SyncTaskName}' has completed.");
+                }
+                else if (job.Status == FileOperationStatus.Failed)
+                {
+                    NotificationService.Show("Sync failed", $"Sync task '{job.SyncTaskName}' failed: {job.ErrorMessage}");
+                }
+            }
+        };
         OperationsList.ItemsSource = _operationQueue.Jobs;
 
         UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
@@ -99,7 +120,88 @@ public sealed partial class MainWindow : Window
         if (e.PropertyName == nameof(MainViewModel.SelectedTab))
         {
             SubscribeToActiveTab(_viewModel.SelectedTab);
+            SubscribeSyncDropdown(_viewModel.SelectedTab);
         }
+    }
+
+    // ----- Sync tasks toolbar dropdown -----
+
+    private TabViewModel? _syncSubscribedTab;
+
+    private void SubscribeSyncDropdown(TabViewModel? tab)
+    {
+        if (_syncSubscribedTab is not null)
+        {
+            _syncSubscribedTab.LeftPane.PathChanged -= SyncRelevantPathChanged;
+            _syncSubscribedTab.RightPane.PathChanged -= SyncRelevantPathChanged;
+        }
+
+        _syncSubscribedTab = tab;
+
+        if (_syncSubscribedTab is not null)
+        {
+            _syncSubscribedTab.LeftPane.PathChanged += SyncRelevantPathChanged;
+            _syncSubscribedTab.RightPane.PathChanged += SyncRelevantPathChanged;
+        }
+
+        RefreshSyncDropdown();
+    }
+
+    private void SyncRelevantPathChanged(object? sender, EventArgs e) => RefreshSyncDropdown();
+
+    private void RefreshSyncDropdown()
+    {
+        var tab = _viewModel.SelectedTab;
+        var visibleTasks = tab is null
+            ? new List<SyncTaskState>()
+            : SyncTaskService.Tasks
+                .Where(t => IsVisibleInPane(t.SourcePath, tab.LeftPane.CurrentPath) ||
+                            IsVisibleInPane(t.SourcePath, tab.RightPane.CurrentPath))
+                .ToList();
+
+        SyncTasksList.ItemsSource = visibleTasks;
+        SyncTasksList.Visibility = visibleTasks.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        SyncTasksEmptyText.Visibility = visibleTasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SyncTasksList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is SyncTaskState task)
+        {
+            FileOperationQueueService.Current?.EnqueueSync(task);
+            SyncButton.Flyout.Hide();
+        }
+    }
+
+    private async void DeleteSyncTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SyncTaskState task })
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Delete Sync Task",
+            Content = $"Delete the sync task \"{task.Name}\"? This won't touch any files, just the saved task.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            SyncTaskService.RemoveTask(task.Id);
+        }
+    }
+
+    /// True when sourcePath is itself an item listed inside the folder currently browsed by the
+    /// pane (paneCurrentPath) - i.e. sourcePath's parent directory is paneCurrentPath.
+    private static bool IsVisibleInPane(string sourcePath, string paneCurrentPath)
+    {
+        var parent = System.IO.Path.GetDirectoryName(sourcePath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+        return parent is not null && string.Equals(parent, paneCurrentPath.TrimEnd(System.IO.Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
     }
 
     // Toolbar view-mode buttons are plain ToggleButtons (not a mutually-exclusive RadioButtons

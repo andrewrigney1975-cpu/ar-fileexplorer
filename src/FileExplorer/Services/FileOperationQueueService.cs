@@ -54,6 +54,28 @@ public sealed class FileOperationQueueService
         return job;
     }
 
+    public FileOperationJob EnqueueSync(SyncTaskState task)
+    {
+        var job = new FileOperationJob
+        {
+            Id = Guid.NewGuid(),
+            Kind = FileDropOperation.Sync,
+            SourcePaths = new[] { task.SourcePath },
+            DestinationFolder = task.TargetPath,
+            SyncTaskName = task.Name,
+        };
+
+        _dispatcher.TryEnqueue(() => Jobs.Insert(0, job));
+
+        lock (_lock)
+        {
+            _pending.Enqueue(job);
+        }
+
+        _signal.Release();
+        return job;
+    }
+
     public void Cancel(FileOperationJob job) => job.CancellationTokenSource.Cancel();
 
     private async Task ProcessLoopAsync()
@@ -84,6 +106,18 @@ public sealed class FileOperationQueueService
 
         try
         {
+            if (job.Kind == FileDropOperation.Sync)
+            {
+                await RunFolderSyncAsync(job, token).ConfigureAwait(false);
+
+                _dispatcher.TryEnqueue(() =>
+                {
+                    job.ProgressPercent = 100;
+                    job.Status = FileOperationStatus.Completed;
+                });
+                return;
+            }
+
             var allSameDrive = job.SourcePaths.All(p => FileOperationService.SameDrive(p, job.DestinationFolder));
 
             if (job.Kind == FileDropOperation.Move && allSameDrive)
@@ -183,6 +217,84 @@ public sealed class FileOperationQueueService
         {
             _dispatcher.TryEnqueue(() => JobCompleted?.Invoke(this, job));
         }
+    }
+
+    /// One-way, copy-only folder sync: copies anything in source that's missing from the target or
+    /// newer than what's there. Never deletes or overwrites-away target-only files.
+    private async Task RunFolderSyncAsync(FileOperationJob job, CancellationToken token)
+    {
+        var source = job.SourcePaths[0];
+        var target = job.DestinationFolder;
+
+        if (!Directory.Exists(source))
+        {
+            throw new DirectoryNotFoundException($"Sync source folder no longer exists: {source}");
+        }
+
+        Directory.CreateDirectory(target);
+
+        var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+        var toCopy = new List<(string Source, string Destination)>();
+        long totalBytes = 0;
+
+        foreach (var file in files)
+        {
+            var relative = Path.GetRelativePath(source, file);
+            var destination = Path.Combine(target, relative);
+            var sourceInfo = new FileInfo(file);
+
+            var needsCopy = !File.Exists(destination) || new FileInfo(destination).LastWriteTimeUtc < sourceInfo.LastWriteTimeUtc;
+            if (!needsCopy)
+            {
+                continue;
+            }
+
+            toCopy.Add((file, destination));
+            totalBytes += sourceInfo.Length;
+        }
+
+        _dispatcher.TryEnqueue(() => job.BytesTotal = totalBytes);
+
+        long bytesDoneTotal = 0;
+        var progressLock = new object();
+
+        await Parallel.ForEachAsync(
+            toCopy,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelFiles, CancellationToken = token },
+            async (file, ct) =>
+            {
+                _dispatcher.TryEnqueue(() => job.CurrentFileName = Path.GetRelativePath(source, file.Source));
+
+                Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
+
+                // A stale target file must be removed first: ResilientFileCopy treats an existing
+                // destination as a partial/resumable copy from a previous attempt, and blindly
+                // resuming into old content here would corrupt the file instead of replacing it.
+                if (File.Exists(file.Destination))
+                {
+                    File.Delete(file.Destination);
+                }
+
+                await ResilientFileCopy.CopyFileAsync(
+                    file.Source,
+                    file.Destination,
+                    delta =>
+                    {
+                        long done;
+                        lock (progressLock)
+                        {
+                            bytesDoneTotal += delta;
+                            done = bytesDoneTotal;
+                        }
+
+                        _dispatcher.TryEnqueue(() =>
+                        {
+                            job.BytesDone = done;
+                            job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
+                        });
+                    },
+                    ct).ConfigureAwait(false);
+            }).ConfigureAwait(false);
     }
 
     private static string? MoveByRename(string source, string destinationFolder)
