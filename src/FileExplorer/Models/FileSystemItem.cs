@@ -11,6 +11,7 @@ public sealed class FileSystemItem : ObservableObject
     private string? _tagColor;
     private string? _cloudBadge;
     private SyncRole _syncRole;
+    private bool _isWatched;
 
     public required string Name { get; init; }
     public required string FullPath { get; init; }
@@ -57,6 +58,13 @@ public sealed class FileSystemItem : ObservableObject
     {
         get => _syncRole;
         set => SetProperty(ref _syncRole, value);
+    }
+
+    /// Whether files added to this folder trigger a script run. Set by FileSystemService on load.
+    public bool IsWatched
+    {
+        get => _isWatched;
+        set => SetProperty(ref _isWatched, value);
     }
 
     /// Cloud placeholder glyph (online-only cloud icon or always-available checkmark), or null

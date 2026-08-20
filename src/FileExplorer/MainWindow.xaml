@@ -51,6 +51,17 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
+            <Border Grid.Column="1" x:Name="CommandPaletteBar" Width="360" Height="32" CornerRadius="6"
+                    HorizontalAlignment="Center" Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
+                    Tapped="CommandPaletteBar_Tapped"
+                    AutomationProperties.Name="Command Palette">
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="10,0" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE721;" FontSize="12" Opacity="0.6" />
+                    <TextBlock Text="Command Palette (Ctrl+K)" FontSize="12" Opacity="0.6" />
+                </StackPanel>
+            </Border>
+
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
                 <Button x:Name="UndoButton" Style="{StaticResource ToolbarIconButtonStyle}"
                         AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"

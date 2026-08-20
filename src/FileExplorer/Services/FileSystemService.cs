@@ -71,6 +71,7 @@ public static class FileSystemService
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                     SyncRole = SyncTaskService.GetRole(info.FullName),
+                    IsWatched = WatchService.IsWatched(info.FullName),
                 });
             }
         }

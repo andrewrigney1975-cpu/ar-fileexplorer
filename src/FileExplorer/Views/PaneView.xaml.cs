@@ -581,6 +581,55 @@ public sealed partial class PaneView : UserControl
         SyncTaskService.ClearPending();
     }
 
+    private async Task WatchFolderAsync(string folderPath)
+    {
+        var scripts = ScriptService.List();
+        if (scripts.Count == 0)
+        {
+            var noScriptsDialog = new ContentDialog
+            {
+                Title = "No Scripts Available",
+                Content = "Create a script first (Command Palette > Manage Scripts...) before watching a folder.",
+                CloseButtonText = "OK",
+                XamlRoot = XamlRoot,
+            };
+            await noScriptsDialog.ShowAsync();
+            return;
+        }
+
+        var scriptPicker = new ComboBox
+        {
+            ItemsSource = scripts,
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Watch This Folder",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = $"Run a script whenever files are added to \"{folderPath}\":", TextWrapping = TextWrapping.Wrap },
+                    scriptPicker,
+                },
+            },
+            PrimaryButtonText = "Watch",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || scriptPicker.SelectedItem is not string scriptName)
+        {
+            return;
+        }
+
+        WatchService.AddTask(folderPath, scriptName);
+    }
+
     private async Task ComputeHashesAsync(IReadOnlyList<FileSystemItem> selection)
     {
         if (selection.Count == 0)
@@ -1325,6 +1374,13 @@ public sealed partial class PaneView : UserControl
             {
                 menu.Items.Add(NewMenuItem("Set sync target", "", async () => await SetSyncTargetAsync(folder.FullPath)));
             }
+
+            var existingWatch = WatchService.Tasks.FirstOrDefault(
+                t => string.Equals(t.FolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase));
+
+            menu.Items.Add(existingWatch is not null
+                ? NewMenuItem("Stop watching folder", string.Empty, () => WatchService.RemoveTask(existingWatch.Id))
+                : NewMenuItem("Watch this folder...", string.Empty, async () => await WatchFolderAsync(folder.FullPath)));
         }
 
         menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));

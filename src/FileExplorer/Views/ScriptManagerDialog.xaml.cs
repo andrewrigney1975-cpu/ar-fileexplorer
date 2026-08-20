@@ -98,6 +98,7 @@ public sealed partial class ScriptManagerDialog : UserControl
         "-------------------\n" +
         "currentPath                        Active pane's current folder (string)\n" +
         "selection()                        Selected files/folders in the active pane\n" +
+        "addedFiles                         Files that triggered this run (folder-watch triggers only; else empty)\n" +
         "listFiles(path)                    Non-recursive folder listing\n" +
         "                                    Each item: { Name, FullPath, IsDirectory, Size, Extension }\n" +
         "exists(path)                       true if a file or folder exists at path\n" +
@@ -116,7 +117,8 @@ public sealed partial class ScriptManagerDialog : UserControl
         "\n" +
         "PRINCIPLES\n" +
         "----------\n" +
-        "- Plain JavaScript (ES5.1, via the Jint interpreter). One run per click - no scheduling.\n" +
+        "- Plain JavaScript (ES5.1, via the Jint interpreter).\n" +
+        "- Scripts can also run unattended: bound to a watched folder (Manage Automation...) or on an interval schedule.\n" +
         "- File-item properties use .NET casing: item.Name, item.FullPath, not item.name.\n" +
         "- A script has 30 seconds to finish before it's stopped automatically.\n" +
         "- File changes made by scripts are NOT tracked by Undo - double-check destructive scripts before running them.\n" +

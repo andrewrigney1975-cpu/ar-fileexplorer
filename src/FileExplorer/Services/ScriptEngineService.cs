@@ -34,7 +34,8 @@ public static class ScriptEngineService
         PaneViewModel? activePane,
         MainViewModel mainViewModel,
         DispatcherQueue dispatcher,
-        XamlRoot xamlRoot)
+        XamlRoot xamlRoot,
+        IReadOnlyList<string>? addedFilePaths = null)
     {
         var log = new List<string>();
 
@@ -48,7 +49,7 @@ public static class ScriptEngineService
                     options.MaxStatements(MaxStatements);
                 });
 
-                BindApi(engine, activePane, mainViewModel, dispatcher, xamlRoot, log);
+                BindApi(engine, activePane, mainViewModel, dispatcher, xamlRoot, log, addedFilePaths);
 
                 engine.Execute(code);
             });
@@ -71,9 +72,14 @@ public static class ScriptEngineService
         MainViewModel mainViewModel,
         DispatcherQueue dispatcher,
         XamlRoot xamlRoot,
-        List<string> log)
+        List<string> log,
+        IReadOnlyList<string>? addedFilePaths)
     {
         engine.SetValue("currentPath", activePane?.CurrentPath ?? string.Empty);
+
+        engine.SetValue("addedFiles", (addedFilePaths ?? Array.Empty<string>())
+            .Select(ToScriptItem)
+            .ToList());
 
         engine.SetValue("selection", new Func<List<ScriptFileItem>>(() =>
         {
@@ -200,6 +206,27 @@ public static class ScriptEngineService
 
             return tcs.Task.GetAwaiter().GetResult();
         }));
+    }
+
+    private static ScriptFileItem ToScriptItem(string path)
+    {
+        var isDirectory = Directory.Exists(path);
+        var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+
+        if (isDirectory)
+        {
+            return new ScriptFileItem { Name = name, FullPath = path, IsDirectory = true };
+        }
+
+        var info = new FileInfo(path);
+        return new ScriptFileItem
+        {
+            Name = name,
+            FullPath = path,
+            IsDirectory = false,
+            Size = info.Exists ? info.Length : 0,
+            Extension = info.Extension,
+        };
     }
 
     private static ScriptFileItem ToScriptItem(Models.FileSystemItem item) => new()

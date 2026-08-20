@@ -47,6 +47,9 @@ public sealed partial class MainWindow : Window
             _viewModel.RefreshAllPanes();
             RefreshSyncDropdown();
         });
+        WatchService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
+        WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
+        ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
@@ -895,6 +898,8 @@ public sealed partial class MainWindow : Window
         OpenCommandPalette();
     }
 
+    private void CommandPaletteBar_Tapped(object sender, TappedRoutedEventArgs e) => OpenCommandPalette();
+
     private void OpenCommandPalette()
     {
         _paletteCommands = BuildPaletteCommands();
@@ -933,6 +938,7 @@ public sealed partial class MainWindow : Window
             new("Go Forward", "Navigate forward", () => pane?.NavigateForward()),
             new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
             new("Manage Scripts...", "Create, edit, and run scripts", () => _ = OpenScriptManagerAsync()),
+            new("Manage Automation...", "Set up folder-watch triggers and scheduled tasks", () => _ = OpenAutomationManagerAsync()),
         };
 
         if (pane is not null)
@@ -1019,6 +1025,73 @@ public sealed partial class MainWindow : Window
 
             await dialog.ShowAsync();
         }
+    }
+
+    private async Task RunWatchTriggerAsync(WatchTaskState task, IReadOnlyList<string> addedPaths)
+    {
+        var code = ScriptService.Load(task.ScriptName);
+        if (code is null)
+        {
+            return;
+        }
+
+        var result = await ScriptEngineService.RunAsync(
+            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot, addedPaths);
+
+        var summary = result.Success
+            ? (result.Log.Count > 0 ? string.Join(" | ", result.Log.TakeLast(3)) : "Completed.")
+            : $"Error: {result.Error}";
+
+        NotificationService.Show($"Watch '{task.ScriptName}' ({System.IO.Path.GetFileName(task.FolderPath.TrimEnd('\\'))})", summary);
+    }
+
+    private async Task RunScheduleAsync(ScheduleState schedule)
+    {
+        if (schedule.Kind == ScheduleKind.Sync)
+        {
+            var task = SyncTaskService.Tasks.FirstOrDefault(t => t.Id == schedule.TargetName);
+            if (task is not null)
+            {
+                _operationQueue.EnqueueSync(task);
+            }
+
+            return;
+        }
+
+        var code = ScriptService.Load(schedule.TargetName);
+        if (code is null)
+        {
+            return;
+        }
+
+        var result = await ScriptEngineService.RunAsync(
+            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+
+        var summary = result.Success
+            ? (result.Log.Count > 0 ? string.Join(" | ", result.Log.TakeLast(3)) : "Completed.")
+            : $"Error: {result.Error}";
+
+        NotificationService.Show($"Schedule '{schedule.TargetName}'", summary);
+    }
+
+    private async Task OpenAutomationManagerAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Automation",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var manager = new AutomationDialog
+        {
+            RequestClose = () => dialog.Hide(),
+        };
+        dialog.Content = manager;
+
+        dialog.Resources["ContentDialogMaxWidth"] = 720d;
+        dialog.Resources["ContentDialogMaxHeight"] = 720d;
+
+        await dialog.ShowAsync();
     }
 
     private async Task ShowDuplicateFinderAsync(string rootPath)

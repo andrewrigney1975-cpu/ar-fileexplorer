@@ -12,6 +12,7 @@
         <conv:NullToVisibilityConverter x:Key="NullToVis" />
         <conv:TagColorToBrushConverter x:Key="TagBrush" />
         <conv:SyncRoleToBrushConverter x:Key="SyncBrush" />
+        <conv:WatchedToBrushConverter x:Key="WatchBrush" />
 
         <DataTemplate x:Key="IconsTemplate" x:DataType="models:FileSystemItem">
             <StackPanel Width="96" Margin="6" Spacing="4" HorizontalAlignment="Center">
@@ -27,6 +28,8 @@
                              Stroke="{ThemeResource SolidBackgroundFillColorBaseBrush}" StrokeThickness="1" />
                     <Rectangle Width="4" HorizontalAlignment="Left" VerticalAlignment="Stretch" RadiusX="2" RadiusY="2"
                                Fill="{x:Bind SyncRole, Converter={StaticResource SyncBrush}}" />
+                    <Rectangle Width="4" Margin="4,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Stretch" RadiusX="2" RadiusY="2"
+                               Fill="{x:Bind IsWatched, Converter={StaticResource WatchBrush}}" />
                     <Border Width="15" Height="15" CornerRadius="8" Margin="2" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                             Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                             Visibility="{x:Bind IsFolderThumbnail, Mode=OneWay, Converter={StaticResource BoolToVis}}">
@@ -48,6 +51,8 @@
             <StackPanel Orientation="Horizontal" Spacing="8" Padding="4,6" VerticalAlignment="Center">
                 <Rectangle Width="4" VerticalAlignment="Stretch" Margin="-4,-6,0,-6"
                            Fill="{x:Bind SyncRole, Converter={StaticResource SyncBrush}}" />
+                <Rectangle Width="4" VerticalAlignment="Stretch" Margin="0,-6,0,-6"
+                           Fill="{x:Bind IsWatched, Converter={StaticResource WatchBrush}}" />
                 <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" FontFamily="Segoe Fluent Icons"
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                 <Ellipse Width="8" Height="8" VerticalAlignment="Center"
@@ -71,6 +76,8 @@
                 </Grid.ColumnDefinitions>
                 <Rectangle Grid.Column="0" Width="4" VerticalAlignment="Stretch" Margin="-4,-6,0,-6" HorizontalAlignment="Left"
                            Fill="{x:Bind SyncRole, Converter={StaticResource SyncBrush}}" />
+                <Rectangle Grid.Column="0" Width="4" VerticalAlignment="Stretch" Margin="0,-6,0,-6" HorizontalAlignment="Left"
+                           Fill="{x:Bind IsWatched, Converter={StaticResource WatchBrush}}" />
                 <StackPanel Orientation="Horizontal" Spacing="8" Grid.Column="0" Margin="8,0,0,0">
                     <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" FontFamily="Segoe Fluent Icons"
                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
@@ -108,6 +115,8 @@
                              Stroke="{ThemeResource SolidBackgroundFillColorBaseBrush}" StrokeThickness="1.5" />
                     <Rectangle Width="6" HorizontalAlignment="Left" VerticalAlignment="Stretch"
                                Fill="{x:Bind SyncRole, Converter={StaticResource SyncBrush}}" />
+                    <Rectangle Width="6" Margin="6,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                               Fill="{x:Bind IsWatched, Converter={StaticResource WatchBrush}}" />
                     <Border Width="26" Height="26" CornerRadius="13" Margin="8" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                             Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                             Visibility="{x:Bind IsFolderThumbnail, Mode=OneWay, Converter={StaticResource BoolToVis}}">

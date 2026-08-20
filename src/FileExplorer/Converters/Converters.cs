@@ -84,6 +84,20 @@ public sealed partial class SyncRoleToBrushConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+public sealed partial class WatchedToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var color = value is true
+            ? Windows.UI.Color.FromArgb(255, 79, 195, 247)
+            : Microsoft.UI.Colors.Transparent;
+
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 public sealed partial class UsedPercentToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)

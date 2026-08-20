@@ -22,6 +22,8 @@ public partial class App : Application
         try
         {
             Services.NotificationService.Register();
+            Services.WatchService.Start();
+            Services.ScheduleService.Start();
             _window = new MainWindow();
             _window.Activate();
         }

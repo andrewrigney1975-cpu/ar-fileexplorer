@@ -12,7 +12,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Clickable breadcrumb path bar (click to edit as raw text, click a segment to jump to it)
 - Back / forward / up navigation with history per pane
 - Session restore: Workspaces (including custom names) and pane paths persist across restarts
-- Command palette (`Ctrl+K`) for navigation, view switching, and running actions by name
+- Command palette (`Ctrl+K`) for navigation, view switching, and running actions by name; a persistent "Command Palette (Ctrl+K)" bar sits top-center of the toolbar as a discoverable, clickable entry point to the same popup
 - Collapsible left-rail sections (Favourites, Saved Searches, Network Locations, Cloud Storage), VS Code style
 - Favourites: pin any folder from the left rail's own `+` button or a folder's context menu ("Add to Favourites"), click to navigate, `−` to unpin
 - Custom title bar: app content (and its Mica backdrop) extends up into the OS caption area, with theme-matched caption buttons, so the window frame reads as one continuous surface
@@ -50,8 +50,14 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ### Scripting
 - Command palette (`Ctrl+K`) → "Manage Scripts..." opens an in-app Script Manager: a list of saved scripts on the left, a code editor + Run/Save on the right, and an "API Reference..." button with the full function list
 - Scripts are plain **JavaScript** (ES5.1, run by the embedded [Jint](https://github.com/sebastienros/jint) interpreter), each saved as a `.js` file; every saved script also gets its own `"Run Script: <name>"` entry in the command palette for one-key execution against the active pane's current selection
-- API surface: `selection()` / `listFiles(path)` (folder contents), `currentPath`, `rename`/`copyTo`/`moveTo`/`deleteItem`/`createFolder`, `readText`/`writeText`/`exists`, `prompt`/`confirm` (blocking input dialogs), `notify` (Windows toast), `refresh` (reload open panes), and `log` (shown in the run's output)
+- API surface: `selection()` / `listFiles(path)` (folder contents), `currentPath`, `addedFiles` (the files that triggered a folder-watch run; empty otherwise), `rename`/`copyTo`/`moveTo`/`deleteItem`/`createFolder`, `readText`/`writeText`/`exists`, `prompt`/`confirm` (blocking input dialogs), `notify` (Windows toast), `refresh` (reload open panes), and `log` (shown in the run's output)
 - Scripts run off the UI thread with a 30-second timeout guard; `deleteItem` defaults to the Recycle Bin; script-driven file changes are **not** tracked by Undo, and there's no sandboxing beyond the timeout (the app already ships a full terminal, so a script has no more reach than the user already does)
+
+### Automation: folder watches & schedules
+- Right-click any folder → "Watch this folder..." to bind it to a saved script; the folder gets a light-blue highlight bar (independent of, and stackable with, the sync source/target bars) wherever it's browsed, and "Stop watching folder" removes the binding
+- Watching is backed by a live `FileSystemWatcher` per folder; rapid bursts of new files (e.g. a batch copy landing at once) are debounced (~750ms) into a single script run, with the newly-added files passed in as `addedFiles`
+- Command palette (`Ctrl+K`) → "Manage Automation..." opens a dialog listing all folder watches (with delete), plus interval-based schedules: run a saved script, or trigger a saved sync task, every N minutes — reusing the same script engine and sync/File-operations queue as manual runs
+- A background poller (30s tick) checks due schedules independently of whether the Automation dialog is open; both watch triggers and schedule runs report completion via a Windows toast, same as a manually-run script
 
 ### Search & organization
 - Per-folder filename search with typo-tolerant fuzzy matching (e.g. `rdme` matches `readme.txt`)
@@ -147,13 +153,14 @@ No installer or MSIX packaging step is required — the exe runs directly.
 src/FileExplorer/
   Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
-  Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, PropertiesDialog
-                 (XAML + code-behind)
+  Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, AutomationDialog,
+                 PropertiesDialog (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
-                 user scripting (ScriptService, ScriptEngineService), thumbnail
-                 caching/generation (ThumbnailCacheService), AVIF decoding
+                 user scripting (ScriptService, ScriptEngineService), folder-watch
+                 triggers (WatchService) and interval schedules (ScheduleService),
+                 thumbnail caching/generation (ThumbnailCacheService), AVIF decoding
                  (AvifImageService), collision prompts (FileCollisionService),
                  Favourites (FavouriteService)
   Converters/    XAML value converters
@@ -163,7 +170,8 @@ src/FileExplorer/
 ```
 
 Per-user application data (tags, saved searches, network locations, session state, window
-layout, sync tasks) is stored as JSON under `%LocalAppData%\FileExplorerApp\`; saved scripts are
-plain `.js` files under `%LocalAppData%\FileExplorerApp\Scripts\`. The one exception is the
+layout, sync tasks, folder watches, schedules) is stored as JSON under
+`%LocalAppData%\FileExplorerApp\`; saved scripts are plain `.js` files under
+`%LocalAppData%\FileExplorerApp\Scripts\`. The one exception is the
 thumbnail cache, which lives as a hidden `.arexx-thumbs.cache` file inside each folder it caches
 (not centrally), so it travels with that folder if it's moved or copied elsewhere.
