@@ -21,6 +21,18 @@ public sealed class FileSystemItem : ObservableObject
     public string Extension { get; init; } = string.Empty;
     public FileAttributes Attributes { get; init; }
 
+    /// None unless Attributes has ReparsePoint set. Set by FileSystemService on load.
+    public ReparsePointKind LinkKind { get; init; } = ReparsePointKind.None;
+
+    /// The link's own (unresolved-further) target path, or null when LinkKind is None. Set by
+    /// FileSystemService on load.
+    public string? LinkTarget { get; init; }
+
+    public bool IsLink => LinkKind != ReparsePointKind.None;
+
+    /// Small badge glyph shown over the icon for a link, or null otherwise (Segoe Fluent Icons "Link").
+    public string? LinkGlyph => IsLink ? "" : null;
+
     /// Windows Explorer-style attribute letter codes (see
     /// https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants),
     /// most-common-first: Read-only, Hidden, System, Archive, then the less common ones.
@@ -104,9 +116,15 @@ public sealed class FileSystemItem : ObservableObject
         Thumbnail = await ThumbnailCacheService.GetOrCreateAsync(FullPath, Modified, IsDirectory);
     }
 
-    public string Kind => IsDirectory
-        ? "File folder"
-        : (string.IsNullOrEmpty(Extension) ? "File" : $"{Extension.TrimStart('.').ToUpperInvariant()} File");
+    public string Kind => LinkKind switch
+    {
+        ReparsePointKind.Junction => "Junction",
+        ReparsePointKind.SymbolicLink when IsDirectory => "Symbolic Link (folder)",
+        ReparsePointKind.SymbolicLink => "Symbolic Link",
+        _ => IsDirectory
+            ? "File folder"
+            : (string.IsNullOrEmpty(Extension) ? "File" : $"{Extension.TrimStart('.').ToUpperInvariant()} File"),
+    };
 
     public string SizeDisplay => IsDirectory ? string.Empty : FormatSize(SizeBytes);
 

@@ -61,6 +61,7 @@ public static class FileSystemService
                 {
                     continue;
                 }
+                var (linkKind, linkTarget) = GetLinkInfo(info.Attributes, info.FullName);
                 items.Add(new FileSystemItem
                 {
                     Name = info.Name,
@@ -68,6 +69,8 @@ public static class FileSystemService
                     IsDirectory = true,
                     Modified = info.LastWriteTimeUtc,
                     Attributes = info.Attributes,
+                    LinkKind = linkKind,
+                    LinkTarget = linkTarget,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                     SyncRole = SettingsService.Current.EnableSyncTasks ? SyncTaskService.GetRole(info.FullName) : SyncRole.None,
@@ -87,6 +90,7 @@ public static class FileSystemService
                 {
                     continue;
                 }
+                var (linkKind, linkTarget) = GetLinkInfo(info.Attributes, info.FullName);
                 items.Add(new FileSystemItem
                 {
                     Name = info.Name,
@@ -96,6 +100,8 @@ public static class FileSystemService
                     Modified = info.LastWriteTimeUtc,
                     Extension = info.Extension,
                     Attributes = info.Attributes,
+                    LinkKind = linkKind,
+                    LinkTarget = linkTarget,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
                 });
@@ -105,6 +111,19 @@ public static class FileSystemService
         catch (IOException) { }
 
         return items;
+    }
+
+    /// Only touches ReparsePointService (a P/Invoke call plus a LinkTarget read) when the
+    /// ReparsePoint attribute is actually set - every other item in a folder listing pays nothing
+    /// extra for this.
+    private static (ReparsePointKind Kind, string? Target) GetLinkInfo(FileAttributes attributes, string fullPath)
+    {
+        if (!attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            return (ReparsePointKind.None, null);
+        }
+
+        return (ReparsePointService.GetKind(fullPath), ReparsePointService.TryGetLinkTarget(fullPath));
     }
 
     private const int MaxRecursiveSearchResults = 500;

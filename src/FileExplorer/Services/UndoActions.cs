@@ -28,6 +28,34 @@ public sealed record CreateFolderUndo(string Path) : UndoAction
     }
 }
 
+public sealed record CreateLinkUndo(string Path) : UndoAction
+{
+    public override string Description => $"Undo Create Link \"{System.IO.Path.GetFileName(Path)}\"";
+
+    public override Task UndoAsync()
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                // A link is a leaf node regardless of whether it points at a file or a folder -
+                // recursive:true here only matters for a directory-typed link, and (verified) still
+                // removes just the link itself rather than following it into its target's contents.
+                if (Directory.Exists(Path))
+                {
+                    Directory.Delete(Path, recursive: true);
+                }
+                else if (File.Exists(Path))
+                {
+                    File.Delete(Path);
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        });
+    }
+}
+
 public sealed record RenameUndo(string OldPath, string NewPath) : UndoAction
 {
     public override string Description => $"Undo Rename \"{System.IO.Path.GetFileName(NewPath)}\"";

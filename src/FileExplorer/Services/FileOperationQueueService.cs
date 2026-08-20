@@ -152,6 +152,15 @@ public sealed class FileOperationQueueService
                     Directory.CreateDirectory(dir);
                 }
 
+                // Best-effort: a link that fails to recreate (e.g. a dangling target, or a
+                // symbolic link needing Developer Mode/elevation this process doesn't have)
+                // shouldn't fail the whole copy over one item.
+                foreach (var (linkSource, linkDestination) in plan.Links)
+                {
+                    token.ThrowIfCancellationRequested();
+                    await ReparsePointService.RecreateLinkAsync(linkSource, linkDestination).ConfigureAwait(false);
+                }
+
                 long bytesDoneTotal = 0;
                 var progressLock = new object();
 
@@ -336,7 +345,11 @@ public sealed class FileOperationQueueService
 
         Directory.CreateDirectory(target);
 
-        var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+        // Symbolic links/junctions are never followed - sync mirrors real file content, and
+        // Directory.EnumerateFiles(AllDirectories) would otherwise follow a directory reparse
+        // point into (and duplicate) whatever it points to, or loop forever on a self-referential
+        // one.
+        var files = EnumerateFilesSkippingLinks(source).ToList();
         var toCopy = new List<(string Source, string Destination)>();
         long totalBytes = 0;
         CollisionAction? appliedToAll = null;
@@ -493,48 +506,112 @@ public sealed class FileOperationQueueService
 
     /// resolvedTopLevel is already collision-resolved (unique, or the prior occupant already cleared
     /// for an Overwrite) by ResolveTopLevelCollisionsAsync.
+    /// Like Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories), but never descends
+    /// into a reparse point (symbolic link/junction) and never yields one either - see
+    /// CollectCopyEntries below for why this matters.
+    private static IEnumerable<string> EnumerateFilesSkippingLinks(string directory)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+        {
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(entry);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                continue;
+            }
+
+            if (attributes.HasFlag(FileAttributes.Directory))
+            {
+                foreach (var nested in EnumerateFilesSkippingLinks(entry))
+                {
+                    yield return nested;
+                }
+            }
+            else
+            {
+                yield return entry;
+            }
+        }
+    }
+
     private static CopyPlan BuildCopyPlan(IReadOnlyList<(string Source, string Destination)> resolvedTopLevel)
     {
         var files = new List<(string Source, string Destination)>();
         var directories = new List<string>();
+        var links = new List<(string Source, string Destination)>();
         var topLevel = new List<(string Source, string Destination)>();
         long total = 0;
 
         foreach (var (source, topDestination) in resolvedTopLevel)
         {
             topLevel.Add((source, topDestination));
-
-            if (Directory.Exists(source))
-            {
-                directories.Add(topDestination);
-
-                foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
-                {
-                    var relative = Path.GetRelativePath(source, dir);
-                    directories.Add(Path.Combine(topDestination, relative));
-                }
-
-                foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-                {
-                    var relative = Path.GetRelativePath(source, file);
-                    var destination = Path.Combine(topDestination, relative);
-                    files.Add((file, destination));
-                    total += new FileInfo(file).Length;
-                }
-            }
-            else if (File.Exists(source))
-            {
-                files.Add((source, topDestination));
-                total += new FileInfo(source).Length;
-            }
+            CollectCopyEntries(source, topDestination, files, directories, links, ref total);
         }
 
-        return new CopyPlan(files, directories, topLevel, total);
+        return new CopyPlan(files, directories, links, topLevel, total);
+    }
+
+    /// Never descends into a reparse point (symbolic link or junction) - only recreates the link
+    /// itself at the destination, pointing at the same target. Without this, a folder containing
+    /// one would get followed into and its target's entire contents duplicated, or - for a
+    /// self-referential link - recursed into forever.
+    private static void CollectCopyEntries(
+        string source,
+        string destination,
+        List<(string Source, string Destination)> files,
+        List<string> directories,
+        List<(string Source, string Destination)> links,
+        ref long total)
+    {
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(source);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        if (attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            links.Add((source, destination));
+            return;
+        }
+
+        if (attributes.HasFlag(FileAttributes.Directory))
+        {
+            directories.Add(destination);
+
+            foreach (var dir in Directory.EnumerateDirectories(source))
+            {
+                CollectCopyEntries(dir, Path.Combine(destination, Path.GetFileName(dir)), files, directories, links, ref total);
+            }
+
+            foreach (var file in Directory.EnumerateFiles(source))
+            {
+                CollectCopyEntries(file, Path.Combine(destination, Path.GetFileName(file)), files, directories, links, ref total);
+            }
+        }
+        else
+        {
+            files.Add((source, destination));
+            total += new FileInfo(source).Length;
+        }
     }
 
     private sealed record CopyPlan(
         List<(string Source, string Destination)> Files,
         List<string> DirectoriesToCreate,
+        List<(string Source, string Destination)> Links,
         List<(string Source, string Destination)> TopLevel,
         long TotalBytes);
 }

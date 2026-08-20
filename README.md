@@ -31,7 +31,8 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Cut / Copy / Paste toolbar and context menu, with a shared clipboard between panes
 - Rename (`F2`), "Move to folder..." (`F3`, creates a new folder from the current multi-selection)
 - Delete to Recycle Bin (`Del`), permanent delete (`Shift+Del`); a failed delete (locked file, permissions, or an unsynced cloud-only file) shows a dialog naming the item and why — including a specific hint when the folder is under a detected OneDrive/Google Drive/Dropbox/Box root — instead of silently doing nothing
-- Batch rename with pattern-based multi-selection renaming
+- Batch rename with pattern-based multi-selection renaming (`{name}` / `{n}` / `{n:000}`), or switch the same dialog to Find & Replace (Regex) mode — a live preview shows the result (or a parse error) for each mode as you type
+- Symbolic links and junctions: right-click empty space → "New link..." to create either (junctions need only a folder target and, unlike symbolic links, never need Developer Mode or admin rights); linked items get a small link badge in every view mode, and Properties/the Type column shows "Symbolic Link" or "Junction". Copy/move and folder sync never descend into a link — the link itself gets recreated at the destination pointing at the same target, rather than duplicating (or, for a self-referential link, infinitely recursing into) whatever it points to
 - Compress selection to `.zip` from the context menu; extract one or many selected archives at once (`.zip`/`.rar`/`.7z`/`.tar`/`.gz`/`.tgz`/`.bz2`/`.xz`, auto-detected by content via [SharpCompress](https://github.com/adamhathcock/sharpcompress)), each to its own destination folder
 - Properties dialog (context menu → "Properties"): type, location, size, created/modified/accessed timestamps, and editable Read-only/Hidden attributes for a single item; aggregate file/folder counts and combined size for a multi-selection, with folder sizes computed recursively in the background
 - Filename collisions on copy/move (drag-and-drop, paste, "Move to folder...") and sync tasks prompt **Overwrite / Skip / Rename / Cancel**, with an "apply to all remaining conflicts" option; Rename auto-appends a bracketed number (`file (2).txt`) with no further input needed
@@ -120,7 +121,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `LibHeifSharp` + `LibHeif.Native.win-x64` | AVIF thumbnail/preview decoding via libheif — the only dependency here with a native (non-.NET) component |
 | `SharpCompress` | Multi-format archive extraction (RAR/7z/TAR/GZ/BZip2/XZ, in addition to .zip) — pure C#, no native deps |
 
-Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts).
+Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts). Symbolic link creation/reading is native .NET (`Directory`/`File.CreateSymbolicLink`, `.LinkTarget`); telling a symbolic link apart from a junction needs one small direct `kernel32.dll` P/Invoke (`FindFirstFileW`, reading the reparse tag `.NET` doesn't expose), and creating a junction shells out to the OS's own `mklink /J` rather than hand-rolling the reparse-point buffer layout.
 
 **Runtime prerequisite:** PDF preview requires the WebView2 runtime, which ships with Windows 11 and current Windows 10 by default. On an older or locked-down Windows 10 install without it, PDF preview falls back to a generic file icon instead of crashing.
 
@@ -183,7 +184,8 @@ src/FileExplorer/
                  thumbnail caching/generation (ThumbnailCacheService), image metadata/EXIF
                  reading (ImageMetadataService), AVIF decoding (AvifImageService),
                  collision prompts (FileCollisionService), Favourites (FavouriteService),
-                 user preferences/feature toggles (SettingsService)
+                 user preferences/feature toggles (SettingsService), symbolic link/junction
+                 detection and creation (ReparsePointService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring), AppVersionInfo

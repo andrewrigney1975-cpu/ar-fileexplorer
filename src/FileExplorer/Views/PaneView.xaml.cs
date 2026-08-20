@@ -787,17 +787,127 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
+        var patternRadio = new RadioButton { Content = "Pattern", GroupName = "BatchRenameMode", IsChecked = true };
+        var regexRadio = new RadioButton { Content = "Find & Replace (Regex)", GroupName = "BatchRenameMode" };
+
         var patternBox = new TextBox { Text = "{name}", PlaceholderText = "e.g. Vacation {n:000}" };
+        var patternPanel = new StackPanel
+        {
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "{name} is the original name; {n} or {n:000} is a sequence number.",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12,
+                    Opacity = 0.8,
+                },
+                patternBox,
+            },
+        };
+
+        var findBox = new TextBox { PlaceholderText = "Find (regex)" };
+        var replaceBox = new TextBox { PlaceholderText = "Replace with (use $1, $2 for capture groups)" };
+        var caseSensitiveBox = new CheckBox { Content = "Case sensitive" };
+        var regexPanel = new StackPanel
+        {
+            Spacing = 8,
+            Visibility = Visibility.Collapsed,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Matches against the full file name, including its extension. .NET regex syntax.",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12,
+                    Opacity = 0.8,
+                },
+                findBox,
+                replaceBox,
+                caseSensitiveBox,
+            },
+        };
+
+        var errorText = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 17, 35)),
+            Visibility = Visibility.Collapsed,
+        };
         var previewText = new TextBlock { FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
+
+        // Returns null (with error set) for an unusable regex, or null (with no error) for a regex
+        // box that's simply still empty - both leave that item's name untouched.
+        string? ComputeNewName(FileSystemItem item, int index, out string? error)
+        {
+            error = null;
+
+            if (regexRadio.IsChecked != true)
+            {
+                return ApplyPattern(patternBox.Text, item, index) + item.Extension;
+            }
+
+            if (string.IsNullOrEmpty(findBox.Text))
+            {
+                return null;
+            }
+
+            try
+            {
+                var options = caseSensitiveBox.IsChecked == true
+                    ? System.Text.RegularExpressions.RegexOptions.None
+                    : System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+                return System.Text.RegularExpressions.Regex.Replace(item.Name, findBox.Text, replaceBox.Text, options);
+            }
+            catch (ArgumentException ex)
+            {
+                error = ex.Message;
+                return null;
+            }
+        }
 
         void UpdatePreview()
         {
-            var lines = selection.Take(4).Select((item, i) => $"{item.Name}  ->  {ApplyPattern(patternBox.Text, item, i)}{item.Extension}");
-            var extra = selection.Count > 4 ? $"\n... and {selection.Count - 4} more" : "";
-            previewText.Text = string.Join("\n", lines) + extra;
+            var lines = new List<string>();
+            string? sharedError = null;
+
+            foreach (var (item, i) in selection.Take(4).Select((item, i) => (item, i)))
+            {
+                var newName = ComputeNewName(item, i, out var error);
+                if (error is not null)
+                {
+                    sharedError = error;
+                    break;
+                }
+
+                lines.Add($"{item.Name}  ->  {newName ?? item.Name}");
+            }
+
+            errorText.Visibility = sharedError is null ? Visibility.Collapsed : Visibility.Visible;
+            errorText.Text = sharedError is null ? string.Empty : $"Invalid pattern: {sharedError}";
+            previewText.Text = sharedError is not null
+                ? string.Empty
+                : string.Join("\n", lines) + (selection.Count > 4 ? $"\n... and {selection.Count - 4} more" : string.Empty);
         }
 
         patternBox.TextChanged += (_, _) => UpdatePreview();
+        findBox.TextChanged += (_, _) => UpdatePreview();
+        replaceBox.TextChanged += (_, _) => UpdatePreview();
+        caseSensitiveBox.Checked += (_, _) => UpdatePreview();
+        caseSensitiveBox.Unchecked += (_, _) => UpdatePreview();
+
+        void SwitchMode()
+        {
+            var isRegex = regexRadio.IsChecked == true;
+            patternPanel.Visibility = isRegex ? Visibility.Collapsed : Visibility.Visible;
+            regexPanel.Visibility = isRegex ? Visibility.Visible : Visibility.Collapsed;
+            UpdatePreview();
+        }
+
+        patternRadio.Checked += (_, _) => SwitchMode();
+        regexRadio.Checked += (_, _) => SwitchMode();
         UpdatePreview();
 
         var dialog = new ContentDialog
@@ -812,14 +922,10 @@ public sealed partial class PaneView : UserControl
                 Spacing = 8,
                 Children =
                 {
-                    new TextBlock
-                    {
-                        Text = "{name} is the original name; {n} or {n:000} is a sequence number.",
-                        TextWrapping = TextWrapping.Wrap,
-                        FontSize = 12,
-                        Opacity = 0.8,
-                    },
-                    patternBox,
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { patternRadio, regexRadio } },
+                    patternPanel,
+                    regexPanel,
+                    errorText,
                     previewText,
                 },
             },
@@ -830,13 +936,17 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
-        var pattern = patternBox.Text;
         var renamed = new List<(string Source, string Destination)>();
 
         for (int i = 0; i < selection.Count; i++)
         {
             var item = selection[i];
-            var newName = ApplyPattern(pattern, item, i) + item.Extension;
+            var newName = ComputeNewName(item, i, out var error);
+            if (error is not null || string.IsNullOrEmpty(newName))
+            {
+                continue;
+            }
+
             var newPath = Path.Combine(Path.GetDirectoryName(item.FullPath)!, newName);
 
             if (string.Equals(newPath, item.FullPath, StringComparison.OrdinalIgnoreCase) ||
@@ -1446,6 +1556,7 @@ public sealed partial class PaneView : UserControl
         paste.IsEnabled = FileClipboardService.Instance.HasContent;
         menu.Items.Add(paste);
         menu.Items.Add(NewMenuItem("New folder", "", CreateNewFolderHere));
+        menu.Items.Add(NewMenuItem("New link...", string.Empty, async () => await CreateNewLinkAsync()));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
         return menu;
@@ -1474,6 +1585,99 @@ public sealed partial class PaneView : UserControl
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    private async Task CreateNewLinkAsync()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var nameBox = new TextBox { PlaceholderText = "Link name" };
+        var targetBox = new TextBox { PlaceholderText = "Full path to the target file or folder" };
+        var symlinkRadio = new RadioButton { Content = "Symbolic link", GroupName = "NewLinkType", IsChecked = true };
+        var junctionRadio = new RadioButton { Content = "Junction (folders only - no admin rights or Developer Mode needed)", GroupName = "NewLinkType" };
+
+        var dialog = new ContentDialog
+        {
+            Title = "New Link",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children = { nameBox, targetBox, symlinkRadio, junctionRadio },
+            },
+            PrimaryButtonText = "Create",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var name = nameBox.Text.Trim();
+        var target = targetBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(target))
+        {
+            return;
+        }
+
+        var targetIsDirectory = Directory.Exists(target);
+        if (!targetIsDirectory && !File.Exists(target))
+        {
+            await ShowLinkErrorAsync("Link target not found", $"\"{target}\" doesn't exist.");
+            return;
+        }
+
+        var linkPath = Path.Combine(ViewModel.CurrentPath, name);
+        if (Directory.Exists(linkPath) || File.Exists(linkPath))
+        {
+            await ShowLinkErrorAsync("Name already in use", $"\"{name}\" already exists in this folder.");
+            return;
+        }
+
+        LinkCreationResult result;
+        if (junctionRadio.IsChecked == true)
+        {
+            if (!targetIsDirectory)
+            {
+                await ShowLinkErrorAsync("Junctions need a folder target",
+                    "Junctions can only point at folders - pick Symbolic link instead for a file target.");
+                return;
+            }
+
+            result = await ReparsePointService.CreateJunctionAsync(linkPath, target);
+        }
+        else
+        {
+            result = ReparsePointService.CreateSymbolicLink(linkPath, target, targetIsDirectory);
+        }
+
+        if (!result.Success)
+        {
+            await ShowLinkErrorAsync("Couldn't create the link", result.ErrorMessage ?? "Unknown error.");
+            return;
+        }
+
+        UndoService.Instance.Push(new CreateLinkUndo(linkPath));
+        ViewModel.Refresh(linkPath);
+    }
+
+    private async Task ShowLinkErrorAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "OK",
+            XamlRoot = XamlRoot,
+        };
+
+        await dialog.ShowAsync();
     }
 
     private static void SetClipboardFromSelection(IReadOnlyList<FileSystemItem> selection, bool isCut)

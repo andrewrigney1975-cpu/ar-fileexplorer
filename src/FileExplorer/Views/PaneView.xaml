@@ -41,6 +41,9 @@
                     <FontIcon Glyph="{x:Bind CloudBadge, Mode=OneWay}" FontSize="11" FontFamily="Segoe Fluent Icons"
                               Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
                               Visibility="{x:Bind CloudBadge, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                    <FontIcon Glyph="{x:Bind LinkGlyph, Mode=OneWay}" FontSize="11" FontFamily="Segoe Fluent Icons"
+                              Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
+                              Visibility="{x:Bind LinkGlyph, Mode=OneWay, Converter={StaticResource NullToVis}}" />
                     <TextBlock Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="Wrap"
                                MaxLines="2" TextTrimming="CharacterEllipsis" FontSize="12" />
                 </StackPanel>
@@ -61,6 +64,9 @@
                 <FontIcon Glyph="{x:Bind CloudBadge, Mode=OneWay}" FontSize="12" FontFamily="Segoe Fluent Icons"
                           Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
                           Visibility="{x:Bind CloudBadge, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                <FontIcon Glyph="{x:Bind LinkGlyph, Mode=OneWay}" FontSize="12" FontFamily="Segoe Fluent Icons"
+                          Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
+                          Visibility="{x:Bind LinkGlyph, Mode=OneWay, Converter={StaticResource NullToVis}}" />
                 <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
@@ -87,6 +93,9 @@
                     <FontIcon Glyph="{x:Bind CloudBadge, Mode=OneWay}" FontSize="12" FontFamily="Segoe Fluent Icons"
                               Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
                               Visibility="{x:Bind CloudBadge, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                    <FontIcon Glyph="{x:Bind LinkGlyph, Mode=OneWay}" FontSize="12" FontFamily="Segoe Fluent Icons"
+                              Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
+                              Visibility="{x:Bind LinkGlyph, Mode=OneWay, Converter={StaticResource NullToVis}}" />
                     <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{x:Bind ModifiedDisplay}" VerticalAlignment="Center"
@@ -128,6 +137,9 @@
                     <FontIcon Glyph="{x:Bind CloudBadge, Mode=OneWay}" FontSize="11" FontFamily="Segoe Fluent Icons"
                               Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
                               Visibility="{x:Bind CloudBadge, Mode=OneWay, Converter={StaticResource NullToVis}}" />
+                    <FontIcon Glyph="{x:Bind LinkGlyph, Mode=OneWay}" FontSize="11" FontFamily="Segoe Fluent Icons"
+                              Foreground="{ThemeResource AccentTextFillColorSecondaryBrush}"
+                              Visibility="{x:Bind LinkGlyph, Mode=OneWay, Converter={StaticResource NullToVis}}" />
                     <TextBlock Text="{x:Bind Name}" TextAlignment="Center" TextWrapping="Wrap"
                                MaxLines="2" TextTrimming="CharacterEllipsis" FontSize="12" />
                 </StackPanel>
