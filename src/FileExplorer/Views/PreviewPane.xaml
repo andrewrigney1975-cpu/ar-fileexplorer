@@ -61,6 +61,26 @@
             <TextBlock x:Name="KindText" Opacity="0.7" FontSize="12" />
             <TextBlock x:Name="SizeText" Opacity="0.7" FontSize="12" />
             <TextBlock x:Name="ModifiedText" Opacity="0.7" FontSize="12" />
+
+            <StackPanel x:Name="ImageMetadataPanel" Spacing="4" Margin="0,8,0,0" Visibility="Collapsed">
+                <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,0,0,4" />
+                <TextBlock x:Name="ImageDimensionsText" Opacity="0.7" FontSize="12" />
+                <TextBlock x:Name="ImageBitDepthText" Opacity="0.7" FontSize="12" />
+                <TextBlock x:Name="ImageColorModelText" Opacity="0.7" FontSize="12" />
+                <ScrollViewer x:Name="ExifScroller" MaxHeight="220" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <ItemsControl x:Name="ExifList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Opacity="0.7" FontSize="12" TextWrapping="Wrap">
+                                    <Run Text="{Binding Label}" FontWeight="SemiBold" />
+                                    <Run Text=": " />
+                                    <Run Text="{Binding Value}" />
+                                </TextBlock>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
         </StackPanel>
     </Grid>
 </UserControl>

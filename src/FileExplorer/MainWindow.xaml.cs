@@ -50,6 +50,11 @@ public sealed partial class MainWindow : Window
         WatchService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
+        SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            ApplyFeatureVisibility();
+            _viewModel.RefreshAllPanes();
+        });
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
         _ = new ColumnSplitterController(PreviewSplitter, PreviewColumn, invert: true, min: 240, max: 600);
@@ -62,6 +67,7 @@ public sealed partial class MainWindow : Window
 
         TerminalToggleButton.IsChecked = savedLayout.TerminalOpen;
         TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
+        ApplyFeatureVisibility();
 
         _operationQueue = new FileOperationQueueService(DispatcherQueue, () => Content.XamlRoot);
         _operationQueue.JobCompleted += (_, job) =>
@@ -96,6 +102,22 @@ public sealed partial class MainWindow : Window
 
     private readonly FileOperationQueueService _operationQueue;
     private double _previewExpandedWidth = 300;
+
+    /// Hides the toolbar surface for a disabled feature (Preferences, in Control Centre). Context
+    /// menu entries and command palette entries are gated separately, at the point they're built.
+    private void ApplyFeatureVisibility()
+    {
+        var settings = SettingsService.Current;
+
+        TerminalToggleButton.Visibility = settings.EnableTerminal ? Visibility.Visible : Visibility.Collapsed;
+        if (!settings.EnableTerminal && TerminalToggleButton.IsChecked == true)
+        {
+            TerminalToggleButton.IsChecked = false;
+            TerminalRow.Height = new GridLength(0);
+        }
+
+        SyncButton.Visibility = settings.EnableSyncTasks ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     // Matches the caption buttons to the app's own Mica/theme colors instead of the OS default
     // white/black block, so the extended title bar reads as part of the app surface.
@@ -919,6 +941,8 @@ public sealed partial class MainWindow : Window
         var tab = _viewModel.SelectedTab;
         var pane = tab?.ActivePane;
 
+        var settings = SettingsService.Current;
+
         var commands = new List<PaletteCommand>
         {
             new("New Workspace", "Open a new workspace", () => _viewModel.NewTabCommand.Execute(null)),
@@ -931,15 +955,18 @@ public sealed partial class MainWindow : Window
             new("Gallery View", "Switch the active pane to a large-thumbnail gallery", () => SetViewMode(ViewMode.Gallery)),
             new("New Folder", "Create a new folder in the active pane", () => NewFolderButton_Click(this, new RoutedEventArgs())),
             new("Toggle Preview Pane", "Show or hide the preview rail", () => TogglePreview()),
-            new("Toggle Terminal", "Show or hide the terminal drawer", () => ToggleTerminal()),
             new("Undo", "Undo the last file operation", () => _ = UndoAndRefreshAsync()),
             new("Go Up", "Navigate to the parent folder", () => pane?.NavigateUp()),
             new("Go Back", "Navigate back", () => pane?.NavigateBack()),
             new("Go Forward", "Navigate forward", () => pane?.NavigateForward()),
             new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
-            new("Manage Scripts...", "Create, edit, and run scripts", () => _ = OpenScriptManagerAsync()),
-            new("Manage Automation...", "Set up folder-watch triggers and scheduled tasks", () => _ = OpenAutomationManagerAsync()),
+            new("Control Centre...", "Manage scripts, sync tasks, automation, thumbnails, and preferences", () => _ = OpenControlCentreAsync()),
         };
+
+        if (settings.EnableTerminal)
+        {
+            commands.Add(new PaletteCommand("Toggle Terminal", "Show or hide the terminal drawer", () => ToggleTerminal()));
+        }
 
         if (pane is not null)
         {
@@ -962,43 +989,51 @@ public sealed partial class MainWindow : Window
             commands.Add(new PaletteCommand($"Search: {search.Name}", search.RootPath, () => RunSavedSearch(search)));
         }
 
-        foreach (var scriptName in ScriptService.List())
+        if (settings.EnableScripting)
         {
-            commands.Add(new PaletteCommand($"Run Script: {scriptName}", "", () => _ = RunScriptAsync(scriptName)));
+            foreach (var scriptName in ScriptService.List())
+            {
+                commands.Add(new PaletteCommand($"Run Script: {scriptName}", "", () => _ = RunScriptAsync(scriptName)));
+            }
         }
 
         return commands;
     }
 
-    private async Task OpenScriptManagerAsync()
+    private async Task OpenControlCentreAsync()
     {
         var dialog = new ContentDialog
         {
-            Title = "Scripts",
+            Title = "Control Centre",
             XamlRoot = Content.XamlRoot,
         };
 
-        var manager = new ScriptManagerDialog
+        var centre = new ControlCentreDialog
         {
             MainViewModel = _viewModel,
             ActivePane = _viewModel.SelectedTab?.ActivePane,
             RequestClose = () => dialog.Hide(),
         };
-        dialog.Content = manager;
+        dialog.Content = centre;
 
         // ContentDialog clips its content to a themed default (548x756) unless overridden - the
-        // Script Manager needs real width for the editor, so raise the cap to fit it comfortably.
-        // The dialog has no built-in Close button (see RequestClose above) - ContentDialog stretches
-        // a lone footer button across the full width, which looks wrong at this size, so the Script
-        // Manager draws its own right-aligned Close button instead.
-        dialog.Resources["ContentDialogMaxWidth"] = 1180d;
-        dialog.Resources["ContentDialogMaxHeight"] = 760d;
+        // Control Centre needs real width for the embedded Script Manager editor, so raise the cap
+        // to fit it comfortably. The dialog has no built-in Close button (see RequestClose above) -
+        // ContentDialog stretches a lone footer button across the full width, which looks wrong at
+        // this size, so the Control Centre draws its own right-aligned Close button instead.
+        dialog.Resources["ContentDialogMaxWidth"] = 1360d;
+        dialog.Resources["ContentDialogMaxHeight"] = 900d;
 
         await dialog.ShowAsync();
     }
 
     private async Task RunScriptAsync(string scriptName)
     {
+        if (!SettingsService.Current.EnableScripting)
+        {
+            return;
+        }
+
         var code = ScriptService.Load(scriptName);
         if (code is null)
         {
@@ -1029,6 +1064,11 @@ public sealed partial class MainWindow : Window
 
     private async Task RunWatchTriggerAsync(WatchTaskState task, IReadOnlyList<string> addedPaths)
     {
+        if (!SettingsService.Current.EnableFolderWatching || !SettingsService.Current.EnableScripting)
+        {
+            return;
+        }
+
         var code = ScriptService.Load(task.ScriptName);
         if (code is null)
         {
@@ -1049,12 +1089,22 @@ public sealed partial class MainWindow : Window
     {
         if (schedule.Kind == ScheduleKind.Sync)
         {
+            if (!SettingsService.Current.EnableSyncTasks)
+            {
+                return;
+            }
+
             var task = SyncTaskService.Tasks.FirstOrDefault(t => t.Id == schedule.TargetName);
             if (task is not null)
             {
                 _operationQueue.EnqueueSync(task);
             }
 
+            return;
+        }
+
+        if (!SettingsService.Current.EnableScripting)
+        {
             return;
         }
 
@@ -1072,26 +1122,6 @@ public sealed partial class MainWindow : Window
             : $"Error: {result.Error}";
 
         NotificationService.Show($"Schedule '{schedule.TargetName}'", summary);
-    }
-
-    private async Task OpenAutomationManagerAsync()
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "Automation",
-            XamlRoot = Content.XamlRoot,
-        };
-
-        var manager = new AutomationDialog
-        {
-            RequestClose = () => dialog.Hide(),
-        };
-        dialog.Content = manager;
-
-        dialog.Resources["ContentDialogMaxWidth"] = 720d;
-        dialog.Resources["ContentDialogMaxHeight"] = 720d;
-
-        await dialog.ShowAsync();
     }
 
     private async Task ShowDuplicateFinderAsync(string rootPath)

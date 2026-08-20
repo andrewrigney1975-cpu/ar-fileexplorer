@@ -1367,6 +1367,10 @@ public sealed partial class PaneView : UserControl
                 FavouriteService.IsFavourite(folder.FullPath) ? "Remove from Favourites" : "Add to Favourites",
                 "",
                 () => ToggleFavourite(folder.FullPath)));
+
+            var settings = SettingsService.Current;
+            if (settings.EnableSyncTasks)
+            {
             menu.Items.Add(NewMenuItem("Set sync source...", "", () => SyncTaskService.SetPendingSource(folder.FullPath)));
 
             if (SyncTaskService.PendingSourcePath is { } pendingSource &&
@@ -1374,13 +1378,17 @@ public sealed partial class PaneView : UserControl
             {
                 menu.Items.Add(NewMenuItem("Set sync target", "", async () => await SetSyncTargetAsync(folder.FullPath)));
             }
+            }
 
-            var existingWatch = WatchService.Tasks.FirstOrDefault(
-                t => string.Equals(t.FolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase));
+            if (settings.EnableFolderWatching && settings.EnableScripting)
+            {
+                var existingWatch = WatchService.Tasks.FirstOrDefault(
+                    t => string.Equals(t.FolderPath, folder.FullPath, StringComparison.OrdinalIgnoreCase));
 
-            menu.Items.Add(existingWatch is not null
-                ? NewMenuItem("Stop watching folder", string.Empty, () => WatchService.RemoveTask(existingWatch.Id))
-                : NewMenuItem("Watch this folder...", string.Empty, async () => await WatchFolderAsync(folder.FullPath)));
+                menu.Items.Add(existingWatch is not null
+                    ? NewMenuItem("Stop watching folder", string.Empty, () => WatchService.RemoveTask(existingWatch.Id))
+                    : NewMenuItem("Watch this folder...", string.Empty, async () => await WatchFolderAsync(folder.FullPath)));
+            }
         }
 
         menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));

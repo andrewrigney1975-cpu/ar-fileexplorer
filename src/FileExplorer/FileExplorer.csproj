@@ -21,6 +21,11 @@
     <AssemblyName>FileExplorer</AssemblyName>
     <Product>arExx Pro</Product>
     <AssemblyTitle>arExx Pro</AssemblyTitle>
+
+    <!-- App version: major.minor.build (e.g. 1.00.000). Bump Major/Minor by hand for a real
+         release; Build auto-increments on every build via the SetBuildNumber target below. -->
+    <AppVersionMajor>1</AppVersionMajor>
+    <AppVersionMinor>0</AppVersionMinor>
   </PropertyGroup>
 
   <ItemGroup>
@@ -44,8 +49,9 @@
     </Content>
   </ItemGroup>
 
-  <!-- Auto-incrementing build counter, embedded as an assembly metadata attribute and shown in
-       the window title so a running instance's build can be identified at a glance. -->
+  <!-- Auto-incrementing build counter, combined with the hand-set Major/Minor above into a
+       major.minor.build version string (e.g. "1.00.037") and embedded as an assembly metadata
+       attribute so AppVersionInfo can read it back at runtime for the Control Centre's About tab. -->
   <Target Name="SetBuildNumber" BeforeTargets="CoreGenerateAssemblyInfo">
     <PropertyGroup>
       <BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
@@ -57,12 +63,13 @@
       <_CurrentBuildNumber>@(_BuildNumberLines)</_CurrentBuildNumber>
       <_CurrentBuildNumber Condition="'$(_CurrentBuildNumber)' == ''">0</_CurrentBuildNumber>
       <BuildNumber>$([MSBuild]::Add($(_CurrentBuildNumber), 1))</BuildNumber>
+      <AppVersionString>$([System.String]::Format('{0}.{1:D2}.{2:D3}', $(AppVersionMajor), $(AppVersionMinor), $(BuildNumber)))</AppVersionString>
     </PropertyGroup>
     <WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
     <ItemGroup>
       <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
-        <_Parameter1>BuildNumber</_Parameter1>
-        <_Parameter2>$(BuildNumber)</_Parameter2>
+        <_Parameter1>AppVersion</_Parameter1>
+        <_Parameter2>$(AppVersionString)</_Parameter2>
       </AssemblyAttribute>
     </ItemGroup>
   </Target>

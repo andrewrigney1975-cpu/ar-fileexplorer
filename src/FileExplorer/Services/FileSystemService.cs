@@ -70,8 +70,8 @@ public static class FileSystemService
                     Attributes = info.Attributes,
                     TagColor = TagService.GetColor(info.FullName),
                     CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
-                    SyncRole = SyncTaskService.GetRole(info.FullName),
-                    IsWatched = WatchService.IsWatched(info.FullName),
+                    SyncRole = SettingsService.Current.EnableSyncTasks ? SyncTaskService.GetRole(info.FullName) : SyncRole.None,
+                    IsWatched = SettingsService.Current.EnableFolderWatching && WatchService.IsWatched(info.FullName),
                 });
             }
         }

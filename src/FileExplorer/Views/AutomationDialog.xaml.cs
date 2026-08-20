@@ -20,16 +20,49 @@ public sealed partial class AutomationDialog : UserControl
         Loaded += (_, _) =>
         {
             RefreshWatches();
-            PopulateTargetOptions();
+            // Setting this (rather than relying on XAML IsSelected="True") fires SelectionChanged
+            // -> PopulateTargetOptions() safely here, after InitializeComponent has finished wiring
+            // every named field it touches (ScheduleTargetBox included) - IsSelected="True" fires
+            // that same event mid-parse, before later-declared fields like ScheduleTargetBox exist,
+            // which crashed with a NullReferenceException.
+            ScheduleKindBox.SelectedIndex = 0;
             RefreshSchedules();
+            ApplyFeatureState();
             WatchService.Changed += OnWatchesChanged;
             ScheduleService.Changed += OnSchedulesChanged;
+            SettingsService.Changed += OnSettingsChanged;
         };
         Unloaded += (_, _) =>
         {
             WatchService.Changed -= OnWatchesChanged;
             ScheduleService.Changed -= OnSchedulesChanged;
+            SettingsService.Changed -= OnSettingsChanged;
         };
+    }
+
+    public void HideCloseButton() => CloseButtonElement.Visibility = Visibility.Collapsed;
+
+    private void OnSettingsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(() =>
+    {
+        ApplyFeatureState();
+        PopulateTargetOptions();
+    });
+
+    private void ApplyFeatureState()
+    {
+        var settings = SettingsService.Current;
+        WatchesDisabledText.Visibility = settings.EnableFolderWatching ? Visibility.Collapsed : Visibility.Visible;
+
+        ScheduleKindScriptItem.IsEnabled = settings.EnableScripting;
+        ScheduleKindSyncItem.IsEnabled = settings.EnableSyncTasks;
+
+        if ((ReferenceEquals(ScheduleKindBox.SelectedItem, ScheduleKindScriptItem) && !settings.EnableScripting) ||
+            (ReferenceEquals(ScheduleKindBox.SelectedItem, ScheduleKindSyncItem) && !settings.EnableSyncTasks))
+        {
+            ScheduleKindBox.SelectedItem = settings.EnableScripting ? ScheduleKindScriptItem
+                : settings.EnableSyncTasks ? ScheduleKindSyncItem
+                : null;
+        }
     }
 
     private void OnWatchesChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshWatches);

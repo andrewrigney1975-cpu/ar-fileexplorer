@@ -29,6 +29,8 @@ public sealed partial class ScriptManagerDialog : UserControl
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();
 
+    public void HideCloseButton() => CloseButtonElement.Visibility = Visibility.Collapsed;
+
     private void RefreshList()
     {
         var selectedName = NameBox.Text;

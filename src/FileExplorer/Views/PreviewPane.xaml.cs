@@ -12,6 +12,8 @@ namespace FileExplorer.Views;
 
 public sealed partial class PreviewPane : UserControl
 {
+    private sealed record ExifRow(string Label, string Value);
+
     public static readonly DependencyProperty ViewModelProperty = DependencyProperty.Register(
         nameof(ViewModel), typeof(PaneViewModel), typeof(PreviewPane), new PropertyMetadata(null, OnViewModelChanged));
 
@@ -66,6 +68,8 @@ public sealed partial class PreviewPane : UserControl
         {
             PdfPreview.CoreWebView2.Navigate("about:blank");
         }
+        ImageMetadataPanel.Visibility = Visibility.Collapsed;
+        ExifScroller.Visibility = Visibility.Collapsed;
 
         if (item is null)
         {
@@ -112,6 +116,8 @@ public sealed partial class PreviewPane : UserControl
                 await bitmap.SetSourceAsync(bytesStream.AsRandomAccessStream());
                 ImagePreview.Source = bitmap;
                 ImagePreview.Visibility = Visibility.Visible;
+
+                _ = ShowImageMetadataAsync(item);
                 return;
             }
             catch (IOException)
@@ -184,6 +190,30 @@ public sealed partial class PreviewPane : UserControl
 
         IconGlyph.Glyph = item.Glyph;
         IconPreview.Visibility = Visibility.Visible;
+    }
+
+    /// Runs after the image bitmap itself is already showing, so the extra WIC/libheif metadata
+    /// read never delays the visible preview - if the user has since selected something else, the
+    /// stale result is just discarded instead of overwriting the new selection's details.
+    private async Task ShowImageMetadataAsync(FileSystemItem item)
+    {
+        var metadata = await ImageMetadataService.ReadAsync(item.FullPath, item.Extension).ConfigureAwait(true);
+        if (metadata is null || !ReferenceEquals(ViewModel?.SelectedItem, item))
+        {
+            return;
+        }
+
+        ImageDimensionsText.Text = $"{metadata.Width} × {metadata.Height} px · {metadata.Format}";
+        ImageBitDepthText.Text = $"Bit depth: {metadata.BitDepth}";
+        ImageColorModelText.Text = $"Color model: {metadata.ColorModel}";
+
+        if (metadata.Exif.Count > 0)
+        {
+            ExifList.ItemsSource = metadata.Exif.Select(e => new ExifRow(e.Label, e.Value)).ToList();
+            ExifScroller.Visibility = Visibility.Visible;
+        }
+
+        ImageMetadataPanel.Visibility = Visibility.Visible;
     }
 
     private void ShowCodePreview(string text, string extension)

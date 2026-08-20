@@ -14,15 +14,49 @@ namespace FileExplorer.Services;
 public static class ThumbnailCacheService
 {
     private const string CacheFileName = ".arexx-thumbs.cache";
-    private const uint MaxDimension = 192; // 2x the Gallery view's 184px tile so it doesn't look upscaled/blurry
     private const int FlushDelayMs = 800;
     private const int MaxFolderScanDepth = 3;
     private const int MaxFolderScanEntries = 500;
 
-    // Bumped from ATC1: MaxDimension changed, and entries are keyed only by (name, modified time),
-    // not resolution - without a magic bump, old low-res cache files would look "still valid" and
-    // never regenerate at the new size.
-    private static readonly byte[] Magic = { (byte)'A', (byte)'T', (byte)'C', (byte)'2' };
+    /// User-configurable (Control Centre > Thumbnails), default 192 (2x the Gallery view's 184px
+    /// tile so it doesn't look upscaled/blurry). Every on-disk cache file also stores the size it
+    /// was generated at (see Magic below) - a folder whose cache was written at a different size
+    /// than the current setting is treated as stale and regenerated at the new size.
+    private static uint MaxDimension => (uint)Math.Clamp(SettingsService.Current.ThumbnailSize, 32, 1024);
+
+    // Bumped to ATC3 to add the per-file MaxDimension header this size check relies on - without a
+    // magic bump, pre-existing ATC2 files (fixed-192, no size header) would misparse as ATC3.
+    private static readonly byte[] Magic = { (byte)'A', (byte)'T', (byte)'C', (byte)'3' };
+
+    private static uint _lastKnownMaxDimension = MaxDimension;
+
+    static ThumbnailCacheService()
+    {
+        SettingsService.Changed += (_, _) =>
+        {
+            var size = MaxDimension;
+            if (size == _lastKnownMaxDimension)
+            {
+                return;
+            }
+
+            _lastKnownMaxDimension = size;
+
+            // On-disk caches are left alone (lazily invalidated per-folder by the size header
+            // check in LoadFolderIndex/below) - only the in-memory state needs clearing now, so
+            // already-open panes re-decode at the new size instead of keeping stale bitmaps.
+            lock (Sync)
+            {
+                MemoryCache.Clear();
+                FolderIndexes.Clear();
+                foreach (var timer in FlushTimers.Values)
+                {
+                    timer.Dispose();
+                }
+                FlushTimers.Clear();
+            }
+        };
+    }
 
     private sealed record DiskEntry(long ModifiedTicks, byte[] Png);
 
@@ -239,7 +273,7 @@ public static class ThumbnailCacheService
                 using var stream = File.OpenRead(path);
                 using var reader = new BinaryReader(stream);
 
-                if (reader.ReadBytes(4).SequenceEqual(Magic))
+                if (reader.ReadBytes(4).SequenceEqual(Magic) && reader.ReadUInt32() == MaxDimension)
                 {
                     var count = reader.ReadInt32();
                     for (var i = 0; i < count; i++)
@@ -315,6 +349,7 @@ public static class ThumbnailCacheService
             using (var writer = new BinaryWriter(stream))
             {
                 writer.Write(Magic);
+                writer.Write(MaxDimension);
                 writer.Write(index.Count);
                 foreach (var (name, entry) in index)
                 {
