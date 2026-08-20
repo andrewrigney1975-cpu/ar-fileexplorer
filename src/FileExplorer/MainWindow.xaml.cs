@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 
@@ -612,6 +613,154 @@ public sealed partial class MainWindow : Window
             NetworkLocationService.Remove(location);
             PopulateNetworkLocations();
         }
+    }
+
+    private async void MapNetworkDriveButton_Click(object sender, RoutedEventArgs e)
+    {
+        var mappedPanel = new StackPanel { Spacing = 4 };
+        var mappedEmptyText = new TextBlock { Text = "No mapped network drives", Opacity = 0.6, FontSize = 12 };
+
+        void RefreshMapped()
+        {
+            mappedPanel.Children.Clear();
+            var networkDrives = FileSystemService.GetReadyDrives().Where(d => d.DriveType == DriveType.Network).ToList();
+            mappedEmptyText.Visibility = networkDrives.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            foreach (var drive in networkDrives)
+            {
+                var letter = drive.Name.TrimEnd('\\', ':')[0];
+
+                var row = new Grid { ColumnSpacing = 8 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var label = new TextBlock
+                {
+                    Text = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.Name} ({drive.VolumeLabel})",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                Grid.SetColumn(label, 0);
+
+                var disconnectButton = new Button { Content = "Disconnect" };
+                Grid.SetColumn(disconnectButton, 1);
+                disconnectButton.Click += (_, _) =>
+                {
+                    var result = NetworkDriveService.DisconnectDrive(letter);
+                    if (result.Success)
+                    {
+                        PopulateDriveTree();
+                        RefreshMapped();
+                    }
+                };
+
+                row.Children.Add(label);
+                row.Children.Add(disconnectButton);
+                mappedPanel.Children.Add(row);
+            }
+        }
+
+        var letterBox = new ComboBox { PlaceholderText = "Drive letter", HorizontalAlignment = HorizontalAlignment.Stretch };
+
+        void RefreshLetters()
+        {
+            var used = new HashSet<char>(DriveInfo.GetDrives().Select(d => char.ToUpperInvariant(d.Name[0])));
+            letterBox.ItemsSource = Enumerable.Range('D', 'Z' - 'D' + 1)
+                .Select(i => (char)i)
+                .Where(c => !used.Contains(c))
+                .Select(c => $"{c}:")
+                .ToList();
+            letterBox.SelectedIndex = 0;
+        }
+
+        var uncBox = new TextBox { PlaceholderText = @"\\server\share" };
+        var credentialsCheck = new CheckBox { Content = "Connect using different credentials" };
+        var usernameBox = new TextBox { PlaceholderText = "Username", Visibility = Visibility.Collapsed };
+        var passwordBox = new PasswordBox { PlaceholderText = "Password", Visibility = Visibility.Collapsed };
+        credentialsCheck.Checked += (_, _) => usernameBox.Visibility = passwordBox.Visibility = Visibility.Visible;
+        credentialsCheck.Unchecked += (_, _) => usernameBox.Visibility = passwordBox.Visibility = Visibility.Collapsed;
+        var reconnectCheck = new CheckBox { Content = "Reconnect at sign-in", IsChecked = true };
+
+        var addErrorText = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 17, 35)),
+            Visibility = Visibility.Collapsed,
+        };
+
+        var mapButton = new Button { Content = "Map Drive", HorizontalAlignment = HorizontalAlignment.Left };
+        mapButton.Click += (_, _) =>
+        {
+            addErrorText.Visibility = Visibility.Collapsed;
+
+            if (letterBox.SelectedItem is not string letterText)
+            {
+                addErrorText.Text = "Choose a drive letter.";
+                addErrorText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            var uncPath = uncBox.Text.Trim();
+            if (!uncPath.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                addErrorText.Text = @"UNC path must start with \\server\share.";
+                addErrorText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            var username = credentialsCheck.IsChecked == true && !string.IsNullOrWhiteSpace(usernameBox.Text) ? usernameBox.Text.Trim() : null;
+            var password = credentialsCheck.IsChecked == true ? passwordBox.Password : null;
+
+            var result = NetworkDriveService.MapDrive(letterText[0], uncPath, username, password, reconnectCheck.IsChecked == true);
+            if (!result.Success)
+            {
+                addErrorText.Text = result.ErrorMessage ?? "Unknown error.";
+                addErrorText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            uncBox.Text = string.Empty;
+            usernameBox.Text = string.Empty;
+            passwordBox.Password = string.Empty;
+            PopulateDriveTree();
+            RefreshMapped();
+            RefreshLetters();
+        };
+
+        RefreshMapped();
+        RefreshLetters();
+
+        var dialog = new ContentDialog
+        {
+            Title = "Map Network Drive",
+            XamlRoot = Content.XamlRoot,
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Width = 380,
+                Children =
+                {
+                    new TextBlock { Text = "Mapped drives", FontSize = 13, Opacity = 0.85 },
+                    mappedEmptyText,
+                    mappedPanel,
+                    new Rectangle { Height = 1, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(60, 128, 128, 128)) },
+                    new TextBlock { Text = "Map a new drive", FontSize = 13, Opacity = 0.85 },
+                    letterBox,
+                    uncBox,
+                    credentialsCheck,
+                    usernameBox,
+                    passwordBox,
+                    reconnectCheck,
+                    mapButton,
+                    addErrorText,
+                },
+            },
+        };
+
+        await dialog.ShowAsync();
     }
 
     // ----- Cloud storage locations (left rail) -----

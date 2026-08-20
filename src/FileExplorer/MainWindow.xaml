@@ -361,11 +361,16 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <FontIcon x:Name="NetworkLocationsChevron" Grid.Column="0" Glyph="&#xE70D;" FontSize="10"
                               Margin="4,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="Network Locations" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
+                            Click="MapNetworkDriveButton_Click" ToolTipService.ToolTip="Map a network drive letter...">
+                        <FontIcon Glyph="&#xE71B;" FontSize="12" />
+                    </Button>
+                    <Button Grid.Column="3" Style="{StaticResource ToolbarIconButtonStyle}"
                             Click="AddNetworkLocationButton_Click" ToolTipService.ToolTip="Add a network location (\\server\share)">
                         <FontIcon Glyph="&#xE710;" FontSize="12" />
                     </Button>

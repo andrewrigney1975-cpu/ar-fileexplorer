@@ -76,7 +76,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Saved/smart searches: pin a (root path, query) pair to the left rail and re-run it with one click
 - Color tags/labels on files and folders, shown as a colored dot in every view mode
 - Duplicate file finder (size-then-hash scan) with a review-and-delete dialog
-- SHA-256 checksum command with copy-to-clipboard
+- Checksum command (context menu → "Checksum..."): SHA-256, SHA-1, or MD5, with copy-to-clipboard; paste a known hash to verify a file against it (per-file MATCH/NO MATCH), or select exactly two files with no expected hash entered to get an automatic "identical"/"differ" comparison
 
 ### Preview pane
 - Text and code file preview (first few KB); programming source files (`.cs`, `.js`/`.ts`, `.py`, `.java`, `.c`/`.cpp`, `.go`, `.rs`, `.json`, `.css`, `.xml`/`.xaml`/`.html`) get a line-number gutter and color-coded syntax highlighting (keywords/strings/comments/numbers), following the app's light/dark theme
@@ -87,7 +87,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Spacebar quick-look popup using the same preview pane
 
 ### Storage integrations
-- LAN/network shares: pin `\\server\share` UNC locations to the left rail; mapped network drives get a distinct icon
+- LAN/network shares: pin `\\server\share` UNC locations to the left rail for one-click browsing (no drive letter involved), or actually map one to a drive letter via the Network Locations section's link-icon button ("Map Network Drive...") — picks an unused letter, optional different credentials, optional "Reconnect at sign-in"; mapped drives show up in the regular drive list with a distinct network icon and can be disconnected from the same dialog
 - Cloud storage: auto-detects OneDrive, Google Drive, Dropbox, and Box **local sync folders** and pins them to the left rail, with online-only/always-available status badges on files inside them. This reads what each provider's desktop client already mirrors locally — it does **not** use any provider's web API, so no accounts, OAuth, or credentials are involved.
 
 ### Other
@@ -121,7 +121,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `LibHeifSharp` + `LibHeif.Native.win-x64` | AVIF thumbnail/preview decoding via libheif — the only dependency here with a native (non-.NET) component |
 | `SharpCompress` | Multi-format archive extraction (RAR/7z/TAR/GZ/BZip2/XZ, in addition to .zip) — pure C#, no native deps |
 
-Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts). Symbolic link creation/reading is native .NET (`Directory`/`File.CreateSymbolicLink`, `.LinkTarget`); telling a symbolic link apart from a junction needs one small direct `kernel32.dll` P/Invoke (`FindFirstFileW`, reading the reparse tag `.NET` doesn't expose), and creating a junction shells out to the OS's own `mklink /J` rather than hand-rolling the reparse-point buffer layout.
+Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts). Symbolic link creation/reading is native .NET (`Directory`/`File.CreateSymbolicLink`, `.LinkTarget`); telling a symbolic link apart from a junction needs one small direct `kernel32.dll` P/Invoke (`FindFirstFileW`, reading the reparse tag `.NET` doesn't expose), and creating a junction shells out to the OS's own `mklink /J` rather than hand-rolling the reparse-point buffer layout. Network drive mapping is a `mpr.dll` P/Invoke (`WNetAddConnection2W`/`WNetCancelConnection2W`) — the same API `net use` and Explorer's own "Map Network Drive" wizard use; hashing supports SHA-256/SHA-1/MD5, all from `System.Security.Cryptography`.
 
 **Runtime prerequisite:** PDF preview requires the WebView2 runtime, which ships with Windows 11 and current Windows 10 by default. On an older or locked-down Windows 10 install without it, PDF preview falls back to a generic file icon instead of crashing.
 
@@ -185,7 +185,8 @@ src/FileExplorer/
                  reading (ImageMetadataService), AVIF decoding (AvifImageService),
                  collision prompts (FileCollisionService), Favourites (FavouriteService),
                  user preferences/feature toggles (SettingsService), symbolic link/junction
-                 detection and creation (ReparsePointService)
+                 detection and creation (ReparsePointService), network drive mapping
+                 (NetworkDriveService)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring), AppVersionInfo

@@ -637,6 +637,16 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
+        var algorithmBox = new ComboBox
+        {
+            ItemsSource = new[] { "SHA-256", "SHA-1", "MD5" },
+            SelectedIndex = 0,
+            Width = 140,
+        };
+        var expectedBox = new TextBox { PlaceholderText = "Expected hash (optional, to verify)" };
+
+        var summaryText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+
         var resultBox = new TextBox
         {
             IsReadOnly = true,
@@ -656,40 +666,101 @@ public sealed partial class PaneView : UserControl
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
         };
 
-        var dialog = new ContentDialog
+        // (Name, Hex hash or null if unreadable/a folder) - cached per algorithm so typing into
+        // the expected-hash box only re-renders the match markers, never re-reads/re-hashes files.
+        var results = new List<(string Name, string? Hex)>();
+
+        void Render()
         {
-            XamlRoot = XamlRoot,
-            Title = "SHA-256 checksum",
-            CloseButtonText = "Close",
-            DefaultButton = ContentDialogButton.Close,
-            Content = new StackPanel { Spacing = 4, Children = { resultBox, copyButton } },
-        };
+            var expected = expectedBox.Text.Trim();
+            var lines = new List<string>();
 
-        var showTask = dialog.ShowAsync().AsTask();
+            foreach (var (name, hex) in results)
+            {
+                if (hex is null)
+                {
+                    lines.Add($"{name}: (folder or unreadable - skipped)");
+                    continue;
+                }
 
-        var lines = new List<string>();
-        foreach (var item in selection)
-        {
-            if (item.IsDirectory)
-            {
-                lines.Add($"{item.Name}: (folder - skipped)");
-                continue;
-            }
-
-            try
-            {
-                await using var stream = File.OpenRead(item.FullPath);
-                var hash = await System.Security.Cryptography.SHA256.HashDataAsync(stream);
-                lines.Add($"{item.Name}:\n{Convert.ToHexString(hash)}");
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                lines.Add($"{item.Name}: (could not read file)");
+                var matchSuffix = string.IsNullOrEmpty(expected)
+                    ? string.Empty
+                    : string.Equals(hex, expected, StringComparison.OrdinalIgnoreCase) ? "  [MATCH]" : "  [NO MATCH]";
+                lines.Add($"{name}:{matchSuffix}\n{hex}");
             }
 
             resultBox.Text = string.Join("\n\n", lines);
+
+            var readable = results.Where(r => r.Hex is not null).ToList();
+            if (string.IsNullOrEmpty(expected) && readable.Count == 2)
+            {
+                var identical = string.Equals(readable[0].Hex, readable[1].Hex, StringComparison.OrdinalIgnoreCase);
+                summaryText.Text = identical ? "The two files are identical" : "The two files differ";
+                summaryText.Foreground = new SolidColorBrush(identical
+                    ? Windows.UI.Color.FromArgb(255, 16, 137, 62)
+                    : Windows.UI.Color.FromArgb(255, 232, 17, 35));
+                summaryText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                summaryText.Visibility = Visibility.Collapsed;
+            }
         }
 
+        async Task ComputeAsync()
+        {
+            results.Clear();
+            resultBox.Text = "Computing...";
+            var algorithm = (string)algorithmBox.SelectedItem;
+
+            foreach (var item in selection)
+            {
+                if (item.IsDirectory)
+                {
+                    results.Add((item.Name, null));
+                    Render();
+                    continue;
+                }
+
+                try
+                {
+                    await using var stream = File.OpenRead(item.FullPath);
+                    var hash = algorithm switch
+                    {
+                        "SHA-1" => await System.Security.Cryptography.SHA1.HashDataAsync(stream),
+                        "MD5" => await System.Security.Cryptography.MD5.HashDataAsync(stream),
+                        _ => await System.Security.Cryptography.SHA256.HashDataAsync(stream),
+                    };
+                    results.Add((item.Name, Convert.ToHexString(hash)));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    results.Add((item.Name, null));
+                }
+
+                Render();
+            }
+        }
+
+        algorithmBox.SelectionChanged += async (_, _) => await ComputeAsync();
+        expectedBox.TextChanged += (_, _) => Render();
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Checksum",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Width = 460,
+                Children = { algorithmBox, expectedBox, summaryText, resultBox, copyButton },
+            },
+        };
+
+        var showTask = dialog.ShowAsync().AsTask();
+        await ComputeAsync();
         await showTask;
     }
 
@@ -1501,7 +1572,7 @@ public sealed partial class PaneView : UserControl
             }
         }
 
-        menu.Items.Add(NewMenuItem("Compute hash...", "", async () => await ComputeHashesAsync(selection)));
+        menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
         menu.Items.Add(BuildTagSubMenu(selection));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
