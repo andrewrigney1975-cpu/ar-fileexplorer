@@ -3,3 +3,9 @@ obj/
 .vs/
 *.user
 src/FileExplorer/BuildNumber.txt
+
+# MSIX packaging: never commit private key material, and the AppPackages output is regenerated
+# per-build (unlike bin/obj, it lives outside those folders for FileExplorer.Package).
+*.pfx
+src/FileExplorer.Package/AppPackages/
+src/FileExplorer.Package/BundleArtifacts/

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap mp rescap">
+
+  <!--
+    PLACEHOLDER IDENTITY - replace both values below once Partner Center has issued them:
+      Name      -> the exact "Package/Identity/Name" shown on your app's Identity page after
+                   reserving the app name in Partner Center.
+      Publisher -> your account's Publisher ID (a "CN=..." string), also on that same page.
+    Easiest path in Visual Studio once you have both: right-click FileExplorer.Package ->
+    Publish -> Associate App with the Store, sign in, pick the reserved name - this rewrites
+    both fields (and Version) for you automatically.
+  -->
+  <Identity
+    Name="AndrewRigney.arExxPro"
+    Publisher="CN=arExxProDevTest"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>arExx Pro</DisplayName>
+    <PublisherDisplayName>Andrew Rigney</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+    <!-- Required because this project builds framework-dependent (WindowsAppSDKSelfContained=false)
+         for MSIX packaging - without this, WinRT activation of the Windows App SDK's own runtime
+         classes fails at startup with CLASS_E_CLASSNOTAVAILABLE (a hard native crash in
+         Microsoft.UI.Xaml.dll before any managed exception handler can run). Visual Studio's WAP
+         project template normally injects this automatically; a hand-authored manifest doesn't get
+         that for free. MinVersion is set low/permissive - it just needs to be <= whatever's
+         actually installed (Store-acquired apps get whatever version the Store resolves). -->
+    <PackageDependency
+      Name="Microsoft.WindowsAppRuntime.1.6"
+      MinVersion="6000.0.0.0"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="arExx Pro"
+        Description="A native dual-pane file explorer for Windows, with scripting, folder sync, and automation."
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Images\Wide310x150Logo.png"
+          Square310x310Logo="Images\Square310x310Logo.png"
+          Square71x71Logo="Images\Square71x71Logo.png" />
+        <uap:SplashScreen Image="Images\SplashScreen.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Required for any Desktop Bridge (Win32) app - grants normal desktop-app file-system/process
+         access; no other capabilities are needed since this app doesn't touch sandboxed-only APIs. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

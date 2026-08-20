@@ -158,6 +158,15 @@ src\FileExplorer\bin\x64\<Configuration>\net8.0-windows10.0.19041.0\win-x64\File
 
 No installer or MSIX packaging step is required — the exe runs directly.
 
+### MSIX packaging (Microsoft Store)
+
+`src/FileExplorer.Package/` is a separate Windows Application Packaging Project (`.wapproj`)
+that wraps the exe above into an MSIX for Store submission, without changing the plain-exe
+distribution at all — see [`src/FileExplorer.Package/README.md`](src/FileExplorer.Package/README.md)
+for the full build/signing/sideload-testing walkthrough and what's still needed on Partner
+Center's side (account, app-name reservation, Store listing) before it can actually be
+submitted.
+
 ## Project structure
 
 ```

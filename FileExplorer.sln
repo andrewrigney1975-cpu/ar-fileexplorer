@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileExplorer", "src\FileExplorer\FileExplorer.csproj", "{9A6F1B2C-4C8E-4E1B-9E2A-8E7B2B8E7B01}"
 EndProject
+Project("{C7167F0D-BC9F-4E6E-AFE1-012C56B48DB5}") = "FileExplorer.Package", "src\FileExplorer.Package\FileExplorer.Package.wapproj", "{04E93DCF-C2BA-492E-8FBA-8122999E0C5D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -15,6 +17,10 @@ Global
 		{9A6F1B2C-4C8E-4E1B-9E2A-8E7B2B8E7B01}.Debug|x64.Build.0 = Debug|x64
 		{9A6F1B2C-4C8E-4E1B-9E2A-8E7B2B8E7B01}.Release|x64.ActiveCfg = Release|x64
 		{9A6F1B2C-4C8E-4E1B-9E2A-8E7B2B8E7B01}.Release|x64.Build.0 = Release|x64
+		{04E93DCF-C2BA-492E-8FBA-8122999E0C5D}.Debug|x64.ActiveCfg = Debug|x64
+		{04E93DCF-C2BA-492E-8FBA-8122999E0C5D}.Debug|x64.Build.0 = Debug|x64
+		{04E93DCF-C2BA-492E-8FBA-8122999E0C5D}.Release|x64.ActiveCfg = Release|x64
+		{04E93DCF-C2BA-492E-8FBA-8122999E0C5D}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

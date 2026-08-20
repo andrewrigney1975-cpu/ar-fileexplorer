@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.props" />
+  <PropertyGroup>
+    <ProjectGuid>04E93DCF-C2BA-492E-8FBA-8122999E0C5D</ProjectGuid>
+    <TargetPlatformVersion>10.0.26100.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <EntryPointProjectUniqueName>..\FileExplorer\FileExplorer.csproj</EntryPointProjectUniqueName>
+    <AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
+    <PackageCertificateKeyFile>FileExplorer.Package_TemporaryKey.pfx</PackageCertificateKeyFile>
+    <PackageCertificateThumbprint>A843FE9040E16D5A2988BEC3713A9D86B351B6B5</PackageCertificateThumbprint>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
+    <AppxBundle>Auto</AppxBundle>
+    <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+    <!-- Default to a sideload-testable build; pass /p:UapAppxPackageBuildMode=StoreUpload to
+         override for a real Store submission build. -->
+    <UapAppxPackageBuildMode Condition="'$(UapAppxPackageBuildMode)' == ''">SideloadOnly</UapAppxPackageBuildMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Images\Square44x44Logo.png" />
+    <Content Include="Images\Square150x150Logo.png" />
+    <Content Include="Images\Square71x71Logo.png" />
+    <Content Include="Images\Square310x310Logo.png" />
+    <Content Include="Images\StoreLogo.png" />
+    <Content Include="Images\Wide310x150Logo.png" />
+    <Content Include="Images\SplashScreen.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      AdditionalProperties (not a top-level PropertyGroup value in this file) is required here -
+      a PropertyGroup value in THIS project does not automatically flow into the FileExplorer.csproj
+      build invoked through this ProjectReference (that's specific to command-line-supplied global
+      properties, which genuinely do propagate to every project in the build; a same-file
+      PropertyGroup does not). Forwarding them explicitly this way means the payload build always
+      gets them regardless of how this project itself gets invoked - without touching
+      FileExplorer.csproj's own defaults, which must stay self-contained/unpackaged-bootstrap for
+      the plain standalone .exe distribution.
+
+      WindowsAppSDKSelfContained=false: package framework-dependent. Required for MSIX - a
+      self-contained build's AppxManifest doesn't get correct WinRT activation registrations for
+      the Windows App SDK's own runtime classes (VS's WAP template wiring generates those; a
+      hand-authored manifest like this one's doesn't), and crashes at startup with
+      CLASS_E_CLASSNOTAVAILABLE (0xc000027b) inside Microsoft.UI.Xaml.dll before any managed
+      exception handler can run. Framework-dependent instead relies on the already-correctly-
+      registered installed Microsoft.WindowsAppRuntime.1.6 framework package (declared as a
+      PackageDependency in Package.appxmanifest).
+
+      WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp=true: the Windows App SDK
+      NuGet package auto-injects a [ModuleInitializer] into the compiled exe that calls the
+      Bootstrapper API on startup (Microsoft.WindowsAppSDK.Bootstrap.CS.targets) - that API is for
+      *unpackaged* apps to locate the runtime manually, and correctly refuses to run inside an
+      already-packaged (MSIX) process with ERROR_NOT_SUPPORTED (0x80070032). On that failure the
+      auto-generated initializer calls Environment.Exit() immediately - no window, no exception,
+      nothing to catch, which is why the packaged app silently "did nothing" on launch before this
+      flag was added. This option makes that initializer a no-op once it detects package identity,
+      deferring entirely to the PackageDependency above instead.
+    -->
+    <ProjectReference Include="..\FileExplorer\FileExplorer.csproj">
+      <Name>FileExplorer</Name>
+      <AdditionalProperties>WindowsAppSDKSelfContained=false;WindowsAppSDKBootstrapAutoInitializeOptions_OnPackageIdentity_NoOp=true</AdditionalProperties>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" />
+</Project>
