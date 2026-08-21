@@ -41,24 +41,23 @@ public sealed class FileSystemItem : ObservableObject
     /// Windows Explorer-style attribute letter codes (see
     /// https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants),
     /// most-common-first: Read-only, Hidden, System, Archive, then the less common ones.
-    public string AttributesDisplay
+    public string AttributesDisplay => FormatAttributes(Attributes);
+
+    public static string FormatAttributes(FileAttributes attributes)
     {
-        get
-        {
-            var letters = string.Empty;
-            if (Attributes.HasFlag(FileAttributes.ReadOnly)) letters += "R";
-            if (Attributes.HasFlag(FileAttributes.Hidden)) letters += "H";
-            if (Attributes.HasFlag(FileAttributes.System)) letters += "S";
-            if (Attributes.HasFlag(FileAttributes.Archive)) letters += "A";
-            if (Attributes.HasFlag(FileAttributes.Compressed)) letters += "C";
-            if (Attributes.HasFlag(FileAttributes.Encrypted)) letters += "E";
-            if (Attributes.HasFlag(FileAttributes.ReparsePoint)) letters += "L";
-            if (Attributes.HasFlag(FileAttributes.Temporary)) letters += "T";
-            if (Attributes.HasFlag(FileAttributes.Offline)) letters += "O";
-            if (Attributes.HasFlag(FileAttributes.NotContentIndexed)) letters += "I";
-            if (Attributes.HasFlag(FileAttributes.SparseFile)) letters += "P";
-            return letters;
-        }
+        var letters = string.Empty;
+        if (attributes.HasFlag(FileAttributes.ReadOnly)) letters += "R";
+        if (attributes.HasFlag(FileAttributes.Hidden)) letters += "H";
+        if (attributes.HasFlag(FileAttributes.System)) letters += "S";
+        if (attributes.HasFlag(FileAttributes.Archive)) letters += "A";
+        if (attributes.HasFlag(FileAttributes.Compressed)) letters += "C";
+        if (attributes.HasFlag(FileAttributes.Encrypted)) letters += "E";
+        if (attributes.HasFlag(FileAttributes.ReparsePoint)) letters += "L";
+        if (attributes.HasFlag(FileAttributes.Temporary)) letters += "T";
+        if (attributes.HasFlag(FileAttributes.Offline)) letters += "O";
+        if (attributes.HasFlag(FileAttributes.NotContentIndexed)) letters += "I";
+        if (attributes.HasFlag(FileAttributes.SparseFile)) letters += "P";
+        return letters;
     }
 
     /// Color-label name (e.g. "Red"), or null when untagged. Set by FileSystemService on load.
@@ -133,7 +132,14 @@ public sealed class FileSystemItem : ObservableObject
 
     public string SizeDisplay => IsDirectory ? string.Empty : FormatSize(SizeBytes);
 
-    public string ModifiedDisplay => Modified.ToLocalTime().ToString("MM/dd/yyyy h:mm tt");
+    public string ModifiedDisplay => FormatDate(Modified.ToLocalTime());
+
+    /// Short date + time in the user's Windows regional format (e.g. dd/MM/yyyy HH:mm for
+    /// Australian settings) - every date shown anywhere in the app goes through this, not a
+    /// hardcoded pattern, so it always matches CurrentCulture rather than assuming US-style dates.
+    public static string FormatDate(DateTimeOffset value) => value.ToString("g");
+
+    public static string FormatDate(DateTime value) => value.ToString("g");
 
     public static string FormatSize(long bytes)
     {

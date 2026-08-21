@@ -15,6 +15,9 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <Nullable>enable</Nullable>
+    <!-- Needed for aligned-buffer pointer handling in DiskBenchmarkService's unbuffered disk I/O
+         (FILE_FLAG_NO_BUFFERING requires 4096-byte-aligned buffers/offsets). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <NeutralLanguage>en-US</NeutralLanguage>
@@ -39,6 +42,7 @@
     <PackageReference Include="SharpCompress" Version="0.50.4" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="FluentFTP" Version="54.2.0" />
+    <PackageReference Include="System.Management" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup>
@@ -54,7 +58,7 @@
   <!-- Auto-incrementing build counter, combined with the hand-set Major/Minor above into a
        major.minor.build version string (e.g. "1.00.037") and embedded as an assembly metadata
        attribute so AppVersionInfo can read it back at runtime for the Control Centre's About tab. -->
-  <Target Name="SetBuildNumber" BeforeTargets="CoreGenerateAssemblyInfo">
+  <Target Name="SetBuildNumber" BeforeTargets="GetAssemblyAttributes;CoreGenerateAssemblyInfo">
     <PropertyGroup>
       <BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
     </PropertyGroup>
@@ -66,8 +70,20 @@
       <_CurrentBuildNumber Condition="'$(_CurrentBuildNumber)' == ''">0</_CurrentBuildNumber>
       <BuildNumber>$([MSBuild]::Add($(_CurrentBuildNumber), 1))</BuildNumber>
       <AppVersionString>$([System.String]::Format('{0}.{1:D2}.{2:D3}', $(AppVersionMajor), $(AppVersionMinor), $(BuildNumber)))</AppVersionString>
+      <!-- Drives the exe's real File version/Product version (Explorer's Properties dialog), not
+           just the in-app About readout - without these the SDK defaults File version to a fixed
+           1.0.0.0 and Product version to "1.0.0+<git-hash>", neither of which ever changes. -->
+      <FileVersion>$(AppVersionMajor).$(AppVersionMinor).0.$(BuildNumber)</FileVersion>
+      <InformationalVersion>$(AppVersionString)</InformationalVersion>
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     </PropertyGroup>
     <WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+    <!-- CoreGenerateAssemblyInfo's up-to-date check hashes the @(AssemblyAttribute) items as
+         computed by GetAssemblyAttributes, which runs (as one of CoreGenerateAssemblyInfo's own
+         DependsOnTargets) BEFORE this BeforeTargets-scheduled target - so that hash never reflects
+         a property we set here, and the generated file was silently going stale build after build.
+         Deleting the output forces regeneration unconditionally regardless of that hash. -->
+    <Delete Files="$(GeneratedAssemblyInfoFile)" Condition="Exists('$(GeneratedAssemblyInfoFile)')" />
     <ItemGroup>
       <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
         <_Parameter1>AppVersion</_Parameter1>

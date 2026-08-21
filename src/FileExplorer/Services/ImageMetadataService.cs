@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using FileExplorer.Models;
 using LibHeifSharp;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
@@ -310,7 +311,7 @@ public static class ImageMetadataService
             case string s:
                 return s.Trim();
             case DateTimeOffset dto:
-                return dto.ToString("yyyy-MM-dd HH:mm:ss");
+                return FileSystemItem.FormatDate(dto);
             case double d when key == "System.Photo.ExposureTime":
                 return d > 0 && d < 1 ? $"1/{Math.Round(1 / d)}s" : $"{d:0.###}s";
             case double d when key == "System.Photo.FNumber":

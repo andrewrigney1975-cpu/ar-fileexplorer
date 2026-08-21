@@ -420,6 +420,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OpenDriveInNewWorkspace_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TreeViewNode { Content: FolderNode { IsDrive: true } folder })
+        {
+            return;
+        }
+
+        _viewModel.AddTab(folder.FullPath, MainViewModel.GetDefaultStartPath());
+    }
+
     // ----- Collapsible left-rail sections -----
 
     private static void ToggleSection(FontIcon chevron, UIElement content)
@@ -1074,8 +1084,15 @@ public sealed partial class MainWindow : Window
         }
 
         tab.ActivePane = pane.ViewModel;
+        _activePaneView = pane;
         Preview.ViewModel = pane.ViewModel;
     }
+
+    /// The live PaneView behind tab.ActivePane, kept in step by PaneView_Activated. F2/F3's actual
+    /// implementations live on PaneView (in-place rename UI, a dialog needing its XamlRoot) rather
+    /// than being pure ViewModel operations like Delete, so their global accelerators need the View
+    /// instance itself, not just the ActivePane ViewModel.
+    private PaneView? _activePaneView;
 
     // ----- View mode toolbar -----
 
@@ -1150,6 +1167,66 @@ public sealed partial class MainWindow : Window
         }
 
         FileClipboardService.Instance.Set(items.Select(i => i.FullPath).ToList(), isCut);
+    }
+
+    private void DeleteAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+        => _ = DeleteActiveSelectionAsync(permanent: false, args);
+
+    private void ShiftDeleteAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+        => _ = DeleteActiveSelectionAsync(permanent: true, args);
+
+    private async Task DeleteActiveSelectionAsync(bool permanent, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        var pane = tab.ActivePane;
+        var items = pane.SelectedItems.Count > 0
+            ? pane.SelectedItems
+            : pane.SelectedItem is { } single ? new List<FileSystemItem> { single } : new List<FileSystemItem>();
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        await DeleteService.DeleteItemsAsync(items, permanent, Content.XamlRoot, () => pane.Refresh());
+    }
+
+    private void RenameAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_activePaneView is not { } pane)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        _ = pane.RenameSelectionAsync();
+    }
+
+    private void MoveToFolderAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_activePaneView is not { } pane)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        _ = pane.MoveSelectionToNewFolderAsync();
+    }
+
+    private void RefreshAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        tab.ActivePane.Refresh();
     }
 
     private void PasteButton_Click(object sender, RoutedEventArgs e)
@@ -1316,6 +1393,44 @@ public sealed partial class MainWindow : Window
         // to fit it comfortably. The dialog has no built-in Close button (see RequestClose above) -
         // ContentDialog stretches a lone footer button across the full width, which looks wrong at
         // this size, so the Control Centre draws its own right-aligned Close button instead.
+        dialog.Resources["ContentDialogMaxWidth"] = 1360d;
+        dialog.Resources["ContentDialogMaxHeight"] = 900d;
+
+        await dialog.ShowAsync();
+    }
+
+    private void DiskSpaceAnalyserButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskSpaceAnalyserAsync();
+
+    private async Task OpenDiskSpaceAnalyserAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Disk Space Analyser",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var analyser = new DiskSpaceAnalyserDialog { RequestClose = () => dialog.Hide() };
+        dialog.Content = analyser;
+
+        dialog.Resources["ContentDialogMaxWidth"] = 1360d;
+        dialog.Resources["ContentDialogMaxHeight"] = 900d;
+
+        await dialog.ShowAsync();
+    }
+
+    private void DiskBenchmarkButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskBenchmarkAsync();
+
+    private async Task OpenDiskBenchmarkAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Disk Benchmark",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var benchmark = new DiskBenchmarkDialog { RequestClose = () => dialog.Hide() };
+        dialog.Content = benchmark;
+
         dialog.Resources["ContentDialogMaxWidth"] = 1360d;
         dialog.Resources["ContentDialogMaxHeight"] = 900d;
 

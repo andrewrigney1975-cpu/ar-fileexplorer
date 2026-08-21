@@ -67,9 +67,9 @@ public sealed partial class PropertiesDialog : UserControl
 
             try
             {
-                CreatedText.Text = File.GetCreationTime(item.FullPath).ToString("MM/dd/yyyy h:mm tt");
-                ModifiedText.Text = File.GetLastWriteTime(item.FullPath).ToString("MM/dd/yyyy h:mm tt");
-                AccessedText.Text = File.GetLastAccessTime(item.FullPath).ToString("MM/dd/yyyy h:mm tt");
+                CreatedText.Text = FileSystemItem.FormatDate(File.GetCreationTime(item.FullPath));
+                ModifiedText.Text = FileSystemItem.FormatDate(File.GetLastWriteTime(item.FullPath));
+                AccessedText.Text = FileSystemItem.FormatDate(File.GetLastAccessTime(item.FullPath));
 
                 var attrs = File.GetAttributes(item.FullPath);
                 ReadOnlyCheck.IsChecked = attrs.HasFlag(FileAttributes.ReadOnly);

@@ -41,6 +41,14 @@ public sealed class MainViewModel : ObservableObject
         return tab;
     }
 
+    public TabViewModel AddTab(string leftPath, string rightPath)
+    {
+        var tab = new TabViewModel(_dispatcher, leftPath, rightPath);
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        return tab;
+    }
+
     public TabViewModel DuplicateTab(TabViewModel source)
     {
         var name = source.HasCustomHeader ? source.Header : null;
@@ -104,7 +112,7 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private static string GetDefaultStartPath()
+    public static string GetDefaultStartPath()
     {
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Directory.Exists(userProfile) ? userProfile : Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";

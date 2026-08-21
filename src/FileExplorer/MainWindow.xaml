@@ -33,6 +33,14 @@
 
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Modifiers="Control" Key="K" Invoked="CommandPaletteAccelerator_Invoked" />
+            <!-- Driven by the active pane's tracked selection (ActivePane.SelectedItems), not
+                 literal keyboard focus - a routed-KeyDown handler on the ListView never fires after
+                 a marquee-drag multi-select, since dragging over empty space never focuses it. -->
+            <KeyboardAccelerator Key="Delete" Invoked="DeleteAccelerator_Invoked" />
+            <KeyboardAccelerator Key="Delete" Modifiers="Shift" Invoked="ShiftDeleteAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F2" Invoked="RenameAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F3" Invoked="MoveToFolderAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F5" Invoked="RefreshAccelerator_Invoked" />
         </Grid.KeyboardAccelerators>
 
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
@@ -104,6 +112,17 @@
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control,Shift" Key="N" />
                     </Button.KeyboardAccelerators>
+                </Button>
+                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="DiskSpaceAnalyserButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Disk space analyser" ToolTipService.ToolTip="Disk space analyser"
+                        Click="DiskSpaceAnalyserButton_Click">
+                    <FontIcon Glyph="&#xEB05;" FontSize="16" />
+                </Button>
+                <Button x:Name="DiskBenchmarkButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Disk benchmark" ToolTipService.ToolTip="Disk benchmark"
+                        Click="DiskBenchmarkButton_Click">
+                    <FontIcon Glyph="&#xE95E;" FontSize="16" />
                 </Button>
             </StackPanel>
 
@@ -257,6 +276,12 @@
                     <TreeView.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Vertical" Spacing="2" Padding="0,2">
+                                <StackPanel.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="Open in new workspace" Click="OpenDriveInNewWorkspace_Click"
+                                                         Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
+                                    </MenuFlyout>
+                                </StackPanel.ContextFlyout>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="{Binding Content.Glyph}" FontSize="14" FontFamily="Segoe Fluent Icons"
                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
