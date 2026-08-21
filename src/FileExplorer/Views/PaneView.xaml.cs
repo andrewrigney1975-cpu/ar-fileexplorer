@@ -1745,6 +1745,7 @@ public sealed partial class PaneView : UserControl
         if (ViewModel is not null && !RemotePathService.IsRemote(ViewModel.CurrentPath))
         {
         menu.Items.Add(NewMenuItem("New link...", string.Empty, async () => await CreateNewLinkAsync()));
+        menu.Items.Add(NewMenuItem("Export folder listing (JSON)...", string.Empty, async () => await ExportFolderListingAsync()));
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
@@ -1895,6 +1896,24 @@ public sealed partial class PaneView : UserControl
 
         UndoService.Instance.Push(new CreateLinkUndo(linkPath));
         ViewModel.Refresh(linkPath);
+    }
+
+    private async Task ExportFolderListingAsync()
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var exportPath = FolderExportService.Export(ViewModel.CurrentPath, ViewModel.Items.ToList());
+            ViewModel.Refresh(exportPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await ShowErrorAsync("Couldn't export folder listing", ex.Message);
+        }
     }
 
     private async Task ShowErrorAsync(string title, string message)
