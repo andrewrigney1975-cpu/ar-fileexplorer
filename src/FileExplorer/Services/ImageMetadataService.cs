@@ -16,7 +16,8 @@ public sealed record ImageMetadata(
     double? Latitude = null,
     double? Longitude = null,
     double? Altitude = null,
-    double? Heading = null);
+    double? Heading = null,
+    double? FieldOfViewDegrees = null);
 
 /// Reads an image's own technical metadata (as opposed to ThumbnailCacheService, which only cares
 /// about producing a small preview bitmap) - dimensions, pixel format, and EXIF/camera properties,
@@ -52,7 +53,14 @@ public static class ImageMetadataService
         "System.GPS.AltitudeRef",
         "System.GPS.ImgDirection",
         "System.GPS.ImgDirectionRef",
+        "System.Photo.FocalLengthInFilm",
     };
+
+    // A standard 35mm film frame is 36mm wide - the 35mm-equivalent focal length (a field most
+    // phone cameras populate directly, avoiding the need for actual sensor dimensions this app has
+    // no other way to know) gives an estimated horizontal field of view via the usual
+    // FoV = 2 * atan(frameWidth / (2 * focalLength)) formula.
+    private const double Standard35mmFrameWidthMm = 36.0;
 
     // On at least some codecs/systems, the Windows Property System's own "System.GPS.Latitude"/
     // "Longitude" (VT_VECTOR|VT_R8 canonical properties) silently come back not-present via
@@ -87,6 +95,7 @@ public static class ImageMetadataService
             double? longitude = null;
             double? altitude = null;
             double? heading = null;
+            double? fieldOfView = null;
 
             try
             {
@@ -174,6 +183,16 @@ public static class ImageMetadataService
                         string.Equals(dirRef.Value as string, "M", StringComparison.OrdinalIgnoreCase);
                     exif.Add(("Camera heading", $"{heading:0.#}° ({(isMagnetic ? "magnetic" : "true")} north)"));
                 }
+
+                if (props.TryGetValue("System.Photo.FocalLengthInFilm", out var film) && film.Value is not null)
+                {
+                    var focalLength35mm = Convert.ToDouble(film.Value);
+                    if (focalLength35mm > 0)
+                    {
+                        fieldOfView = 2.0 * Math.Atan(Standard35mmFrameWidthMm / (2.0 * focalLength35mm)) * (180.0 / Math.PI);
+                        exif.Add(("Field of view (est.)", $"{fieldOfView:0.#}° (from {focalLength35mm:0}mm 35mm-equiv.)"));
+                    }
+                }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -196,7 +215,8 @@ public static class ImageMetadataService
                 latitude,
                 longitude,
                 altitude,
-                heading);
+                heading,
+                fieldOfView);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
         {

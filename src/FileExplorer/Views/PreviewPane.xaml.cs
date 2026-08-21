@@ -220,16 +220,17 @@ public sealed partial class PreviewPane : UserControl
 
         if (metadata.Latitude is { } lat && metadata.Longitude is { } lon)
         {
-            _ = ShowLocationMapAsync(item, lat, lon, metadata.Heading);
+            _ = ShowLocationMapAsync(item, lat, lon, metadata.Heading, metadata.FieldOfViewDegrees);
         }
 
         ImageMetadataPanel.Visibility = Visibility.Visible;
     }
 
     /// Renders an OpenStreetMap tile view with a marker (and, if the shot recorded one, a rotated
-    /// heading cone) via Leaflet loaded from its public CDN into the WebView2 already used for PDF
-    /// preview - both OSM's tile server and Leaflet itself are free to use with no license/API key.
-    private async Task ShowLocationMapAsync(FileSystemItem item, double latitude, double longitude, double? heading)
+    /// heading indicator - a field-of-view wedge when FoV could be estimated, otherwise a plain
+    /// direction arrow) via Leaflet loaded from its public CDN into the WebView2 already used for
+    /// PDF preview - both OSM's tile server and Leaflet itself are free to use with no license/API key.
+    private async Task ShowLocationMapAsync(FileSystemItem item, double latitude, double longitude, double? heading, double? fieldOfViewDegrees)
     {
         try
         {
@@ -247,20 +248,7 @@ public sealed partial class PreviewPane : UserControl
         }
 
         var headingMarkerJs = heading is { } h
-            ? $$"""
-                var headingIcon = L.divIcon({
-                    className: 'heading-icon',
-                    html: '<div style="transform: rotate({{h.ToString(System.Globalization.CultureInfo.InvariantCulture)}}deg); width: 28px; height: 28px;">' +
-                          '<svg width="28" height="28" viewBox="0 0 28 28">' +
-                          '<polygon points="14,1 22,26 14,20 6,26" fill="#e3350d" stroke="white" stroke-width="1.5"/>' +
-                          '</svg></div>',
-                    iconSize: [28, 28],
-                    iconAnchor: [14, 14],
-                });
-                L.marker([{{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}, {{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}], { icon: headingIcon, zIndexOffset: 1000 })
-                    .addTo(map)
-                    .bindTooltip('Camera heading: {{h.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}}°');
-                """
+            ? BuildHeadingMarkerJs(latitude, longitude, h, fieldOfViewDegrees)
             : string.Empty;
 
         var html = $$"""
@@ -296,6 +284,71 @@ public sealed partial class PreviewPane : UserControl
         LocationMap.CoreWebView2.NavigateToString(html);
         LocationMap.Visibility = Visibility.Visible;
     }
+
+    /// Leaflet's default marker pin is 41px tall - the ray length below is chosen so the wedge/arrow
+    /// reads as clearly larger (~2x) than that pin, not just a same-size decoration next to it.
+    private const double HeadingIconRayLengthPx = 90;
+
+    /// Builds the JS for a rotated heading marker at the shot's location: a field-of-view wedge (two
+    /// side edges only, no base line, per the app's design - a filled sector would misleadingly
+    /// suggest a precisely-measured cone rather than an estimate) when a FoV could be estimated from
+    /// the 35mm-equivalent focal length, otherwise a plain direction arrow.
+    private static string BuildHeadingMarkerJs(double latitude, double longitude, double headingDegrees, double? fieldOfViewDegrees)
+    {
+        var lat = Inv(latitude);
+        var lon = Inv(longitude);
+        var heading = Inv(headingDegrees);
+
+        if (fieldOfViewDegrees is not { } fov)
+        {
+            return $$"""
+                var headingIcon = L.divIcon({
+                    className: 'heading-icon',
+                    html: '<div style="transform: rotate({{heading}}deg); width: 28px; height: 28px;">' +
+                          '<svg width="28" height="28" viewBox="0 0 28 28">' +
+                          '<polygon points="14,1 22,26 14,20 6,26" fill="#e3350d" stroke="white" stroke-width="1.5"/>' +
+                          '</svg></div>',
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14],
+                });
+                L.marker([{{lat}}, {{lon}}], { icon: headingIcon, zIndexOffset: 1000 })
+                    .addTo(map)
+                    .bindTooltip('Camera heading: {{Inv0(headingDegrees)}}°');
+                """;
+        }
+
+        // Wedge apex sits at the box center so CSS's default rotate-around-center transform-origin
+        // keeps the apex pinned to the marker's geo position at every heading. The two rays sweep
+        // ±halfFoV from "up" (0deg), matching the same clockwise-from-north convention as the CSS
+        // rotate() below.
+        const double box = 2 * HeadingIconRayLengthPx + 20;
+        const double center = box / 2;
+        var halfFovRad = fov / 2.0 * Math.PI / 180.0;
+        var leftX = center - HeadingIconRayLengthPx * Math.Sin(halfFovRad);
+        var rightX = center + HeadingIconRayLengthPx * Math.Sin(halfFovRad);
+        var tipY = center - HeadingIconRayLengthPx * Math.Cos(halfFovRad);
+
+        return $$"""
+            var headingIcon = L.divIcon({
+                className: 'heading-icon',
+                html: '<div style="transform: rotate({{heading}}deg); width: {{Inv0(box)}}px; height: {{Inv0(box)}}px;">' +
+                      '<svg width="{{Inv0(box)}}" height="{{Inv0(box)}}" viewBox="0 0 {{Inv0(box)}} {{Inv0(box)}}">' +
+                      '<polygon points="{{Inv0(center)}},{{Inv0(center)}} {{Inv(leftX)}},{{Inv(tipY)}} {{Inv(rightX)}},{{Inv(tipY)}}" fill="#e3350d" fill-opacity="0.22" stroke="none"/>' +
+                      '<line x1="{{Inv0(center)}}" y1="{{Inv0(center)}}" x2="{{Inv(leftX)}}" y2="{{Inv(tipY)}}" stroke="#e3350d" stroke-width="2.5"/>' +
+                      '<line x1="{{Inv0(center)}}" y1="{{Inv0(center)}}" x2="{{Inv(rightX)}}" y2="{{Inv(tipY)}}" stroke="#e3350d" stroke-width="2.5"/>' +
+                      '</svg></div>',
+                iconSize: [{{Inv0(box)}}, {{Inv0(box)}}],
+                iconAnchor: [{{Inv0(center)}}, {{Inv0(center)}}],
+            });
+            L.marker([{{lat}}, {{lon}}], { icon: headingIcon, zIndexOffset: 1000 })
+                .addTo(map)
+                .bindTooltip('Camera heading: {{Inv0(headingDegrees)}}°, field of view: ~{{Inv0(fov)}}°');
+            """;
+    }
+
+    private static string Inv(double value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Inv0(double value) => value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
 
     private void ShowCodePreview(string text, string extension)
     {
