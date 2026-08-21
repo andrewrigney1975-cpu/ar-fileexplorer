@@ -1,14 +1,13 @@
-using FileExplorer.Helpers;
+using CommunityToolkit.Mvvm.ComponentModel;
 using FileExplorer.Services;
 using Microsoft.UI.Dispatching;
 
 namespace FileExplorer.ViewModels;
 
-public sealed class TabViewModel : ObservableObject
+public sealed partial class TabViewModel : ObservableObject
 {
-    private PaneViewModel _activePane;
-    private string _header = "New Workspace";
     private bool _hasCustomHeader;
+    private PaneViewModel _activePane;
 
     public TabViewModel(DispatcherQueue dispatcher, string startPath, string? name = null)
         : this(dispatcher, startPath, startPath, name)
@@ -38,6 +37,9 @@ public sealed class TabViewModel : ObservableObject
     public PaneViewModel LeftPane { get; }
     public PaneViewModel RightPane { get; }
 
+    // Left as a hand-written property (rather than [ObservableProperty]) because the constructor
+    // deliberately assigns the backing field directly (`_activePane = LeftPane`) to set the initial
+    // active pane without firing this setter's side effects before PathChanged handlers are wired up.
     public PaneViewModel ActivePane
     {
         get => _activePane;
@@ -52,11 +54,8 @@ public sealed class TabViewModel : ObservableObject
         }
     }
 
-    public string Header
-    {
-        get => _header;
-        private set => SetProperty(ref _header, value);
-    }
+    [ObservableProperty]
+    public partial string Header { get; private set; } = "New Workspace";
 
     /// True once the user has explicitly renamed this workspace, so path changes no longer overwrite the header.
     public bool HasCustomHeader => _hasCustomHeader;

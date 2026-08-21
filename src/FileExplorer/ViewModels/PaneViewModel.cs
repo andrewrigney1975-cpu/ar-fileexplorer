@@ -1,39 +1,29 @@
 using System.Collections.ObjectModel;
-using FileExplorer.Helpers;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using Microsoft.UI.Dispatching;
 
 namespace FileExplorer.ViewModels;
 
-public sealed class PaneViewModel : ObservableObject
+public sealed partial class PaneViewModel : ObservableObject
 {
     private readonly DispatcherQueue _dispatcher;
     private readonly List<string> _back = new();
     private readonly List<string> _forward = new();
     private readonly List<FileSystemItem> _allItems = new();
-
-    private string _currentPath;
-    private ViewMode _viewMode = ViewMode.Details;
-    private FileSystemItem? _selectedItem;
-    private bool _isActive;
-    private bool _isLoading;
-    private string? _loadError;
-    private string _searchText = string.Empty;
-    private bool _isRecursiveSearch;
     private CancellationTokenSource? _searchCts;
-    private SortColumn? _sortColumn;
-    private bool _sortAscending = true;
+
+    // ApplyFilter() must NOT run while ClearSearchSilently() resets SearchText - the caller is
+    // about to trigger its own reload/filter pass (navigation), and re-filtering here first would
+    // be redundant and briefly show stale results.
+    private bool _suppressSearchFilter;
 
     public PaneViewModel(DispatcherQueue dispatcher, string startPath)
     {
         _dispatcher = dispatcher;
-        _currentPath = startPath;
-
-        NavigateUpCommand = new RelayCommand(() => NavigateUp(), () => CanNavigateUp);
-        NavigateBackCommand = new RelayCommand(() => NavigateBack(), () => _back.Count > 0);
-        NavigateForwardCommand = new RelayCommand(() => NavigateForward(), () => _forward.Count > 0);
-        RefreshCommand = new RelayCommand(() => Refresh());
+        CurrentPath = startPath;
 
         Refresh();
     }
@@ -42,97 +32,67 @@ public sealed class PaneViewModel : ObservableObject
 
     public event EventHandler? PathChanged;
 
-    public string CurrentPath
-    {
-        get => _currentPath;
-        private set => SetProperty(ref _currentPath, value);
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanNavigateUp))]
+    [NotifyCanExecuteChangedFor(nameof(NavigateUpCommand))]
+    public partial string CurrentPath { get; private set; }
 
-    public ViewMode ViewMode
-    {
-        get => _viewMode;
-        set => SetProperty(ref _viewMode, value);
-    }
+    [ObservableProperty]
+    public partial ViewMode ViewMode { get; set; } = ViewMode.Details;
 
-    public FileSystemItem? SelectedItem
-    {
-        get => _selectedItem;
-        set => SetProperty(ref _selectedItem, value);
-    }
+    [ObservableProperty]
+    public partial FileSystemItem? SelectedItem { get; set; }
 
     /// Full multi-selection snapshot, kept in sync by PaneView on SelectionChanged.
     public List<FileSystemItem> SelectedItems { get; set; } = new();
 
-    public bool IsActive
-    {
-        get => _isActive;
-        set => SetProperty(ref _isActive, value);
-    }
+    [ObservableProperty]
+    public partial bool IsActive { get; set; }
 
-    public bool IsLoading
-    {
-        get => _isLoading;
-        set => SetProperty(ref _isLoading, value);
-    }
+    [ObservableProperty]
+    public partial bool IsLoading { get; set; }
 
     /// Set when a remote listing fails (session lost, permission denied, path doesn't exist,
     /// etc.) - CurrentPath/history are deliberately NOT updated in that case, since remote
     /// navigation skips the pre-check Directory.Exists gives local paths for free (see
     /// NavigateTo). Null whenever the last load succeeded.
-    public string? LoadError
-    {
-        get => _loadError;
-        private set => SetProperty(ref _loadError, value);
-    }
+    [ObservableProperty]
+    public partial string? LoadError { get; private set; }
 
     /// Client-side filename filter applied to the already-loaded folder contents (or, when
     /// IsRecursiveSearch is on, a background filename+content scan of the whole subtree).
-    public string SearchText
+    [ObservableProperty]
+    public partial string SearchText { get; set; } = string.Empty;
+
+    partial void OnSearchTextChanged(string value)
     {
-        get => _searchText;
-        set
+        if (!_suppressSearchFilter)
         {
-            if (SetProperty(ref _searchText, value))
-            {
-                ApplyFilter();
-            }
+            ApplyFilter();
         }
     }
 
     /// When on, a non-empty SearchText searches the current folder's entire subtree (filename and,
     /// for text/code files, the first few KB of content) instead of just the loaded folder listing.
-    public bool IsRecursiveSearch
-    {
-        get => _isRecursiveSearch;
-        set
-        {
-            if (SetProperty(ref _isRecursiveSearch, value))
-            {
-                ApplyFilter();
-            }
-        }
-    }
+    [ObservableProperty]
+    public partial bool IsRecursiveSearch { get; set; }
+
+    partial void OnIsRecursiveSearchChanged(bool value) => ApplyFilter();
 
     /// Null until the user clicks a Details-view column header; once set, persists across
     /// reloads/searches until another column is clicked.
-    public SortColumn? ActiveSortColumn
-    {
-        get => _sortColumn;
-        private set => SetProperty(ref _sortColumn, value);
-    }
+    [ObservableProperty]
+    public partial SortColumn? ActiveSortColumn { get; private set; }
 
-    public bool SortAscending
-    {
-        get => _sortAscending;
-        private set => SetProperty(ref _sortAscending, value);
-    }
+    [ObservableProperty]
+    public partial bool SortAscending { get; private set; } = true;
 
     /// Clicking the same column again flips direction; clicking a different column selects it, ascending.
     public void ToggleSort(SortColumn column)
     {
-        if (_sortColumn == column)
+        if (ActiveSortColumn == column)
         {
-            SortAscending = !_sortAscending;
+            SortAscending = !SortAscending;
         }
         else
         {
@@ -144,11 +104,6 @@ public sealed class PaneViewModel : ObservableObject
     }
 
     public bool CanNavigateUp => RemotePathService.GetParent(CurrentPath) is not null;
-
-    public RelayCommand NavigateUpCommand { get; }
-    public RelayCommand NavigateBackCommand { get; }
-    public RelayCommand NavigateForwardCommand { get; }
-    public RelayCommand RefreshCommand { get; }
 
     public void NavigateTo(string path, bool recordHistory = true)
     {
@@ -173,6 +128,7 @@ public sealed class PaneViewModel : ObservableObject
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    [RelayCommand(CanExecute = nameof(CanNavigateUp))]
     public void NavigateUp()
     {
         var parent = RemotePathService.GetParent(CurrentPath);
@@ -182,6 +138,7 @@ public sealed class PaneViewModel : ObservableObject
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanNavigateBack))]
     public void NavigateBack()
     {
         if (_back.Count == 0) return;
@@ -195,6 +152,7 @@ public sealed class PaneViewModel : ObservableObject
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    [RelayCommand(CanExecute = nameof(CanNavigateForward))]
     public void NavigateForward()
     {
         if (_forward.Count == 0) return;
@@ -208,14 +166,22 @@ public sealed class PaneViewModel : ObservableObject
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    public bool CanNavigateBack => _back.Count > 0;
+
+    public bool CanNavigateForward => _forward.Count > 0;
+
+    [RelayCommand]
     public void Refresh(string? selectPathAfterLoad = null) => _ = LoadAsync(selectPathAfterLoad);
 
+    /// _back/_forward are plain Lists (not observable collections), so CanNavigateBack/Forward
+    /// don't auto-notify - raised manually here alongside the command re-evaluation every
+    /// navigation already needs to do.
     private void RaiseNavCommands()
     {
-        NavigateUpCommand.RaiseCanExecuteChanged();
-        NavigateBackCommand.RaiseCanExecuteChanged();
-        NavigateForwardCommand.RaiseCanExecuteChanged();
-        OnPropertyChanged(nameof(CanNavigateUp));
+        NavigateBackCommand.NotifyCanExecuteChanged();
+        NavigateForwardCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanNavigateBack));
+        OnPropertyChanged(nameof(CanNavigateForward));
     }
 
     /// Returns Task (not async void) so exceptions are observable and completion is awaitable, even
@@ -267,10 +233,11 @@ public sealed class PaneViewModel : ObservableObject
 
     private void ClearSearchSilently()
     {
-        if (_searchText.Length > 0)
+        if (SearchText.Length > 0)
         {
-            _searchText = string.Empty;
-            OnPropertyChanged(nameof(SearchText));
+            _suppressSearchFilter = true;
+            SearchText = string.Empty;
+            _suppressSearchFilter = false;
         }
     }
 
@@ -278,25 +245,25 @@ public sealed class PaneViewModel : ObservableObject
     {
         _searchCts?.Cancel();
 
-        if (_isRecursiveSearch && !string.IsNullOrWhiteSpace(_searchText))
+        if (IsRecursiveSearch && !string.IsNullOrWhiteSpace(SearchText))
         {
             var cts = new CancellationTokenSource();
             _searchCts = cts;
-            _ = RunRecursiveSearchAsync(CurrentPath, _searchText, cts.Token);
+            _ = RunRecursiveSearchAsync(CurrentPath, SearchText, cts.Token);
             return;
         }
 
         Items.Clear();
 
         IEnumerable<FileSystemItem> source = _allItems;
-        if (!string.IsNullOrWhiteSpace(_searchText))
+        if (!string.IsNullOrWhiteSpace(SearchText))
         {
-            source = RankByFuzzyMatch(source, _searchText);
+            source = RankByFuzzyMatch(source, SearchText);
         }
 
-        if (_sortColumn is { } column)
+        if (ActiveSortColumn is { } column)
         {
-            source = ApplySort(source, column, _sortAscending);
+            source = ApplySort(source, column, SortAscending);
         }
 
         foreach (var item in source)
@@ -310,7 +277,7 @@ public sealed class PaneViewModel : ObservableObject
         var scored = new List<(FileSystemItem Item, int Score)>();
         foreach (var item in items)
         {
-            if (FuzzyMatcher.TryScore(item.Name, query, out var score))
+            if (FileExplorer.Helpers.FuzzyMatcher.TryScore(item.Name, query, out var score))
             {
                 scored.Add((item, score));
             }
@@ -353,9 +320,9 @@ public sealed class PaneViewModel : ObservableObject
         }
 
         IEnumerable<FileSystemItem> ordered = results;
-        if (_sortColumn is { } column)
+        if (ActiveSortColumn is { } column)
         {
-            ordered = ApplySort(ordered, column, _sortAscending);
+            ordered = ApplySort(ordered, column, SortAscending);
         }
 
         Items.Clear();

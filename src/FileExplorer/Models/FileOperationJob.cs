@@ -1,4 +1,4 @@
-using FileExplorer.Helpers;
+using CommunityToolkit.Mvvm.ComponentModel;
 using FileExplorer.Services;
 
 namespace FileExplorer.Models;
@@ -12,15 +12,8 @@ public enum FileOperationStatus
     Canceled,
 }
 
-public sealed class FileOperationJob : ObservableObject
+public sealed partial class FileOperationJob : ObservableObject
 {
-    private FileOperationStatus _status = FileOperationStatus.Queued;
-    private double _progressPercent;
-    private string _currentFileName = string.Empty;
-    private long _bytesDone;
-    private long _bytesTotal;
-    private string? _errorMessage;
-
     public required Guid Id { get; init; }
     public required FileDropOperation Kind { get; init; }
     public required IReadOnlyList<string> SourcePaths { get; init; }
@@ -46,47 +39,24 @@ public sealed class FileOperationJob : ObservableObject
         _ => $"Copy {SourcePaths.Count} item{(SourcePaths.Count == 1 ? "" : "s")} to {System.IO.Path.GetFileName(DestinationFolder.TrimEnd('\\'))}",
     };
 
-    public FileOperationStatus Status
-    {
-        get => _status;
-        set
-        {
-            if (SetProperty(ref _status, value))
-            {
-                OnPropertyChanged(nameof(CanCancel));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCancel))]
+    public partial FileOperationStatus Status { get; set; } = FileOperationStatus.Queued;
 
-    public double ProgressPercent
-    {
-        get => _progressPercent;
-        set => SetProperty(ref _progressPercent, value);
-    }
+    [ObservableProperty]
+    public partial double ProgressPercent { get; set; }
 
-    public string CurrentFileName
-    {
-        get => _currentFileName;
-        set => SetProperty(ref _currentFileName, value);
-    }
+    [ObservableProperty]
+    public partial string CurrentFileName { get; set; } = string.Empty;
 
-    public long BytesDone
-    {
-        get => _bytesDone;
-        set => SetProperty(ref _bytesDone, value);
-    }
+    [ObservableProperty]
+    public partial long BytesDone { get; set; }
 
-    public long BytesTotal
-    {
-        get => _bytesTotal;
-        set => SetProperty(ref _bytesTotal, value);
-    }
+    [ObservableProperty]
+    public partial long BytesTotal { get; set; }
 
-    public string? ErrorMessage
-    {
-        get => _errorMessage;
-        set => SetProperty(ref _errorMessage, value);
-    }
+    [ObservableProperty]
+    public partial string? ErrorMessage { get; set; }
 
     public bool CanCancel => Status is FileOperationStatus.Queued or FileOperationStatus.Running;
 }

@@ -1,36 +1,28 @@
 using System.Collections.ObjectModel;
-using FileExplorer.Helpers;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using FileExplorer.Services;
 using Microsoft.UI.Dispatching;
 
 namespace FileExplorer.ViewModels;
 
-public sealed class MainViewModel : ObservableObject
+public sealed partial class MainViewModel : ObservableObject
 {
     private readonly DispatcherQueue _dispatcher;
-    private TabViewModel? _selectedTab;
 
     public MainViewModel(DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
-        NewTabCommand = new RelayCommand(() => AddTab());
-        CloseTabCommand = new RelayCommand(o => { if (o is TabViewModel tab) CloseTab(tab); });
-        DuplicateTabCommand = new RelayCommand(o => { if (o is TabViewModel tab) DuplicateTab(tab); });
-
         RestoreSessionOrDefault();
     }
 
     public ObservableCollection<TabViewModel> Tabs { get; } = new();
 
-    public TabViewModel? SelectedTab
-    {
-        get => _selectedTab;
-        set => SetProperty(ref _selectedTab, value);
-    }
+    [ObservableProperty]
+    public partial TabViewModel? SelectedTab { get; set; }
 
-    public RelayCommand NewTabCommand { get; }
-    public RelayCommand CloseTabCommand { get; }
-    public RelayCommand DuplicateTabCommand { get; }
+    [RelayCommand]
+    private void NewTab() => AddTab();
 
     public TabViewModel AddTab(string? startPath = null)
     {
@@ -49,14 +41,14 @@ public sealed class MainViewModel : ObservableObject
         return tab;
     }
 
-    public TabViewModel DuplicateTab(TabViewModel source)
+    [RelayCommand]
+    public void DuplicateTab(TabViewModel source)
     {
         var name = source.HasCustomHeader ? source.Header : null;
         var tab = new TabViewModel(_dispatcher, source.LeftPane.CurrentPath, source.RightPane.CurrentPath, name);
         var index = Tabs.IndexOf(source);
         Tabs.Insert(index < 0 ? Tabs.Count : index + 1, tab);
         SelectedTab = tab;
-        return tab;
     }
 
     private void RestoreSessionOrDefault()
@@ -82,6 +74,7 @@ public sealed class MainViewModel : ObservableObject
             t.LeftPane.CurrentPath, t.RightPane.CurrentPath, t.HasCustomHeader ? t.Header : null)));
     }
 
+    [RelayCommand]
     public void CloseTab(TabViewModel tab)
     {
         var index = Tabs.IndexOf(tab);

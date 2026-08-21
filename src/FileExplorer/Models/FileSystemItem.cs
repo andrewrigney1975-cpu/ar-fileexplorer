@@ -1,17 +1,12 @@
-using FileExplorer.Helpers;
+using CommunityToolkit.Mvvm.ComponentModel;
 using FileExplorer.Services;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace FileExplorer.Models;
 
-public sealed class FileSystemItem : ObservableObject
+public sealed partial class FileSystemItem : ObservableObject
 {
-    private BitmapImage? _thumbnail;
     private bool _thumbnailRequested;
-    private string? _tagColor;
-    private string? _cloudBadge;
-    private SyncRole _syncRole;
-    private bool _isWatched;
 
     public required string Name { get; init; }
     public required string FullPath { get; init; }
@@ -61,48 +56,28 @@ public sealed class FileSystemItem : ObservableObject
     }
 
     /// Color-label name (e.g. "Red"), or null when untagged. Set by FileSystemService on load.
-    public string? TagColor
-    {
-        get => _tagColor;
-        set => SetProperty(ref _tagColor, value);
-    }
+    [ObservableProperty]
+    public partial string? TagColor { get; set; }
 
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
 
     /// Whether this folder is a sync task's source or target (or neither). Set by FileSystemService on load.
-    public SyncRole SyncRole
-    {
-        get => _syncRole;
-        set => SetProperty(ref _syncRole, value);
-    }
+    [ObservableProperty]
+    public partial SyncRole SyncRole { get; set; }
 
     /// Whether files added to this folder trigger a script run. Set by FileSystemService on load.
-    public bool IsWatched
-    {
-        get => _isWatched;
-        set => SetProperty(ref _isWatched, value);
-    }
+    [ObservableProperty]
+    public partial bool IsWatched { get; set; }
 
     /// Cloud placeholder glyph (online-only cloud icon or always-available checkmark), or null
     /// outside a detected cloud sync folder. Set by FileSystemService on load.
-    public string? CloudBadge
-    {
-        get => _cloudBadge;
-        set => SetProperty(ref _cloudBadge, value);
-    }
+    [ObservableProperty]
+    public partial string? CloudBadge { get; set; }
 
     /// Decoded lazily the first time this item's Icons-view container is realized.
-    public BitmapImage? Thumbnail
-    {
-        get => _thumbnail;
-        private set
-        {
-            if (SetProperty(ref _thumbnail, value))
-            {
-                OnPropertyChanged(nameof(IsFolderThumbnail));
-            }
-        }
-    }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFolderThumbnail))]
+    public partial BitmapImage? Thumbnail { get; private set; }
 
     /// True once a folder has been given a derived-image thumbnail (found inside it) rather than
     /// still showing the plain folder glyph - drives the small folder-icon overlay that marks it as
