@@ -13,7 +13,7 @@ namespace FileExplorer.Services;
 /// the ListView itself, so a routed-KeyDown-based handler would silently never fire for it).
 public static class DeleteService
 {
-    public static async Task DeleteItemsAsync(IReadOnlyList<FileSystemItem> items, bool permanent, XamlRoot xamlRoot, Action refresh)
+    public static async Task DeleteItemsAsync(IReadOnlyList<FileSystemItem> items, bool permanent, XamlRoot xamlRoot, Action refresh, CancellationToken token = default)
     {
         if (items.Count == 0)
         {
@@ -84,11 +84,11 @@ public static class DeleteService
             {
                 if (item.IsDirectory)
                 {
-                    await FileOperationQueueService.DeleteRemoteDirectoryRecursiveAsync(session, remotePath, CancellationToken.None);
+                    await FileOperationQueueService.DeleteRemoteDirectoryRecursiveAsync(session, remotePath, token);
                 }
                 else
                 {
-                    await session.DeleteFileAsync(remotePath, CancellationToken.None);
+                    await session.DeleteFileAsync(remotePath, token);
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)

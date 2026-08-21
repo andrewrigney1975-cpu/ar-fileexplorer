@@ -153,7 +153,7 @@ public sealed class PaneViewModel : ObservableObject
     public void NavigateTo(string path, bool recordHistory = true)
     {
         // Remote existence isn't checked here (that would block this UI-thread call on a network
-        // round-trip) - Load() below is the source of truth instead, surfacing a failure via
+        // round-trip) - LoadAsync() below is the source of truth instead, surfacing a failure via
         // LoadError without touching CurrentPath/history if the remote listing fails.
         if (!RemotePathService.IsRemote(path) && !Directory.Exists(path))
         {
@@ -168,7 +168,7 @@ public sealed class PaneViewModel : ObservableObject
 
         CurrentPath = path;
         ClearSearchSilently();
-        Load();
+        _ = LoadAsync();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -190,7 +190,7 @@ public sealed class PaneViewModel : ObservableObject
         _forward.Add(CurrentPath);
         CurrentPath = target;
         ClearSearchSilently();
-        Load();
+        _ = LoadAsync();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -203,12 +203,12 @@ public sealed class PaneViewModel : ObservableObject
         _back.Add(CurrentPath);
         CurrentPath = target;
         ClearSearchSilently();
-        Load();
+        _ = LoadAsync();
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public void Refresh(string? selectPathAfterLoad = null) => Load(selectPathAfterLoad);
+    public void Refresh(string? selectPathAfterLoad = null) => _ = LoadAsync(selectPathAfterLoad);
 
     private void RaiseNavCommands()
     {
@@ -218,12 +218,13 @@ public sealed class PaneViewModel : ObservableObject
         OnPropertyChanged(nameof(CanNavigateUp));
     }
 
-    /// async void (rather than returning Task) deliberately matches NavigateTo/NavigateUp/etc's
-    /// existing synchronous-void signatures, which callers (button clicks, PathChanged handlers)
-    /// aren't set up to await. WinUI's DispatcherQueueSynchronizationContext means the code after
-    /// each await below still resumes on the UI thread automatically, same as it did through the
-    /// explicit _dispatcher.TryEnqueue this replaced.
-    private async void Load(string? selectPathAfterLoad = null)
+    /// Returns Task (not async void) so exceptions are observable and completion is awaitable, even
+    /// though every current caller below still fires it with `_ = LoadAsync(...)` to match
+    /// NavigateTo/NavigateUp/etc's existing synchronous-void signatures - those callers (button
+    /// clicks, PathChanged handlers) aren't set up to await. WinUI's DispatcherQueueSynchronizationContext
+    /// means the code after each await below still resumes on the UI thread automatically, same as
+    /// it did through the explicit _dispatcher.TryEnqueue this replaced.
+    private async Task LoadAsync(string? selectPathAfterLoad = null)
     {
         IsLoading = true;
         LoadError = null;

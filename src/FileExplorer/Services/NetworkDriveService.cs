@@ -60,9 +60,9 @@ public static class NetworkDriveService
         [MarshalAs(UnmanagedType.LPWStr)] public string? lpProvider;
     }
 
-    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int WNetAddConnection2W(ref NETRESOURCEW lpNetResource, string? lpPassword, string? lpUsername, int dwFlags);
 
-    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int WNetCancelConnection2W(string lpName, int dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fForce);
 }

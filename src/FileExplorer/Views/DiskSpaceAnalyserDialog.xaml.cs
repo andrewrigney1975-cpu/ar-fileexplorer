@@ -5,6 +5,7 @@ using FileExplorer.Services;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -413,13 +414,21 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _ = new ContentDialog
+            // This dialog only ever runs hosted inside MainWindow's own already-open ContentDialog,
+            // so a nested ContentDialog.ShowAsync() here throws ("Only a single ContentDialog can be
+            // open at any time") - use a Flyout instead, same fix as ScriptManagerDialog/ControlCentreDialog.
+            var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+            flyout.Content = new StackPanel
             {
-                XamlRoot = XamlRoot,
-                Title = "Couldn't export listing",
-                Content = ex.Message,
-                CloseButtonText = "OK",
-            }.ShowAsync();
+                Spacing = 4,
+                Width = 280,
+                Children =
+                {
+                    new TextBlock { Text = "Couldn't export listing", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                    new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap, FontSize = 12 },
+                },
+            };
+            flyout.ShowAt((FrameworkElement)sender);
         }
     }
 }
