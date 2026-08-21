@@ -245,6 +245,9 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="This PC" FontWeight="SemiBold" Margin="12,10,12,4" />
                 <TreeView x:Name="DriveTree" Grid.Row="1" Margin="4,0,4,4"
@@ -421,6 +424,47 @@
                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                 <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Rectangle Grid.Row="14" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <Grid Grid.Row="15" Background="Transparent" Margin="4,4,8,4" Tapped="RemoteConnectionsHeader_Tapped">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="RemoteConnectionsChevron" Grid.Column="0" Glyph="&#xE70D;" FontSize="10"
+                              Margin="4,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="Remote Connections" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
+                            Click="AddRemoteConnectionButton_Click" ToolTipService.ToolTip="Add an FTP/SFTP connection">
+                        <FontIcon Glyph="&#xE710;" FontSize="12" />
+                    </Button>
+                </Grid>
+
+                <ListView Grid.Row="16" x:Name="RemoteConnectionsList" Margin="4,0,4,4" MaxHeight="200"
+                          SelectionMode="None" ItemClick="RemoteConnectionsList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE968;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RemoveRemoteConnectionButton_Click" Tag="{Binding}"
+                                        ToolTipService.ToolTip="Remove">
+                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                </Button>
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>

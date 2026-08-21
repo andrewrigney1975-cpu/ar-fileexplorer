@@ -5,6 +5,44 @@ namespace FileExplorer.Services;
 
 public static class FileSystemService
 {
+    /// Local branch wraps the existing synchronous GetItems (unchanged) in Task.Run; remote
+    /// branch lists via whichever session is already open for that connection - see
+    /// RemoteSessionManager, established by the left-rail "Remote Connections" click-to-connect
+    /// flow before any navigation into that connection happens.
+    public static Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken)
+    {
+        return RemotePathService.IsRemote(path)
+            ? GetRemoteItemsAsync(path, cancellationToken)
+            : Task.Run(() => GetItems(path), cancellationToken);
+    }
+
+    private static async Task<List<FileSystemItem>> GetRemoteItemsAsync(string path, CancellationToken cancellationToken)
+    {
+        if (!RemotePathService.TryParse(path, out _, out var connectionId, out var remotePath))
+        {
+            return new List<FileSystemItem>();
+        }
+
+        var session = RemoteSessionManager.TryGetSession(connectionId)
+            ?? throw new InvalidOperationException("Not connected - reconnect from the Remote Connections list.");
+
+        var entries = await session.ListAsync(remotePath, cancellationToken).ConfigureAwait(false);
+
+        return entries
+            .OrderBy(e => !e.IsDirectory)
+            .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(e => new FileSystemItem
+            {
+                Name = e.Name,
+                FullPath = RemotePathService.Combine(path, e.Name),
+                IsDirectory = e.IsDirectory,
+                SizeBytes = e.Size,
+                Modified = e.Modified,
+                Extension = e.IsDirectory ? string.Empty : Path.GetExtension(e.Name),
+            })
+            .ToList();
+    }
+
     public static IReadOnlyList<DriveInfo> GetReadyDrives()
     {
         try

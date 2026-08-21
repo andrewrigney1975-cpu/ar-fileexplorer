@@ -115,18 +115,29 @@ public sealed partial class PaneView : UserControl
     {
         BreadcrumbPanel.Children.Clear();
 
-        var root = Path.GetPathRoot(path);
-        if (string.IsNullOrEmpty(root))
-        {
-            return;
-        }
+        List<(string Label, string FullPath)> segments;
 
-        var segments = new List<(string Label, string FullPath)> { (root.TrimEnd('\\'), root) };
-        var accumulated = root;
-        foreach (var part in path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        if (RemotePathService.TryParse(path, out var scheme, out var connectionId, out _))
         {
-            accumulated = Path.Combine(accumulated, part);
-            segments.Add((part, accumulated));
+            var rootLabel = RemoteConnectionService.Find(connectionId)?.Name ?? connectionId;
+            segments = new List<(string Label, string FullPath)> { (rootLabel, RemotePathService.BuildRoot(scheme, connectionId)) };
+            segments.AddRange(RemotePathService.GetBreadcrumbSegments(path).Select(s => (s.Name, s.Path)));
+        }
+        else
+        {
+            var root = Path.GetPathRoot(path);
+            if (string.IsNullOrEmpty(root))
+            {
+                return;
+            }
+
+            segments = new List<(string Label, string FullPath)> { (root.TrimEnd('\\'), root) };
+            var accumulated = root;
+            foreach (var part in path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                accumulated = Path.Combine(accumulated, part);
+                segments.Add((part, accumulated));
+            }
         }
 
         for (int i = 0; i < segments.Count; i++)
@@ -243,7 +254,7 @@ public sealed partial class PaneView : UserControl
         if (e.Key == VirtualKey.Enter && ViewModel is not null)
         {
             var path = PathBox.Text.Trim();
-            if (Directory.Exists(path))
+            if (RemotePathService.IsRemote(path) || Directory.Exists(path))
             {
                 ViewModel.NavigateTo(path);
                 ShowBreadcrumb();
@@ -390,13 +401,17 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
-        if (permanent)
+        var hasRemote = items.Any(i => i.IsRemote);
+
+        if (permanent || hasRemote)
         {
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
                 Title = "Delete permanently?",
-                Content = $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently. This can't be undone.",
+                Content = hasRemote
+                    ? $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently - there is no Recycle Bin for a remote connection. This can't be undone."
+                    : $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently. This can't be undone.",
                 PrimaryButtonText = "Delete",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Close,
@@ -408,7 +423,7 @@ public sealed partial class PaneView : UserControl
             }
         }
 
-        var paths = items.Select(i => i.FullPath).ToList();
+        var paths = items.Where(i => !i.IsRemote).Select(i => i.FullPath).ToList();
         var failures = new List<(string Path, string Error)>();
 
         await Task.Run(() =>
@@ -428,6 +443,40 @@ public sealed partial class PaneView : UserControl
                 }
             }
         });
+
+        // No Undo support for remote delete (remote operations never push an UndoAction) - always
+        // permanent, since there's no remote Recycle Bin equivalent, which the dialog above warns
+        // about explicitly for a remote-containing selection.
+        foreach (var item in items.Where(i => i.IsRemote))
+        {
+            if (!RemotePathService.TryParse(item.FullPath, out _, out var connectionId, out var remotePath))
+            {
+                continue;
+            }
+
+            var session = RemoteSessionManager.TryGetSession(connectionId);
+            if (session is null)
+            {
+                failures.Add((item.FullPath, "Not connected."));
+                continue;
+            }
+
+            try
+            {
+                if (item.IsDirectory)
+                {
+                    await FileOperationQueueService.DeleteRemoteDirectoryRecursiveAsync(session, remotePath, CancellationToken.None);
+                }
+                else
+                {
+                    await session.DeleteFileAsync(remotePath, CancellationToken.None);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                failures.Add((item.FullPath, ex.Message));
+            }
+        }
 
         ViewModel.Refresh();
 
@@ -707,6 +756,22 @@ public sealed partial class PaneView : UserControl
             }
         }
 
+        async Task<Stream> OpenReadStreamAsync(FileSystemItem item)
+        {
+            if (!item.IsRemote)
+            {
+                return File.OpenRead(item.FullPath);
+            }
+
+            if (!RemotePathService.TryParse(item.FullPath, out _, out var connectionId, out var remotePath))
+            {
+                throw new IOException("Invalid remote path.");
+            }
+
+            var session = RemoteSessionManager.TryGetSession(connectionId) ?? throw new IOException("Not connected.");
+            return await session.OpenReadAsync(remotePath, CancellationToken.None);
+        }
+
         async Task ComputeAsync()
         {
             results.Clear();
@@ -724,7 +789,7 @@ public sealed partial class PaneView : UserControl
 
                 try
                 {
-                    await using var stream = File.OpenRead(item.FullPath);
+                    await using var stream = await OpenReadStreamAsync(item);
                     var hash = algorithm switch
                     {
                         "SHA-1" => await System.Security.Cryptography.SHA1.HashDataAsync(stream),
@@ -1176,7 +1241,7 @@ public sealed partial class PaneView : UserControl
 
     private void RenameTextBox_LostFocus(object sender, RoutedEventArgs e) => CommitRename();
 
-    private void CommitRename()
+    private async void CommitRename()
     {
         if (!RenamePopup.IsOpen)
         {
@@ -1195,6 +1260,12 @@ public sealed partial class PaneView : UserControl
         var newName = RenameTextBox.Text.Trim();
         if (string.IsNullOrEmpty(newName) || newName == item.Name || newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
+            return;
+        }
+
+        if (item.IsRemote)
+        {
+            await RenameRemoteItemAsync(item, newName);
             return;
         }
 
@@ -1221,6 +1292,35 @@ public sealed partial class PaneView : UserControl
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    /// No Undo support for remote rename (see CreateLinkUndo/RenameUndo etc - all local-only by
+    /// design; a remote-touching operation never pushes an UndoAction).
+    private async Task RenameRemoteItemAsync(FileSystemItem item, string newName)
+    {
+        if (!RemotePathService.TryParse(item.FullPath, out _, out var connectionId, out var remotePath) || ViewModel is null)
+        {
+            return;
+        }
+
+        var session = RemoteSessionManager.TryGetSession(connectionId);
+        var parent = RemotePathService.GetParent(item.FullPath);
+        if (session is null || parent is null)
+        {
+            return;
+        }
+
+        RemotePathService.TryParse(RemotePathService.Combine(parent, newName), out _, out _, out var newRemotePath);
+
+        try
+        {
+            await session.RenameAsync(remotePath, newRemotePath, CancellationToken.None);
+            ViewModel.Refresh();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            await ShowErrorAsync("Couldn't rename", ex.Message);
+        }
     }
 
     private void ItemsList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
@@ -1512,11 +1612,18 @@ public sealed partial class PaneView : UserControl
     {
         var menu = new MenuFlyout();
 
+        // Local-only concepts (Open with..., Move to folder..., archive compress/extract,
+        // Favourites/sync/watch/tags, Properties) are hidden entirely for a remote selection
+        // rather than half-working - see the FTP/SFTP plan's explicit v1 scope cuts. Open, Cut/
+        // Copy, Rename, Checksum, and Delete are all remote-aware (BeginRename/CommitRename,
+        // ComputeHashesAsync, DeleteItemsAsync) and stay available.
+        var isRemote = selection.Any(item => item.IsRemote);
+
         if (selection.Count == 1)
         {
             var single = selection[0];
             menu.Items.Add(NewMenuItem("Open", "", () => OpenItem(single)));
-            if (!single.IsDirectory)
+            if (!single.IsDirectory && !isRemote)
             {
                 menu.Items.Add(NewMenuItem("Open with...", "", () => OpenWithPicker(single)));
             }
@@ -1535,13 +1642,15 @@ public sealed partial class PaneView : UserControl
             menu.Items.Add(NewMenuItem("Rename...", "", async () => await BatchRenameAsync(selection)));
         }
 
+        if (!isRemote) {
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
         menu.Items.Add(NewMenuItem("Compress to .zip", "", async () => await CompressSelectionAsync(selection)));
         if (selection.Count > 0 && selection.All(item => IconHelper.IsExtractableArchive(item.Extension)))
         {
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipsAsync(selection)));
         }
-        if (selection.Count == 1 && selection[0].IsDirectory)
+        }
+        if (selection.Count == 1 && selection[0].IsDirectory && !isRemote)
         {
             var folder = selection[0];
             menu.Items.Add(NewMenuItem(
@@ -1573,11 +1682,17 @@ public sealed partial class PaneView : UserControl
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
-        menu.Items.Add(BuildTagSubMenu(selection));
+        if (!isRemote)
+        {
+            menu.Items.Add(BuildTagSubMenu(selection));
+        }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
+
+        if (!isRemote) {
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Properties", "", async () => await ShowPropertiesAsync(selection)));
+        }
 
         return menu;
     }
@@ -1627,13 +1742,16 @@ public sealed partial class PaneView : UserControl
         paste.IsEnabled = FileClipboardService.Instance.HasContent;
         menu.Items.Add(paste);
         menu.Items.Add(NewMenuItem("New folder", "", CreateNewFolderHere));
+        if (ViewModel is not null && !RemotePathService.IsRemote(ViewModel.CurrentPath))
+        {
         menu.Items.Add(NewMenuItem("New link...", string.Empty, async () => await CreateNewLinkAsync()));
+        }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
         return menu;
     }
 
-    private void CreateNewFolderHere()
+    private async void CreateNewFolderHere()
     {
         if (ViewModel is null)
         {
@@ -1641,6 +1759,13 @@ public sealed partial class PaneView : UserControl
         }
 
         var basePath = ViewModel.CurrentPath;
+
+        if (RemotePathService.IsRemote(basePath))
+        {
+            await CreateNewRemoteFolderAsync(basePath);
+            return;
+        }
+
         var candidate = Path.Combine(basePath, "New folder");
 
         for (int i = 2; Directory.Exists(candidate) || File.Exists(candidate); i++)
@@ -1656,6 +1781,40 @@ public sealed partial class PaneView : UserControl
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    /// No Undo support for remote folder creation (remote operations never push an UndoAction).
+    private async Task CreateNewRemoteFolderAsync(string basePath)
+    {
+        if (!RemotePathService.TryParse(basePath, out _, out var connectionId, out _) || ViewModel is null)
+        {
+            return;
+        }
+
+        var session = RemoteSessionManager.TryGetSession(connectionId);
+        if (session is null)
+        {
+            return;
+        }
+
+        var candidateFullPath = RemotePathService.Combine(basePath, "New folder");
+
+        try
+        {
+            for (var i = 2; RemotePathService.TryParse(candidateFullPath, out _, out _, out var probeRemotePath) &&
+                             await session.ExistsAsync(probeRemotePath, CancellationToken.None); i++)
+            {
+                candidateFullPath = RemotePathService.Combine(basePath, $"New folder ({i})");
+            }
+
+            RemotePathService.TryParse(candidateFullPath, out _, out _, out var finalRemotePath);
+            await session.CreateDirectoryAsync(finalRemotePath, CancellationToken.None);
+            ViewModel.Refresh(candidateFullPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            await ShowErrorAsync("Couldn't create folder", ex.Message);
+        }
     }
 
     private async Task CreateNewLinkAsync()
@@ -1700,14 +1859,14 @@ public sealed partial class PaneView : UserControl
         var targetIsDirectory = Directory.Exists(target);
         if (!targetIsDirectory && !File.Exists(target))
         {
-            await ShowLinkErrorAsync("Link target not found", $"\"{target}\" doesn't exist.");
+            await ShowErrorAsync("Link target not found", $"\"{target}\" doesn't exist.");
             return;
         }
 
         var linkPath = Path.Combine(ViewModel.CurrentPath, name);
         if (Directory.Exists(linkPath) || File.Exists(linkPath))
         {
-            await ShowLinkErrorAsync("Name already in use", $"\"{name}\" already exists in this folder.");
+            await ShowErrorAsync("Name already in use", $"\"{name}\" already exists in this folder.");
             return;
         }
 
@@ -1716,7 +1875,7 @@ public sealed partial class PaneView : UserControl
         {
             if (!targetIsDirectory)
             {
-                await ShowLinkErrorAsync("Junctions need a folder target",
+                await ShowErrorAsync("Junctions need a folder target",
                     "Junctions can only point at folders - pick Symbolic link instead for a file target.");
                 return;
             }
@@ -1730,7 +1889,7 @@ public sealed partial class PaneView : UserControl
 
         if (!result.Success)
         {
-            await ShowLinkErrorAsync("Couldn't create the link", result.ErrorMessage ?? "Unknown error.");
+            await ShowErrorAsync("Couldn't create the link", result.ErrorMessage ?? "Unknown error.");
             return;
         }
 
@@ -1738,7 +1897,7 @@ public sealed partial class PaneView : UserControl
         ViewModel.Refresh(linkPath);
     }
 
-    private async Task ShowLinkErrorAsync(string title, string message)
+    private async Task ShowErrorAsync(string title, string message)
     {
         var dialog = new ContentDialog
         {

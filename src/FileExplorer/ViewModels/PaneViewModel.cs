@@ -18,6 +18,7 @@ public sealed class PaneViewModel : ObservableObject
     private FileSystemItem? _selectedItem;
     private bool _isActive;
     private bool _isLoading;
+    private string? _loadError;
     private string _searchText = string.Empty;
     private bool _isRecursiveSearch;
     private CancellationTokenSource? _searchCts;
@@ -72,6 +73,16 @@ public sealed class PaneViewModel : ObservableObject
     {
         get => _isLoading;
         set => SetProperty(ref _isLoading, value);
+    }
+
+    /// Set when a remote listing fails (session lost, permission denied, path doesn't exist,
+    /// etc.) - CurrentPath/history are deliberately NOT updated in that case, since remote
+    /// navigation skips the pre-check Directory.Exists gives local paths for free (see
+    /// NavigateTo). Null whenever the last load succeeded.
+    public string? LoadError
+    {
+        get => _loadError;
+        private set => SetProperty(ref _loadError, value);
     }
 
     /// Client-side filename filter applied to the already-loaded folder contents (or, when
@@ -132,7 +143,7 @@ public sealed class PaneViewModel : ObservableObject
         ApplyFilter();
     }
 
-    public bool CanNavigateUp => Directory.GetParent(CurrentPath) is not null;
+    public bool CanNavigateUp => RemotePathService.GetParent(CurrentPath) is not null;
 
     public RelayCommand NavigateUpCommand { get; }
     public RelayCommand NavigateBackCommand { get; }
@@ -141,7 +152,10 @@ public sealed class PaneViewModel : ObservableObject
 
     public void NavigateTo(string path, bool recordHistory = true)
     {
-        if (!Directory.Exists(path))
+        // Remote existence isn't checked here (that would block this UI-thread call on a network
+        // round-trip) - Load() below is the source of truth instead, surfacing a failure via
+        // LoadError without touching CurrentPath/history if the remote listing fails.
+        if (!RemotePathService.IsRemote(path) && !Directory.Exists(path))
         {
             return;
         }
@@ -161,10 +175,10 @@ public sealed class PaneViewModel : ObservableObject
 
     public void NavigateUp()
     {
-        var parent = Directory.GetParent(CurrentPath);
+        var parent = RemotePathService.GetParent(CurrentPath);
         if (parent is not null)
         {
-            NavigateTo(parent.FullName);
+            NavigateTo(parent);
         }
     }
 
@@ -204,31 +218,50 @@ public sealed class PaneViewModel : ObservableObject
         OnPropertyChanged(nameof(CanNavigateUp));
     }
 
-    private void Load(string? selectPathAfterLoad = null)
+    /// async void (rather than returning Task) deliberately matches NavigateTo/NavigateUp/etc's
+    /// existing synchronous-void signatures, which callers (button clicks, PathChanged handlers)
+    /// aren't set up to await. WinUI's DispatcherQueueSynchronizationContext means the code after
+    /// each await below still resumes on the UI thread automatically, same as it did through the
+    /// explicit _dispatcher.TryEnqueue this replaced.
+    private async void Load(string? selectPathAfterLoad = null)
     {
         IsLoading = true;
+        LoadError = null;
         var path = CurrentPath;
 
-        Task.Run(() => FileSystemService.GetItems(path)).ContinueWith(t =>
+        List<FileSystemItem>? items = null;
+        string? error = null;
+
+        try
         {
-            _dispatcher.TryEnqueue(() =>
-            {
-                if (!string.Equals(path, CurrentPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    return; // navigated away while loading
-                }
+            items = await FileSystemService.GetItemsAsync(path, CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            error = ex.Message;
+        }
 
-                _allItems.Clear();
-                _allItems.AddRange(t.Result);
-                ApplyFilter();
-                IsLoading = false;
+        if (!string.Equals(path, CurrentPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return; // navigated away while loading
+        }
 
-                if (selectPathAfterLoad is not null)
-                {
-                    SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectPathAfterLoad, StringComparison.OrdinalIgnoreCase));
-                }
-            });
-        }, TaskScheduler.Default);
+        IsLoading = false;
+
+        if (error is not null)
+        {
+            LoadError = error;
+            return;
+        }
+
+        _allItems.Clear();
+        _allItems.AddRange(items!);
+        ApplyFilter();
+
+        if (selectPathAfterLoad is not null)
+        {
+            SelectedItem = Items.FirstOrDefault(i => string.Equals(i.FullPath, selectPathAfterLoad, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     private void ClearSearchSilently()

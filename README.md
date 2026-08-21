@@ -89,6 +89,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ### Storage integrations
 - LAN/network shares: pin `\\server\share` UNC locations to the left rail for one-click browsing (no drive letter involved), or actually map one to a drive letter via the Network Locations section's link-icon button ("Map Network Drive...") — picks an unused letter, optional different credentials, optional "Reconnect at sign-in"; mapped drives show up in the regular drive list with a distinct network icon and can be disconnected from the same dialog
 - Cloud storage: auto-detects OneDrive, Google Drive, Dropbox, and Box **local sync folders** and pins them to the left rail, with online-only/always-available status badges on files inside them. This reads what each provider's desktop client already mirrors locally — it does **not** use any provider's web API, so no accounts, OAuth, or credentials are involved.
+- FTP, FTPS (explicit), and SFTP: a "Remote Connections" left-rail section (its own "+" button) saves connection profiles (name, protocol, host, port, username — **passwords are never saved to disk**, prompted fresh each time you connect and kept in memory only for that session); clicking a saved connection browses it as a first-class location in the normal dual-pane view, with a working breadcrumb, double-click navigation into subfolders, rename/delete/new folder, and Checksum (which reads the remote file as a stream, no local temp file). Upload and download run through the same File Operations queue/progress UI as any local copy, in either direction — drag-and-drop or Cut/Copy/Paste between a remote pane and a local one both work, including the usual Overwrite/Skip/Rename/Cancel collision dialog (an Overwrite against a remote destination is explicitly called out as permanent, since there's no remote Recycle Bin). SFTP host keys are pinned trust-on-first-use (a later mismatch is a hard failure, never silently re-accepted) via [SSH.NET](https://github.com/sshnet/SSH.NET); FTP/FTPS via [FluentFTP](https://github.com/robinrodricks/FluentFTP). **Not supported (deliberate v1 scope, not oversights):** transferring directly between two remote connections (download to a local folder first, then upload from there); Undo for anything touching a remote location; thumbnails, symbolic link/junction creation, folder watch, folder sync tasks, colour tags, and the Properties dialog for remote items (all local-only, hidden from a remote item's context menu); and restoring a remote pane location across app restarts (falls back to that pane's local default).
 
 ### Other
 - Built-in terminal drawer, opens at the active pane's folder; can be turned off from Control Centre → Preferences (hides its toolbar toggle and closes it if open)
@@ -120,6 +121,8 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 | `Jint` | Embedded JavaScript interpreter for user scripts (pure C#, no native deps) |
 | `LibHeifSharp` + `LibHeif.Native.win-x64` | AVIF thumbnail/preview decoding via libheif — the only dependency here with a native (non-.NET) component |
 | `SharpCompress` | Multi-format archive extraction (RAR/7z/TAR/GZ/BZip2/XZ, in addition to .zip) — pure C#, no native deps |
+| `SSH.NET` | SFTP client (`Renci.SshNet`) — remote connections, transfers, and SSH host-key verification |
+| `FluentFTP` | FTP/FTPS client — remote connections and transfers |
 
 Everything else — Recycle Bin delete, zip compress/extract, SHA-256 hashing, file-system watching, drag-and-drop, syntax-highlighted previews, Windows toast notifications — uses only the .NET/Windows App SDK base class libraries (e.g. `Microsoft.VisualBasic.FileIO.FileSystem` for Recycle Bin operations, `System.IO.Compression` for zip, `Microsoft.Windows.AppNotifications` — bundled in `Microsoft.WindowsAppSDK`, no extra package — for toasts). Symbolic link creation/reading is native .NET (`Directory`/`File.CreateSymbolicLink`, `.LinkTarget`); telling a symbolic link apart from a junction needs one small direct `kernel32.dll` P/Invoke (`FindFirstFileW`, reading the reparse tag `.NET` doesn't expose), and creating a junction shells out to the OS's own `mklink /J` rather than hand-rolling the reparse-point buffer layout. Network drive mapping is a `mpr.dll` P/Invoke (`WNetAddConnection2W`/`WNetCancelConnection2W`) — the same API `net use` and Explorer's own "Map Network Drive" wizard use; hashing supports SHA-256/SHA-1/MD5, all from `System.Security.Cryptography`.
 
@@ -172,7 +175,8 @@ submitted.
 
 ```
 src/FileExplorer/
-  Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole, ...)
+  Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole,
+                 RemoteConnection, RemoteProtocol, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
   Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, AutomationDialog,
                  ControlCentreDialog, PropertiesDialog (XAML + code-behind)
@@ -186,7 +190,9 @@ src/FileExplorer/
                  collision prompts (FileCollisionService), Favourites (FavouriteService),
                  user preferences/feature toggles (SettingsService), symbolic link/junction
                  detection and creation (ReparsePointService), network drive mapping
-                 (NetworkDriveService)
+                 (NetworkDriveService), FTP/FTPS/SFTP remote connections
+                 (RemoteConnectionService, RemoteHostKeyStore, RemoteSessionManager,
+                 RemotePathService, IRemoteFileSystem + SftpFileSystem/FtpFileSystem adapters)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring), AppVersionInfo

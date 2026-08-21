@@ -121,6 +121,27 @@ public sealed class FileOperationQueueService
                 return;
             }
 
+            var sourceIsRemote = job.SourcePaths.Count > 0 && RemotePathService.IsRemote(job.SourcePaths[0]);
+            var destIsRemote = RemotePathService.IsRemote(job.DestinationFolder);
+
+            if (sourceIsRemote || destIsRemote)
+            {
+                if (sourceIsRemote && destIsRemote)
+                {
+                    throw new NotSupportedException(
+                        "Copying directly between two remote connections isn't supported yet - download to a local folder first, then upload from there.");
+                }
+
+                await RunRemoteAwareJobAsync(job, sourceIsRemote, token).ConfigureAwait(false);
+
+                _dispatcher.TryEnqueue(() =>
+                {
+                    job.ProgressPercent = 100;
+                    job.Status = FileOperationStatus.Completed;
+                });
+                return;
+            }
+
             var resolved = await ResolveTopLevelCollisionsAsync(job.SourcePaths, job.DestinationFolder, token).ConfigureAwait(false);
             var allSameDrive = job.SourcePaths.All(p => FileOperationService.SameDrive(p, job.DestinationFolder));
 
@@ -241,6 +262,369 @@ public sealed class FileOperationQueueService
         finally
         {
             _dispatcher.TryEnqueue(() => JobCompleted?.Invoke(this, job));
+        }
+    }
+
+    private sealed record RemoteCopyPlan(
+        List<(string Source, string Destination, long Size)> Files,
+        List<string> LocalDirectoriesToCreate,
+        List<string> RemoteDirectoriesToCreate,
+        long TotalBytes);
+
+    /// Handles a job where exactly one side (source or destination) is remote - the plain
+    /// local<->local path above (BuildCopyPlan/ResolveTopLevelCollisionsAsync/ResilientFileCopy)
+    /// is untouched and still handles that case entirely on its own; remote<->remote is rejected
+    /// by the caller before this ever runs. Deliberately single-threaded, unlike the
+    /// MaxParallelFiles-parallel local copy loop above: neither SftpClient nor AsyncFtpClient is
+    /// safe for concurrent operations against one connection.
+    private async Task RunRemoteAwareJobAsync(FileOperationJob job, bool sourceIsRemote, CancellationToken token)
+    {
+        var plan = await BuildRemoteAwareCopyPlanAsync(job.SourcePaths, job.DestinationFolder, sourceIsRemote, token).ConfigureAwait(false);
+        _dispatcher.TryEnqueue(() => job.BytesTotal = plan.TotalBytes);
+
+        foreach (var dir in plan.LocalDirectoriesToCreate)
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        foreach (var remoteDir in plan.RemoteDirectoriesToCreate)
+        {
+            token.ThrowIfCancellationRequested();
+
+            if (!RemotePathService.TryParse(remoteDir, out _, out var connectionId, out var bareRemoteDir))
+            {
+                continue;
+            }
+
+            var dirSession = RemoteSessionManager.TryGetSession(connectionId);
+            if (dirSession is null)
+            {
+                continue;
+            }
+
+            if (!await dirSession.ExistsAsync(bareRemoteDir, token).ConfigureAwait(false))
+            {
+                await dirSession.CreateDirectoryAsync(bareRemoteDir, token).ConfigureAwait(false);
+            }
+        }
+
+        long bytesDoneBeforeCurrentFile = 0;
+
+        foreach (var (source, destination, size) in plan.Files)
+        {
+            token.ThrowIfCancellationRequested();
+
+            var fileName = RemotePathService.IsRemote(source) ? RemotePathService.GetFileName(source) : Path.GetFileName(source);
+            _dispatcher.TryEnqueue(() => job.CurrentFileName = fileName);
+
+            var baselineForThisFile = bytesDoneBeforeCurrentFile;
+            var progress = new Progress<long>(bytesForThisFile =>
+            {
+                var done = baselineForThisFile + bytesForThisFile;
+                _dispatcher.TryEnqueue(() =>
+                {
+                    job.BytesDone = done;
+                    job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
+                });
+            });
+
+            await TransferOneFileAsync(source, destination, sourceIsRemote, progress, token).ConfigureAwait(false);
+            bytesDoneBeforeCurrentFile += size;
+        }
+
+        // No Undo support for anything touching a remote location (see UndoActions.cs - every
+        // action there is a direct local Directory/File call with no remote equivalent).
+        if (job.Kind == FileDropOperation.Move)
+        {
+            foreach (var source in job.SourcePaths)
+            {
+                token.ThrowIfCancellationRequested();
+                await DeleteRemoteOrLocalDestinationAsync(source, token).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static string CombineAcrossSchemes(string basePath, string name) =>
+        RemotePathService.IsRemote(basePath) ? RemotePathService.Combine(basePath, name) : Path.Combine(basePath, name);
+
+    private async Task<bool> DestinationExistsAsync(string path, CancellationToken token)
+    {
+        if (!RemotePathService.IsRemote(path))
+        {
+            return File.Exists(path) || Directory.Exists(path);
+        }
+
+        if (!RemotePathService.TryParse(path, out _, out var connectionId, out var remotePath))
+        {
+            return false;
+        }
+
+        var session = RemoteSessionManager.TryGetSession(connectionId);
+        return session is not null && await session.ExistsAsync(remotePath, token).ConfigureAwait(false);
+    }
+
+    /// No Recycle Bin equivalent exists remotely, so an Overwrite collision against a remote
+    /// destination (or a remote source being deleted after a Move) is always permanent there,
+    /// unlike the local DeleteToRecycleBin case.
+    private async Task DeleteRemoteOrLocalDestinationAsync(string path, CancellationToken token)
+    {
+        if (!RemotePathService.IsRemote(path))
+        {
+            DeleteToRecycleBin(path);
+            return;
+        }
+
+        if (!RemotePathService.TryParse(path, out _, out var connectionId, out var remotePath))
+        {
+            return;
+        }
+
+        var session = RemoteSessionManager.TryGetSession(connectionId);
+        if (session is null)
+        {
+            return;
+        }
+
+        var info = await session.GetInfoAsync(remotePath, token).ConfigureAwait(false);
+        if (info.IsDirectory)
+        {
+            await DeleteRemoteDirectoryRecursiveAsync(session, remotePath, token).ConfigureAwait(false);
+        }
+        else
+        {
+            await session.DeleteFileAsync(remotePath, token).ConfigureAwait(false);
+        }
+    }
+
+    /// SftpClient.DeleteDirectoryAsync only removes an already-empty directory (unlike
+    /// FluentFTP's DeleteDirectory, which recurses on its own) - emptying it first here makes
+    /// this safe for both protocols rather than relying on protocol-specific behavior. Public so
+    /// PaneView's own remote-delete context menu action can reuse it instead of duplicating this.
+    public static async Task DeleteRemoteDirectoryRecursiveAsync(IRemoteFileSystem session, string remoteDirPath, CancellationToken token)
+    {
+        foreach (var entry in await session.ListAsync(remoteDirPath, token).ConfigureAwait(false))
+        {
+            token.ThrowIfCancellationRequested();
+
+            var childPath = remoteDirPath.TrimEnd('/') + "/" + entry.Name;
+            if (entry.IsDirectory)
+            {
+                await DeleteRemoteDirectoryRecursiveAsync(session, childPath, token).ConfigureAwait(false);
+            }
+            else
+            {
+                await session.DeleteFileAsync(childPath, token).ConfigureAwait(false);
+            }
+        }
+
+        await session.DeleteDirectoryAsync(remoteDirPath, token).ConfigureAwait(false);
+    }
+
+    private static async Task TransferOneFileAsync(string source, string destination, bool sourceIsRemote, IProgress<long> progress, CancellationToken token)
+    {
+        if (sourceIsRemote)
+        {
+            if (!RemotePathService.TryParse(source, out _, out var connectionId, out var remotePath))
+            {
+                throw new IOException($"Invalid remote source path: {source}");
+            }
+
+            var session = RemoteSessionManager.TryGetSession(connectionId)
+                ?? throw new IOException("Not connected - reconnect from the Remote Connections list.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            await session.DownloadAsync(remotePath, destination, progress, token).ConfigureAwait(false);
+        }
+        else
+        {
+            if (!RemotePathService.TryParse(destination, out _, out var connectionId, out var remotePath))
+            {
+                throw new IOException($"Invalid remote destination path: {destination}");
+            }
+
+            var session = RemoteSessionManager.TryGetSession(connectionId)
+                ?? throw new IOException("Not connected - reconnect from the Remote Connections list.");
+
+            await session.UploadAsync(source, remotePath, progress, token).ConfigureAwait(false);
+        }
+    }
+
+    /// Async plan-builder for the local<->remote case, standing in for BuildCopyPlan above (which
+    /// stays purely local/synchronous). Collision handling only checks each top-level item
+    /// (matching BuildCopyPlan's own scope - nested collisions inside a folder aren't prompted for
+    /// either), and skips the "apply to all" convenience the local path offers since that would
+    /// need extra state threaded through a recursive, mixed local/remote walk for comparatively
+    /// little benefit at v1.
+    private async Task<RemoteCopyPlan> BuildRemoteAwareCopyPlanAsync(
+        IReadOnlyList<string> sourcePaths, string destinationFolder, bool sourceIsRemote, CancellationToken token)
+    {
+        var files = new List<(string Source, string Destination, long Size)>();
+        var localDirs = new List<string>();
+        var remoteDirs = new List<string>();
+
+        foreach (var source in sourcePaths)
+        {
+            token.ThrowIfCancellationRequested();
+
+            var name = sourceIsRemote ? RemotePathService.GetFileName(source) : Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
+            var destination = CombineAcrossSchemes(destinationFolder, name);
+
+            if (await DestinationExistsAsync(destination, token).ConfigureAwait(false))
+            {
+                var resolution = await FileCollisionService.ResolveAsync(name, destination, allowApplyToAll: false, _dispatcher, _getXamlRoot).ConfigureAwait(false);
+
+                switch (resolution.Action)
+                {
+                    case CollisionAction.Cancel:
+                        throw new OperationCanceledException();
+                    case CollisionAction.Skip:
+                        continue;
+                    case CollisionAction.Rename:
+                        var renamed = string.IsNullOrWhiteSpace(resolution.RenameTo) ? name : Path.GetFileName(resolution.RenameTo);
+                        destination = CombineAcrossSchemes(destinationFolder, renamed);
+                        break;
+                    case CollisionAction.Overwrite:
+                        await DeleteRemoteOrLocalDestinationAsync(destination, token).ConfigureAwait(false);
+                        break;
+                }
+            }
+
+            if (sourceIsRemote)
+            {
+                if (!RemotePathService.TryParse(source, out _, out var connectionId, out var remotePath))
+                {
+                    continue;
+                }
+
+                var session = RemoteSessionManager.TryGetSession(connectionId)
+                    ?? throw new IOException("Not connected - reconnect from the Remote Connections list.");
+
+                var info = await session.GetInfoAsync(remotePath, token).ConfigureAwait(false);
+
+                if (info.IsDirectory)
+                {
+                    localDirs.Add(destination);
+                    await CollectRemoteSourceTreeAsync(session, source, destination, files, localDirs, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    files.Add((source, destination, info.Size));
+                }
+            }
+            else
+            {
+                FileAttributes attributes;
+                try
+                {
+                    attributes = File.GetAttributes(source);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    continue;
+                }
+
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    // Symlinks/junctions are skipped rather than uploaded-as-their-target - matches
+                    // the local copy engine's own rule (CollectCopyEntries), and neither FTP nor
+                    // SFTP has a link concept this app exposes an equivalent for anyway.
+                    continue;
+                }
+
+                if (attributes.HasFlag(FileAttributes.Directory))
+                {
+                    remoteDirs.Add(destination);
+                    await CollectLocalSourceTreeAsync(source, destination, files, remoteDirs, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    files.Add((source, destination, new FileInfo(source).Length));
+                }
+            }
+        }
+
+        return new RemoteCopyPlan(files, localDirs, remoteDirs, files.Sum(f => f.Size));
+    }
+
+    private static async Task CollectRemoteSourceTreeAsync(
+        IRemoteFileSystem session, string remoteSourceDir, string localDestDir,
+        List<(string Source, string Destination, long Size)> files, List<string> localDirs,
+        CancellationToken token)
+    {
+        if (!RemotePathService.TryParse(remoteSourceDir, out _, out _, out var bareRemoteDir))
+        {
+            return;
+        }
+
+        foreach (var entry in await session.ListAsync(bareRemoteDir, token).ConfigureAwait(false))
+        {
+            token.ThrowIfCancellationRequested();
+
+            var childSource = RemotePathService.Combine(remoteSourceDir, entry.Name);
+            var childDestination = Path.Combine(localDestDir, entry.Name);
+
+            if (entry.IsDirectory)
+            {
+                localDirs.Add(childDestination);
+                await CollectRemoteSourceTreeAsync(session, childSource, childDestination, files, localDirs, token).ConfigureAwait(false);
+            }
+            else
+            {
+                files.Add((childSource, childDestination, entry.Size));
+            }
+        }
+    }
+
+    private static async Task CollectLocalSourceTreeAsync(
+        string localSourceDir, string remoteDestDir,
+        List<(string Source, string Destination, long Size)> files, List<string> remoteDirs,
+        CancellationToken token)
+    {
+        foreach (var dir in Directory.EnumerateDirectories(localSourceDir))
+        {
+            token.ThrowIfCancellationRequested();
+
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(dir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                continue;
+            }
+
+            var childDestination = RemotePathService.Combine(remoteDestDir, Path.GetFileName(dir));
+            remoteDirs.Add(childDestination);
+            await CollectLocalSourceTreeAsync(dir, childDestination, files, remoteDirs, token).ConfigureAwait(false);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(localSourceDir))
+        {
+            token.ThrowIfCancellationRequested();
+
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(file);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                continue;
+            }
+
+            var childDestination = RemotePathService.Combine(remoteDestDir, Path.GetFileName(file));
+            files.Add((file, childDestination, new FileInfo(file).Length));
         }
     }
 

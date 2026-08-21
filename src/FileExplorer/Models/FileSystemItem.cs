@@ -21,6 +21,11 @@ public sealed class FileSystemItem : ObservableObject
     public string Extension { get; init; } = string.Empty;
     public FileAttributes Attributes { get; init; }
 
+    /// True for an item listed from an FTP/SFTP connection rather than the local filesystem.
+    /// Local-only concepts (thumbnails, symlinks, folder watch/sync, tags, Undo) are hidden or
+    /// skipped for these - see RemotePathService for the "scheme://connectionId/path" shape.
+    public bool IsRemote => RemotePathService.IsRemote(FullPath);
+
     /// None unless Attributes has ReparsePoint set. Set by FileSystemService on load.
     public ReparsePointKind LinkKind { get; init; } = ReparsePointKind.None;
 
@@ -107,7 +112,7 @@ public sealed class FileSystemItem : ObservableObject
 
     public async Task EnsureThumbnailAsync()
     {
-        if (_thumbnailRequested || (!IsDirectory && !IconHelper.IsPreviewableImage(Extension)))
+        if (_thumbnailRequested || IsRemote || (!IsDirectory && !IconHelper.IsPreviewableImage(Extension)))
         {
             return;
         }

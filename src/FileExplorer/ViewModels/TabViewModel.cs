@@ -1,4 +1,5 @@
 using FileExplorer.Helpers;
+using FileExplorer.Services;
 using Microsoft.UI.Dispatching;
 
 namespace FileExplorer.ViewModels;
@@ -89,6 +90,22 @@ public sealed class TabViewModel : ObservableObject
         }
 
         var path = ActivePane.CurrentPath;
-        Header = string.IsNullOrEmpty(path) ? "New Workspace" : (Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)) is { Length: > 0 } n ? n : path);
+        string? name;
+
+        if (RemotePathService.IsRemote(path))
+        {
+            name = RemotePathService.GetFileName(path);
+            if (string.IsNullOrEmpty(name) && RemotePathService.TryParse(path, out _, out var connectionId, out _))
+            {
+                // At a connection's root - fall back to its saved display name rather than "".
+                name = RemoteConnectionService.Find(connectionId)?.Name;
+            }
+        }
+        else
+        {
+            name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        Header = string.IsNullOrEmpty(path) ? "New Workspace" : (name is { Length: > 0 } n ? n : path);
     }
 }

@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
         PopulateDriveTree();
         PopulateSavedSearches();
         PopulateNetworkLocations();
+        PopulateRemoteConnections();
         PopulateCloudLocations();
         PopulateFavourites();
         FavouriteService.Changed += (_, _) => DispatcherQueue.TryEnqueue(PopulateFavourites);
@@ -437,6 +438,9 @@ public sealed partial class MainWindow : Window
     private void CloudLocationsHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
         ToggleSection(CloudLocationsChevron, CloudLocationsList);
 
+    private void RemoteConnectionsHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(RemoteConnectionsChevron, RemoteConnectionsList);
+
     private void FavouritesHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
         ToggleSection(FavouritesChevron, FavouritesList);
 
@@ -761,6 +765,148 @@ public sealed partial class MainWindow : Window
         };
 
         await dialog.ShowAsync();
+    }
+
+    // ----- Remote connections (left rail) -----
+
+    private void PopulateRemoteConnections()
+    {
+        RemoteConnectionsList.ItemsSource = RemoteConnectionService.Load();
+    }
+
+    private async void AddRemoteConnectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        var nameBox = new TextBox { PlaceholderText = "Display name" };
+        var protocolBox = new ComboBox { ItemsSource = new[] { "SFTP", "FTP", "FTPS" }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var hostBox = new TextBox { PlaceholderText = "Host (e.g. ftp.example.com)" };
+        var portBox = new NumberBox { Header = "Port", Value = 22, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+        var usernameBox = new TextBox { PlaceholderText = "Username" };
+
+        protocolBox.SelectionChanged += (_, _) =>
+        {
+            portBox.Value = protocolBox.SelectedIndex switch { 0 => 22, _ => 21 };
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Add Remote Connection",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    nameBox, protocolBox, hostBox, portBox, usernameBox,
+                    new TextBlock
+                    {
+                        Text = "Password is asked for each time you connect - it's never saved to disk.",
+                        Opacity = 0.7, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+            PrimaryButtonText = "Add",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var host = hostBox.Text.Trim();
+        if (string.IsNullOrEmpty(host))
+        {
+            return;
+        }
+
+        var protocol = protocolBox.SelectedIndex switch
+        {
+            0 => RemoteProtocol.Sftp,
+            2 => RemoteProtocol.Ftps,
+            _ => RemoteProtocol.Ftp,
+        };
+
+        var name = string.IsNullOrWhiteSpace(nameBox.Text) ? host : nameBox.Text.Trim();
+        var connection = new RemoteConnection(Guid.NewGuid().ToString(), name, protocol, host, (int)portBox.Value, usernameBox.Text.Trim());
+
+        RemoteConnectionService.Add(connection);
+        PopulateRemoteConnections();
+    }
+
+    private async void RemoteConnectionsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not RemoteConnection connection || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await RemoteSessionManager.GetOrConnectAsync(
+                connection.Id,
+                () => ShowRemotePasswordPromptAsync(connection),
+                CancellationToken.None);
+
+            if (result.NewHostKeyTrusted)
+            {
+                NotificationService.Show(
+                    "New SSH host trusted",
+                    $"First connection to \"{connection.Name}\" ({connection.Host}) - its host key was trusted and pinned for future connects.");
+            }
+
+            var scheme = RemotePathService.SchemeFor(connection.Protocol);
+            tab.ActivePane.NavigateTo(RemotePathService.BuildRoot(scheme, connection.Id));
+        }
+        catch (OperationCanceledException)
+        {
+            // user cancelled the password prompt
+        }
+        catch (Exception ex)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = $"Couldn't connect to \"{connection.Name}\"",
+                Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "Close",
+                XamlRoot = Content.XamlRoot,
+            };
+            await dialog.ShowAsync();
+        }
+    }
+
+    private async Task<string?> ShowRemotePasswordPromptAsync(RemoteConnection connection)
+    {
+        var passwordBox = new PasswordBox { PlaceholderText = "Password" };
+
+        var dialog = new ContentDialog
+        {
+            Title = $"Connect to \"{connection.Name}\"",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = $"{connection.Username}@{connection.Host}:{connection.Port}", Opacity = 0.7, FontSize = 12 },
+                    passwordBox,
+                },
+            },
+            PrimaryButtonText = "Connect",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? passwordBox.Password : null;
+    }
+
+    private void RemoveRemoteConnectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: RemoteConnection connection })
+        {
+            RemoteConnectionService.Remove(connection);
+            PopulateRemoteConnections();
+        }
     }
 
     // ----- Cloud storage locations (left rail) -----

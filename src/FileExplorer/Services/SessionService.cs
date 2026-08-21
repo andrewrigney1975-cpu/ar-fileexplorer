@@ -21,13 +21,20 @@ public static class SessionService
 
             var json = File.ReadAllText(FilePath);
             var tabs = JsonSerializer.Deserialize<List<TabState>>(json) ?? new List<TabState>();
-            return tabs.Where(t => Directory.Exists(t.LeftPath) && Directory.Exists(t.RightPath)).ToList();
+
+            // Remote pane locations are never restored across restarts (deliberate v1 scope cut -
+            // reconnecting would mean silently blocking startup on network I/O and possibly a
+            // password prompt). ExistsLocally returns false for a remote path, which drops the
+            // whole tab exactly like a since-deleted local folder would.
+            return tabs.Where(t => ExistsLocally(t.LeftPath) && ExistsLocally(t.RightPath)).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             return new List<TabState>();
         }
     }
+
+    private static bool ExistsLocally(string path) => !RemotePathService.IsRemote(path) && Directory.Exists(path);
 
     public static void Save(IEnumerable<TabState> tabs)
     {
