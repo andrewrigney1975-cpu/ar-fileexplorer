@@ -925,6 +925,25 @@ public sealed partial class PaneView : UserControl
 
         var patternRadio = new RadioButton { Content = "Pattern", GroupName = "BatchRenameMode", IsChecked = true };
         var regexRadio = new RadioButton { Content = "Find & Replace (Regex)", GroupName = "BatchRenameMode" };
+        var guidRadio = new RadioButton { Content = "Random GUID", GroupName = "BatchRenameMode" };
+
+        // Generated once so the preview and the rename that actually runs agree on the same names.
+        var guidNames = selection.Select(_ => Guid.NewGuid().ToString("N")).ToList();
+        var guidPanel = new StackPanel
+        {
+            Spacing = 8,
+            Visibility = Visibility.Collapsed,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "Every selected item is renamed to a new random GUID, extension preserved.",
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12,
+                    Opacity = 0.8,
+                },
+            },
+        };
 
         var patternBox = new TextBox { Text = "{name}", PlaceholderText = "e.g. Vacation {n:000}" };
         var patternPanel = new StackPanel
@@ -979,6 +998,11 @@ public sealed partial class PaneView : UserControl
         string? ComputeNewName(FileSystemItem item, int index, out string? error)
         {
             error = null;
+
+            if (guidRadio.IsChecked == true)
+            {
+                return guidNames[index] + item.Extension;
+            }
 
             if (regexRadio.IsChecked != true)
             {
@@ -1037,13 +1061,16 @@ public sealed partial class PaneView : UserControl
         void SwitchMode()
         {
             var isRegex = regexRadio.IsChecked == true;
-            patternPanel.Visibility = isRegex ? Visibility.Collapsed : Visibility.Visible;
+            var isGuid = guidRadio.IsChecked == true;
+            patternPanel.Visibility = !isRegex && !isGuid ? Visibility.Visible : Visibility.Collapsed;
             regexPanel.Visibility = isRegex ? Visibility.Visible : Visibility.Collapsed;
+            guidPanel.Visibility = isGuid ? Visibility.Visible : Visibility.Collapsed;
             UpdatePreview();
         }
 
         patternRadio.Checked += (_, _) => SwitchMode();
         regexRadio.Checked += (_, _) => SwitchMode();
+        guidRadio.Checked += (_, _) => SwitchMode();
         UpdatePreview();
 
         var dialog = new ContentDialog
@@ -1058,9 +1085,10 @@ public sealed partial class PaneView : UserControl
                 Spacing = 8,
                 Children =
                 {
-                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { patternRadio, regexRadio } },
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Children = { patternRadio, regexRadio, guidRadio } },
                     patternPanel,
                     regexPanel,
+                    guidPanel,
                     errorText,
                     previewText,
                 },
