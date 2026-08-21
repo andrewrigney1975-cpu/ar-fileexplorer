@@ -2,6 +2,11 @@ using FileExplorer.Services;
 using FileExplorer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.System;
+using Windows.UI;
 
 namespace FileExplorer.Views;
 
@@ -127,33 +132,109 @@ public sealed partial class ScriptManagerDialog : UserControl
         "- deleteItem sends to the Recycle Bin by default; pass true only when you really mean permanent.\n" +
         "- Scripts have the same file-system access as the app itself - there's no security sandbox beyond the timeout.";
 
-    private async void DeleteScript_Click(object sender, RoutedEventArgs e)
+    // ScriptManagerDialog only ever runs embedded as Control Centre's content, which is itself
+    // hosted in a ContentDialog - a second ContentDialog.ShowAsync() from in here throws ("Only a
+    // single ContentDialog can be open at any time"). Flyout has no such restriction.
+    private void RenameScript_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string name })
+        if (sender is not Button { Tag: string oldName } button)
         {
             return;
         }
 
-        var dialog = new ContentDialog
+        var nameBox = new TextBox { Text = oldName, SelectionStart = 0, SelectionLength = oldName.Length, Width = 220 };
+        var errorText = new TextBlock
         {
-            Title = "Delete Script",
-            Content = $"Delete the script \"{name}\"? This can't be undone.",
-            PrimaryButtonText = "Delete",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = XamlRoot,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromArgb(255, 232, 17, 35)),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        var confirmButton = new Button { Content = "Rename", HorizontalAlignment = HorizontalAlignment.Right };
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+
+        void Confirm()
+        {
+            var newName = nameBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                flyout.Hide();
+                return;
+            }
+
+            if (!ScriptService.IsNameAvailable(newName))
+            {
+                errorText.Text = $"A script named \"{newName}\" already exists.";
+                errorText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            if (!ScriptService.Rename(oldName, newName))
+            {
+                return;
+            }
+
+            // Keep a folder watch or interval schedule bound to this script working under its new name.
+            WatchService.RenameScriptReferences(oldName, newName);
+            ScheduleService.RenameScriptTarget(oldName, newName);
+
+            if (string.Equals(NameBox.Text, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                NameBox.Text = newName;
+            }
+
+            flyout.Hide();
+            RefreshList();
+        }
+
+        confirmButton.Click += (_, _) => Confirm();
+        nameBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == VirtualKey.Enter)
+            {
+                Confirm();
+            }
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        flyout.Content = new StackPanel { Spacing = 8, Width = 240, Children = { nameBox, errorText, confirmButton } };
+        flyout.ShowAt(button);
+    }
+
+    private void DeleteScript_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name } button)
         {
             return;
         }
 
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+        var confirmButton = new Button { Content = "Delete", HorizontalAlignment = HorizontalAlignment.Right };
+        confirmButton.Click += (_, _) =>
+        {
+            flyout.Hide();
+            DeleteScriptConfirmed(name);
+        };
+
+        flyout.Content = new StackPanel
+        {
+            Spacing = 8,
+            Width = 240,
+            Children =
+            {
+                new TextBlock { Text = $"Delete the script \"{name}\"? This can't be undone.", TextWrapping = TextWrapping.Wrap },
+                confirmButton,
+            },
+        };
+        flyout.ShowAt(button);
+    }
+
+    private void DeleteScriptConfirmed(string name)
+    {
         ScriptService.Delete(name);
 
         if (NameBox.Text == name)
         {
-            NewScript_Click(sender, e);
+            NewScript_Click(this, new RoutedEventArgs());
         }
 
         RefreshList();

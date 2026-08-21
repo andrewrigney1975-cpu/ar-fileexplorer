@@ -3,12 +3,15 @@ using FileExplorer.Services;
 using FileExplorer.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
 
 namespace FileExplorer.Views;
 
 public sealed partial class ControlCentreDialog : UserControl
 {
-    private sealed record SyncTaskRow(string Id, string Name, string PathsDisplay);
+    private sealed record SyncTaskRow(string Id, string Name, string PathsDisplay, bool IncludeHiddenSystemFiles);
 
     public MainViewModel? MainViewModel { get; set; }
 
@@ -84,7 +87,7 @@ public sealed partial class ControlCentreDialog : UserControl
     private void RefreshSyncTasks()
     {
         var rows = SyncTaskService.Tasks
-            .Select(t => new SyncTaskRow(t.Id, t.Name, $"{t.SourcePath} → {t.TargetPath}"))
+            .Select(t => new SyncTaskRow(t.Id, t.Name, $"{t.SourcePath} → {t.TargetPath}", t.IncludeHiddenSystemFiles))
             .ToList();
 
         SyncTasksList.ItemsSource = rows;
@@ -98,6 +101,48 @@ public sealed partial class ControlCentreDialog : UserControl
         {
             FileOperationQueueService.Current?.EnqueueSync(task);
         }
+    }
+
+    // ControlCentreDialog only ever runs hosted in its own ContentDialog (see OpenControlCentreAsync
+    // in MainWindow), so a nested ContentDialog.ShowAsync() from in here throws ("Only a single
+    // ContentDialog can be open at any time"). Flyout has no such restriction.
+    private void RenameSyncTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SyncTaskRow row } button)
+        {
+            return;
+        }
+
+        var nameBox = new TextBox { Text = row.Name, SelectionStart = 0, SelectionLength = row.Name.Length, Width = 220 };
+        var confirmButton = new Button { Content = "Rename", HorizontalAlignment = HorizontalAlignment.Right };
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+
+        void Confirm()
+        {
+            var newName = nameBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                flyout.Hide();
+                return;
+            }
+
+            // Sync tasks are referenced elsewhere by Id, not Name, so a running/scheduled task
+            // keeps working under its new display name with no further updates needed.
+            SyncTaskService.RenameTask(row.Id, newName);
+            flyout.Hide();
+        }
+
+        confirmButton.Click += (_, _) => Confirm();
+        nameBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == VirtualKey.Enter)
+            {
+                Confirm();
+            }
+        };
+
+        flyout.Content = new StackPanel { Spacing = 8, Width = 240, Children = { nameBox, confirmButton } };
+        flyout.ShowAt(button);
     }
 
     private void DeleteSyncTask_Click(object sender, RoutedEventArgs e)

@@ -54,6 +54,33 @@ public static class ScheduleService
         return schedule;
     }
 
+    /// Repoints every Script-kind schedule bound to oldName at newName, so a renamed script keeps
+    /// running on its interval. Call together with ScriptService.Rename. (Sync-kind schedules use
+    /// SyncTaskState.Id as TargetName, which doesn't change on a sync task rename, so they never
+    /// need this.)
+    public static void RenameScriptTarget(string oldName, string newName)
+    {
+        var list = LoadCache();
+        var changed = false;
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i].Kind == ScheduleKind.Script && string.Equals(list[i].TargetName, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                list[i] = list[i] with { TargetName = newName };
+                changed = true;
+            }
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        Save(list);
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
     public static void RemoveSchedule(string id)
     {
         var list = LoadCache();

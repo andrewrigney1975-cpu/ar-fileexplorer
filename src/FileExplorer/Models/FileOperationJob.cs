@@ -33,6 +33,10 @@ public sealed class FileOperationJob : ObservableObject
     /// Set only for Kind == Sync; the sync task's user-chosen name, used in its title and notification text.
     public string? SyncTaskName { get; init; }
 
+    /// Set only for Kind == Sync, from the task's own setting. When false (the default), hidden
+    /// and system files/folders on the source side are skipped entirely rather than mirrored.
+    public bool IncludeHiddenSystemFiles { get; init; }
+
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 
     public string Title => Kind switch

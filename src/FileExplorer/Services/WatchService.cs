@@ -83,6 +83,45 @@ public static class WatchService
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
+    /// Repoints every watch task bound to oldName at newName, so a renamed script keeps triggering
+    /// from its watched folder. Call together with ScriptService.Rename. Restarts each affected
+    /// watcher - its FileSystemWatcher.Created handler closes over the WatchTaskState captured at
+    /// StartWatcher time, so without this it would go on triggering the old (now-renamed-away)
+    /// script name until the app restarts.
+    public static void RenameScriptReferences(string oldName, string newName)
+    {
+        var list = LoadCache();
+        var affectedIds = new List<string>();
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (string.Equals(list[i].ScriptName, oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                list[i] = list[i] with { ScriptName = newName };
+                affectedIds.Add(list[i].Id);
+            }
+        }
+
+        if (affectedIds.Count == 0)
+        {
+            return;
+        }
+
+        Save(list);
+
+        lock (_lock)
+        {
+            foreach (var id in affectedIds)
+            {
+                StopWatcher(id);
+                var task = list.First(t => t.Id == id);
+                StartWatcher(task);
+            }
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
     public static bool IsWatched(string path) =>
         LoadCache().Any(t => string.Equals(t.FolderPath, path, StringComparison.OrdinalIgnoreCase));
 

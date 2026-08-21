@@ -73,5 +73,32 @@ public static class ScriptService
     /// True if name isn't already used by another script (case-insensitive, matching the filesystem).
     public static bool IsNameAvailable(string name) => !File.Exists(PathFor(name));
 
+    /// Renames the script's file on disk. Does not touch WatchService/ScheduleService - callers
+    /// that need a renamed script to keep working with a watched folder or scheduled run must also
+    /// call WatchService.RenameScriptReferences / ScheduleService.RenameScriptTarget.
+    public static bool Rename(string oldName, string newName)
+    {
+        if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        try
+        {
+            var oldPath = PathFor(oldName);
+            if (!File.Exists(oldPath) || !IsNameAvailable(newName))
+            {
+                return false;
+            }
+
+            File.Move(oldPath, PathFor(newName));
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static string PathFor(string name) => Path.Combine(FolderPath, name + ".js");
 }

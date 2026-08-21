@@ -66,6 +66,7 @@ public sealed class FileOperationQueueService
             SourcePaths = new[] { task.SourcePath },
             DestinationFolder = task.TargetPath,
             SyncTaskName = task.Name,
+            IncludeHiddenSystemFiles = task.IncludeHiddenSystemFiles,
         };
 
         _dispatcher.TryEnqueue(() => Jobs.Insert(0, job));
@@ -733,7 +734,7 @@ public sealed class FileOperationQueueService
         // Directory.EnumerateFiles(AllDirectories) would otherwise follow a directory reparse
         // point into (and duplicate) whatever it points to, or loop forever on a self-referential
         // one.
-        var files = EnumerateFilesSkippingLinks(source).ToList();
+        var files = EnumerateFilesSkippingLinks(source, job.IncludeHiddenSystemFiles).ToList();
         var toCopy = new List<(string Source, string Destination)>();
         long totalBytes = 0;
         CollisionAction? appliedToAll = null;
@@ -893,7 +894,7 @@ public sealed class FileOperationQueueService
     /// Like Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories), but never descends
     /// into a reparse point (symbolic link/junction) and never yields one either - see
     /// CollectCopyEntries below for why this matters.
-    private static IEnumerable<string> EnumerateFilesSkippingLinks(string directory)
+    private static IEnumerable<string> EnumerateFilesSkippingLinks(string directory, bool includeHiddenSystemFiles = true)
     {
         foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
         {
@@ -912,9 +913,16 @@ public sealed class FileOperationQueueService
                 continue;
             }
 
+            // A sync task's own choice: skip hidden/system files AND folders on the source side
+            // entirely (so a hidden folder's contents are never even walked) unless opted in.
+            if (!includeHiddenSystemFiles && (attributes.HasFlag(FileAttributes.Hidden) || attributes.HasFlag(FileAttributes.System)))
+            {
+                continue;
+            }
+
             if (attributes.HasFlag(FileAttributes.Directory))
             {
-                foreach (var nested in EnumerateFilesSkippingLinks(entry))
+                foreach (var nested in EnumerateFilesSkippingLinks(entry, includeHiddenSystemFiles))
                 {
                     yield return nested;
                 }

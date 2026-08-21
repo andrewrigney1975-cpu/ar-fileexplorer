@@ -3,7 +3,10 @@ using FileExplorer.Models;
 
 namespace FileExplorer.Services;
 
-public sealed record SyncTaskState(string Id, string Name, string SourcePath, string TargetPath);
+/// IncludeHiddenSystemFiles defaults to false: a sync run skips hidden/system files and folders on
+/// the source side entirely rather than mirroring them, matching most users' expectation that a
+/// folder sync means "my visible files," not OS/app metadata like Thumbs.db or desktop.ini.
+public sealed record SyncTaskState(string Id, string Name, string SourcePath, string TargetPath, bool IncludeHiddenSystemFiles = false);
 
 /// App-local store of folder-sync task pairings, plus the transient (never persisted) in-progress
 /// "set source, then set target" selection state used while the user is defining a new one.
@@ -49,14 +52,31 @@ public static class SyncTaskService
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
-    public static SyncTaskState AddTask(string name, string sourcePath, string targetPath)
+    public static SyncTaskState AddTask(string name, string sourcePath, string targetPath, bool includeHiddenSystemFiles = false)
     {
-        var task = new SyncTaskState(Guid.NewGuid().ToString(), name, sourcePath, targetPath);
+        var task = new SyncTaskState(Guid.NewGuid().ToString(), name, sourcePath, targetPath, includeHiddenSystemFiles);
         var list = LoadCache();
         list.Add(task);
         Save(list);
         Changed?.Invoke(null, EventArgs.Empty);
         return task;
+    }
+
+    /// Sync tasks are referenced elsewhere (ScheduleService) by Id, not Name, so renaming here
+    /// never breaks a scheduled or watch-triggered run - it's a pure display-name change.
+    public static bool RenameTask(string id, string newName)
+    {
+        var list = LoadCache();
+        var index = list.FindIndex(t => t.Id == id);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        list[index] = list[index] with { Name = newName };
+        Save(list);
+        Changed?.Invoke(null, EventArgs.Empty);
+        return true;
     }
 
     public static void RemoveTask(string id)

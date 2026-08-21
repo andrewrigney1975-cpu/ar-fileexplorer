@@ -44,13 +44,13 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 
 ### Folder sync
 - Right-click any folder → "Set sync source...", then right-click another folder (any pane, any Workspace) → "Set sync target"; both get an immediate highlight bar (orange for the source, green for the target) so the pairing is visible while you set it up
-- Confirming a name in the resulting dialog saves the pairing as a named sync task; source/target folders keep their highlight bar afterward, wherever they're browsed
+- Confirming a name in the resulting dialog saves the pairing as a named sync task; source/target folders keep their highlight bar afterward, wherever they're browsed. An "Include hidden/system files" checkbox in that same dialog (off by default) controls whether hidden/system files and folders on the source side are mirrored at all — off skips them entirely (they're never even walked, so a hidden folder's contents don't count either), matching the usual expectation that a folder sync means "my visible files," not OS/app metadata like `Thumbs.db` or `desktop.ini`
 - A toolbar dropdown (next to File operations) lists the sync tasks whose source folder is visible in the current Workspace's Left or Right pane, with a trash icon (and confirmation) to delete a task; running a task enqueues it into the same File operations queue/list as any copy or move, with live progress
 - One-way, copy-only: copies new/changed files from source → target; never deletes or touches files that exist only in the target. When a file differs at the same relative path in both, it's a collision handled the same way as any copy/move (Overwrite/Skip/Rename/Cancel, with "apply to all")
 - A Windows notification reports success or failure (with the error) when a sync task finishes
 
 ### Scripting
-- Control Centre → Scripts: a list of saved scripts on the left, a code editor + Run/Save on the right, and an "API Reference..." button with the full function list
+- Control Centre → Scripts: a list of saved scripts on the left, a code editor + Run/Save on the right, and an "API Reference..." button with the full function list; each list entry has a Rename button alongside Delete — renaming actually renames the underlying file (not a copy) and repoints any folder watch or interval schedule bound to that script at the new name, so automation keeps working across the rename
 - Scripts are plain **JavaScript** (ES5.1, run by the embedded [Jint](https://github.com/sebastienros/jint) interpreter), each saved as a `.js` file; every saved script also gets its own `"Run Script: <name>"` entry in the command palette for one-key execution against the active pane's current selection
 - API surface: `selection()` / `listFiles(path)` (folder contents), `currentPath`, `addedFiles` (the files that triggered a folder-watch run; empty otherwise), `rename`/`copyTo`/`moveTo`/`deleteItem`/`createFolder`, `readText`/`writeText`/`exists`, `prompt`/`confirm` (blocking input dialogs), `notify` (Windows toast), `refresh` (reload open panes), and `log` (shown in the run's output)
 - Scripts run off the UI thread with a 30-second timeout guard; `deleteItem` defaults to the Recycle Bin; script-driven file changes are **not** tracked by Undo, and there's no sandboxing beyond the timeout (the app already ships a full terminal, so a script has no more reach than the user already does)
@@ -65,7 +65,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 
 ### Control Centre
 - Command palette (`Ctrl+K`) → "Control Centre..." opens a single dialog with a left-hand section list: **Scripts**, **Sync Tasks**, **Automation**, **Thumbnails**, **Preferences**, **About**
-- Sync Tasks: every saved sync task (not filtered to the current pane, unlike the toolbar dropdown), each with "Run now" and delete
+- Sync Tasks: every saved sync task (not filtered to the current pane, unlike the toolbar dropdown), each with "Run now", Rename, and delete — sync tasks are referenced elsewhere (schedules) by an internal ID rather than name, so renaming is a pure display-name change and never breaks a scheduled run; a task created with "Include hidden/system files" on shows that as a small note under its paths
 - Thumbnails: the bitmap size thumbnails/folder previews are generated and cached at (see Views, above)
 - Preferences: four feature toggles — **PowerShell terminal**, **Sync Tasks**, **Folder watching**, **Scripting** — each defaulting to on; switching one off hides its toolbar button(s), context-menu entries, command palette entries, and pane highlight bars, without deleting anything already saved (scripts, sync tasks, watches, schedules all stay intact and reappear when re-enabled)
 - About: app name and version

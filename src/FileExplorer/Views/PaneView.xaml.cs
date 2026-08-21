@@ -423,10 +423,16 @@ public sealed partial class PaneView : UserControl
             Text = $"{Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar))} -> {Path.GetFileName(targetPath.TrimEnd(Path.DirectorySeparatorChar))}",
         };
 
+        var includeHiddenSystemBox = new CheckBox
+        {
+            Content = "Include hidden/system files",
+            IsChecked = false,
+        };
+
         var dialog = new ContentDialog
         {
             Title = "Name This Sync Task",
-            Content = nameBox,
+            Content = new StackPanel { Spacing = 8, Children = { nameBox, includeHiddenSystemBox } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
@@ -439,7 +445,7 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
-        SyncTaskService.AddTask(nameBox.Text.Trim(), source, targetPath);
+        SyncTaskService.AddTask(nameBox.Text.Trim(), source, targetPath, includeHiddenSystemBox.IsChecked == true);
         SyncTaskService.ClearPending();
     }
 
