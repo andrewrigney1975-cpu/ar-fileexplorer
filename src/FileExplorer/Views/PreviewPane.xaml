@@ -67,6 +67,7 @@
                 <TextBlock x:Name="ImageDimensionsText" Opacity="0.7" FontSize="12" />
                 <TextBlock x:Name="ImageBitDepthText" Opacity="0.7" FontSize="12" />
                 <TextBlock x:Name="ImageColorModelText" Opacity="0.7" FontSize="12" />
+                <WebView2 x:Name="LocationMap" Visibility="Collapsed" Height="200" Margin="0,4,0,0" />
                 <ScrollViewer x:Name="ExifScroller" MaxHeight="220" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <ItemsControl x:Name="ExifList">
                         <ItemsControl.ItemTemplate>

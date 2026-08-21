@@ -70,6 +70,11 @@ public sealed partial class PreviewPane : UserControl
         }
         ImageMetadataPanel.Visibility = Visibility.Collapsed;
         ExifScroller.Visibility = Visibility.Collapsed;
+        LocationMap.Visibility = Visibility.Collapsed;
+        if (LocationMap.CoreWebView2 is not null)
+        {
+            LocationMap.CoreWebView2.Navigate("about:blank");
+        }
 
         if (item is null)
         {
@@ -213,7 +218,83 @@ public sealed partial class PreviewPane : UserControl
             ExifScroller.Visibility = Visibility.Visible;
         }
 
+        if (metadata.Latitude is { } lat && metadata.Longitude is { } lon)
+        {
+            _ = ShowLocationMapAsync(item, lat, lon, metadata.Heading);
+        }
+
         ImageMetadataPanel.Visibility = Visibility.Visible;
+    }
+
+    /// Renders an OpenStreetMap tile view with a marker (and, if the shot recorded one, a rotated
+    /// heading cone) via Leaflet loaded from its public CDN into the WebView2 already used for PDF
+    /// preview - both OSM's tile server and Leaflet itself are free to use with no license/API key.
+    private async Task ShowLocationMapAsync(FileSystemItem item, double latitude, double longitude, double? heading)
+    {
+        try
+        {
+            await LocationMap.EnsureCoreWebView2Async();
+        }
+        catch (Exception)
+        {
+            // WebView2 runtime not installed - map is a nice-to-have, silently skip it like PDF preview does.
+            return;
+        }
+
+        if (!ReferenceEquals(ViewModel?.SelectedItem, item))
+        {
+            return;
+        }
+
+        var headingMarkerJs = heading is { } h
+            ? $$"""
+                var headingIcon = L.divIcon({
+                    className: 'heading-icon',
+                    html: '<div style="transform: rotate({{h.ToString(System.Globalization.CultureInfo.InvariantCulture)}}deg); width: 28px; height: 28px;">' +
+                          '<svg width="28" height="28" viewBox="0 0 28 28">' +
+                          '<polygon points="14,1 22,26 14,20 6,26" fill="#e3350d" stroke="white" stroke-width="1.5"/>' +
+                          '</svg></div>',
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14],
+                });
+                L.marker([{{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}, {{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}], { icon: headingIcon, zIndexOffset: 1000 })
+                    .addTo(map)
+                    .bindTooltip('Camera heading: {{h.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}}°');
+                """
+            : string.Empty;
+
+        var html = $$"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8" />
+                <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+                <style>
+                    html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; }
+                </style>
+            </head>
+            <body>
+                <div id="map"></div>
+                <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+                <script>
+                    var map = L.map('map', { zoomControl: true, attributionControl: true })
+                        .setView([{{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}, {{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}], 15);
+
+                    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    }).addTo(map);
+
+                    L.marker([{{latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}, {{longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}}]).addTo(map);
+
+                    {{headingMarkerJs}}
+                </script>
+            </body>
+            </html>
+            """;
+
+        LocationMap.CoreWebView2.NavigateToString(html);
+        LocationMap.Visibility = Visibility.Visible;
     }
 
     private void ShowCodePreview(string text, string extension)

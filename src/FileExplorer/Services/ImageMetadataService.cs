@@ -12,7 +12,10 @@ public sealed record ImageMetadata(
     string Format,
     string BitDepth,
     string ColorModel,
-    IReadOnlyList<(string Label, string Value)> Exif);
+    IReadOnlyList<(string Label, string Value)> Exif,
+    double? Latitude = null,
+    double? Longitude = null,
+    double? Heading = null);
 
 /// Reads an image's own technical metadata (as opposed to ThumbnailCacheService, which only cares
 /// about producing a small preview bitmap) - dimensions, pixel format, and EXIF/camera properties,
@@ -37,6 +40,17 @@ public static class ImageMetadataService
         ("System.GPS.Longitude", "GPS longitude"),
     };
 
+    // Fetched alongside ExifProperties but not shown as their own raw rows - used to compute the
+    // signed decimal-degree coordinate and camera heading for the map, and to build the friendlier
+    // "GPS location"/"Camera heading" rows below.
+    private static readonly string[] GpsSupportKeys =
+    {
+        "System.GPS.LatitudeRef",
+        "System.GPS.LongitudeRef",
+        "System.GPS.ImgDirection",
+        "System.GPS.ImgDirectionRef",
+    };
+
     public static async Task<ImageMetadata?> ReadAsync(string path, string extension)
     {
         return string.Equals(extension, ".avif", StringComparison.OrdinalIgnoreCase)
@@ -53,17 +67,50 @@ public static class ImageMetadataService
 
             var (bitDepth, colorModel) = DescribeFormat(decoder.BitmapPixelFormat, decoder.BitmapAlphaMode);
             var exif = new List<(string, string)>();
+            double? latitude = null;
+            double? longitude = null;
+            double? heading = null;
 
             try
             {
-                var props = await decoder.BitmapProperties.GetPropertiesAsync(ExifProperties.Select(p => p.Key));
+                var props = await decoder.BitmapProperties.GetPropertiesAsync(
+                    ExifProperties.Select(p => p.Key).Concat(GpsSupportKeys));
+
                 foreach (var (key, label) in ExifProperties)
                 {
+                    if (key is "System.GPS.Latitude" or "System.GPS.Longitude")
+                    {
+                        // Shown below as a single friendlier decimal-degree "GPS location" row instead
+                        // of raw degrees/minutes/seconds arrays.
+                        continue;
+                    }
+
                     if (props.TryGetValue(key, out var typed) && typed.Value is not null &&
                         FormatPropertyValue(key, typed.Value) is { Length: > 0 } formatted)
                     {
                         exif.Add((label, formatted));
                     }
+                }
+
+                latitude = ToDecimalDegrees(
+                    props.TryGetValue("System.GPS.Latitude", out var lat) ? lat.Value : null,
+                    props.TryGetValue("System.GPS.LatitudeRef", out var latRef) ? latRef.Value as string : null,
+                    negativeRef: 'S');
+
+                longitude = ToDecimalDegrees(
+                    props.TryGetValue("System.GPS.Longitude", out var lon) ? lon.Value : null,
+                    props.TryGetValue("System.GPS.LongitudeRef", out var lonRef) ? lonRef.Value as string : null,
+                    negativeRef: 'W');
+
+                if (latitude is not null && longitude is not null)
+                {
+                    exif.Add(("GPS location", $"{latitude:0.00000}, {longitude:0.00000}"));
+                }
+
+                if (props.TryGetValue("System.GPS.ImgDirection", out var dir) && dir.Value is not null)
+                {
+                    heading = Convert.ToDouble(dir.Value);
+                    exif.Add(("Camera heading", $"{heading:0.#}°"));
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -83,7 +130,10 @@ public static class ImageMetadataService
                     : decoder.DecoderInformation.FriendlyName,
                 bitDepth,
                 colorModel,
-                exif);
+                exif,
+                latitude,
+                longitude,
+                heading);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
         {
@@ -133,6 +183,25 @@ public static class ImageMetadataService
             BitmapPixelFormat.P010 => ("24-bit", "YUV 4:2:0 (10-bit)"),
             _ => ("Unknown", format.ToString()),
         };
+    }
+
+    /// GPS.Latitude/Longitude come back as a 3-element [degrees, minutes, seconds] array with a
+    /// separate single-letter ref ("N"/"S" or "E"/"W") giving the sign - not a signed value itself.
+    private static double? ToDecimalDegrees(object? dmsValue, string? refLetter, char negativeRef)
+    {
+        if (dmsValue is not Array arr || arr.Length < 3)
+        {
+            return null;
+        }
+
+        var degrees = Convert.ToDouble(arr.GetValue(0)) + Convert.ToDouble(arr.GetValue(1)) / 60.0 + Convert.ToDouble(arr.GetValue(2)) / 3600.0;
+
+        if (!string.IsNullOrWhiteSpace(refLetter) && refLetter.Trim().Equals(negativeRef.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            degrees = -degrees;
+        }
+
+        return degrees;
     }
 
     private static string? FormatPropertyValue(string key, object value)
