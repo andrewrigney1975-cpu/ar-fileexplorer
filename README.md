@@ -5,7 +5,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ## Features
 
 ### Navigation & layout
-- Left rail: drive list (with used-space bar + percentage per drive) and an expandable folder tree; right-click a drive → "Open in new workspace" opens it as the left pane of a brand-new Workspace tab, right pane defaulting to the user's home directory
+- Left rail: drive list (with used-space bar + percentage per drive) and an expandable folder tree; right-click a drive → "Open in new workspace" opens it as the left pane of a brand-new Workspace tab, right pane defaulting to the user's home directory; "Analyse Disk" / "Benchmark Disk" jump straight into the Disk Space Analyser / Disk Benchmark (below) with that drive pre-selected, skipping their drive-picker screen
 - Dual-pane, **Workspace**-based browsing — each Workspace tab holds two independently-navigable panes side by side
 - Workspaces can be renamed (right-click a tab → "Rename Workspace...", or double-click its header) and reordered by drag-and-drop
 - Resizable left rail, pane splitter, and right-hand preview rail; the preview pane's width and open/closed state, and the terminal drawer's open/closed state, all persist across restarts
@@ -65,7 +65,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 
 ### Control Centre
 - Command palette (`Ctrl+K`) → "Control Centre..." opens a single dialog with a left-hand section list: **Scripts**, **Sync Tasks**, **Automation**, **Thumbnails**, **Preferences**, **About**
-- Sync Tasks: every saved sync task (not filtered to the current pane, unlike the toolbar dropdown), each with "Run now", Rename, and delete — sync tasks are referenced elsewhere (schedules) by an internal ID rather than name, so renaming is a pure display-name change and never breaks a scheduled run; a task created with "Include hidden/system files" on shows that as a small note under its paths
+- Sync Tasks: every saved sync task (not filtered to the current pane, unlike the toolbar dropdown), each with "Run now", Rename, and delete — sync tasks are referenced elsewhere (schedules) by an internal ID rather than name, so renaming is a pure display-name change and never breaks a scheduled run; an "Include hidden/system files" checkbox under each task's paths toggles that task's setting at any time, not just at creation
 - Thumbnails: the bitmap size thumbnails/folder previews are generated and cached at (see Views, above)
 - Preferences: four feature toggles — **PowerShell terminal**, **Sync Tasks**, **Folder watching**, **Scripting** — each defaulting to on; switching one off hides its toolbar button(s), context-menu entries, command palette entries, and pane highlight bars, without deleting anything already saved (scripts, sync tasks, watches, schedules all stay intact and reappear when re-enabled)
 - About: app name and version

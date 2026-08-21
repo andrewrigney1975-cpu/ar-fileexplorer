@@ -79,6 +79,21 @@ public static class SyncTaskService
         return true;
     }
 
+    public static bool SetIncludeHiddenSystemFiles(string id, bool includeHiddenSystemFiles)
+    {
+        var list = LoadCache();
+        var index = list.FindIndex(t => t.Id == id);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        list[index] = list[index] with { IncludeHiddenSystemFiles = includeHiddenSystemFiles };
+        Save(list);
+        Changed?.Invoke(null, EventArgs.Empty);
+        return true;
+    }
+
     public static void RemoveTask(string id)
     {
         var list = LoadCache();

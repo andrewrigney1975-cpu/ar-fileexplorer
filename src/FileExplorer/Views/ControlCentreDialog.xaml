@@ -1,12 +1,7 @@
 <UserControl
     x:Class="FileExplorer.Views.ControlCentreDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:conv="using:FileExplorer.Converters">
-
-    <UserControl.Resources>
-        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
-    </UserControl.Resources>
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Grid Width="1300" Height="720" ColumnSpacing="0">
         <Grid.ColumnDefinitions>
@@ -55,8 +50,10 @@
                                             <StackPanel Grid.Column="0">
                                                 <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding PathsDisplay}" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="Includes hidden/system files" Opacity="0.7" FontSize="11"
-                                                           Visibility="{Binding IncludeHiddenSystemFiles, Converter={StaticResource BoolToVis}}" />
+                                                <CheckBox Content="Include hidden/system files" FontSize="11" Padding="4,0,0,0"
+                                                          VerticalContentAlignment="Center"
+                                                          IsChecked="{Binding IncludeHiddenSystemFiles, Mode=OneWay}"
+                                                          Tag="{Binding Id}" Click="IncludeHiddenSystemFilesCheckBox_Click" />
                                             </StackPanel>
                                             <Button Grid.Column="1" Content="Run now" Click="RunSyncTask_Click" Tag="{Binding Id}" />
                                             <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"

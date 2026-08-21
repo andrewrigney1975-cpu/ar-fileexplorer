@@ -30,10 +30,26 @@ public sealed partial class DiskBenchmarkDialog : UserControl
 
     public Action? RequestClose { get; set; }
 
+    /// Set before showing the dialog to skip the drive grid and start the benchmark against that
+    /// drive immediately - e.g. from the left rail's "Benchmark Disk" context menu item.
+    public string? InitialDrivePath { get; set; }
+
     public DiskBenchmarkDialog()
     {
         InitializeComponent();
-        Loaded += (_, _) => PopulateDriveGrid();
+        Loaded += (_, _) =>
+        {
+            if (InitialDrivePath is { } path)
+            {
+                var label = DiskSpaceAnalyserService.GetDrives()
+                    .FirstOrDefault(d => string.Equals(d.Drive.RootDirectory.FullName, path, StringComparison.OrdinalIgnoreCase))?.Label ?? path;
+                _ = StartBenchmarkAsync(path, label);
+            }
+            else
+            {
+                PopulateDriveGrid();
+            }
+        };
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();

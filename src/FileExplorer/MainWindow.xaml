@@ -280,6 +280,10 @@
                                     <MenuFlyout>
                                         <MenuFlyoutItem Text="Open in new workspace" Click="OpenDriveInNewWorkspace_Click"
                                                          Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
+                                        <MenuFlyoutItem Text="Analyse Disk" Click="AnalyseDiskMenuItem_Click"
+                                                         Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
+                                        <MenuFlyoutItem Text="Benchmark Disk" Click="BenchmarkDiskMenuItem_Click"
+                                                         Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
                                     </MenuFlyout>
                                 </StackPanel.ContextFlyout>
                                 <StackPanel Orientation="Horizontal" Spacing="6">

@@ -36,10 +36,24 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
 
     public Action? RequestClose { get; set; }
 
+    /// Set before showing the dialog to skip the drive grid and jump straight into that drive's
+    /// breakdown - e.g. from the left rail's "Analyse Disk" context menu item.
+    public string? InitialDrivePath { get; set; }
+
     public DiskSpaceAnalyserDialog()
     {
         InitializeComponent();
-        Loaded += (_, _) => PopulateDriveGrid();
+        Loaded += (_, _) =>
+        {
+            if (InitialDrivePath is { } path)
+            {
+                _ = NavigateToAsync(path);
+            }
+            else
+            {
+                PopulateDriveGrid();
+            }
+        };
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();

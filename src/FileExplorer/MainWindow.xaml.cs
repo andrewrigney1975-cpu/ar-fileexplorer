@@ -430,6 +430,26 @@ public sealed partial class MainWindow : Window
         _viewModel.AddTab(folder.FullPath, MainViewModel.GetDefaultStartPath());
     }
 
+    private void AnalyseDiskMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TreeViewNode { Content: FolderNode { IsDrive: true } folder })
+        {
+            return;
+        }
+
+        _ = OpenDiskSpaceAnalyserAsync(folder.FullPath);
+    }
+
+    private void BenchmarkDiskMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TreeViewNode { Content: FolderNode { IsDrive: true } folder })
+        {
+            return;
+        }
+
+        _ = OpenDiskBenchmarkAsync(folder.FullPath);
+    }
+
     // ----- Collapsible left-rail sections -----
 
     private static void ToggleSection(FontIcon chevron, UIElement content)
@@ -1401,7 +1421,7 @@ public sealed partial class MainWindow : Window
 
     private void DiskSpaceAnalyserButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskSpaceAnalyserAsync();
 
-    private async Task OpenDiskSpaceAnalyserAsync()
+    private async Task OpenDiskSpaceAnalyserAsync(string? initialDrivePath = null)
     {
         var dialog = new ContentDialog
         {
@@ -1409,7 +1429,7 @@ public sealed partial class MainWindow : Window
             XamlRoot = Content.XamlRoot,
         };
 
-        var analyser = new DiskSpaceAnalyserDialog { RequestClose = () => dialog.Hide() };
+        var analyser = new DiskSpaceAnalyserDialog { RequestClose = () => dialog.Hide(), InitialDrivePath = initialDrivePath };
         dialog.Content = analyser;
 
         dialog.Resources["ContentDialogMaxWidth"] = 1360d;
@@ -1420,7 +1440,7 @@ public sealed partial class MainWindow : Window
 
     private void DiskBenchmarkButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskBenchmarkAsync();
 
-    private async Task OpenDiskBenchmarkAsync()
+    private async Task OpenDiskBenchmarkAsync(string? initialDrivePath = null)
     {
         var dialog = new ContentDialog
         {
@@ -1428,7 +1448,7 @@ public sealed partial class MainWindow : Window
             XamlRoot = Content.XamlRoot,
         };
 
-        var benchmark = new DiskBenchmarkDialog { RequestClose = () => dialog.Hide() };
+        var benchmark = new DiskBenchmarkDialog { RequestClose = () => dialog.Hide(), InitialDrivePath = initialDrivePath };
         dialog.Content = benchmark;
 
         dialog.Resources["ContentDialogMaxWidth"] = 1360d;

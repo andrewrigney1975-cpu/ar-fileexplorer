@@ -106,6 +106,14 @@ public sealed partial class ControlCentreDialog : UserControl
     // ControlCentreDialog only ever runs hosted in its own ContentDialog (see OpenControlCentreAsync
     // in MainWindow), so a nested ContentDialog.ShowAsync() from in here throws ("Only a single
     // ContentDialog can be open at any time"). Flyout has no such restriction.
+    private void IncludeHiddenSystemFilesCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { Tag: string id } checkBox)
+        {
+            SyncTaskService.SetIncludeHiddenSystemFiles(id, checkBox.IsChecked == true);
+        }
+    }
+
     private void RenameSyncTask_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: SyncTaskRow row } button)
