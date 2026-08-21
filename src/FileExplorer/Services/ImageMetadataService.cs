@@ -15,6 +15,7 @@ public sealed record ImageMetadata(
     IReadOnlyList<(string Label, string Value)> Exif,
     double? Latitude = null,
     double? Longitude = null,
+    double? Altitude = null,
     double? Heading = null);
 
 /// Reads an image's own technical metadata (as opposed to ThumbnailCacheService, which only cares
@@ -41,14 +42,29 @@ public static class ImageMetadataService
     };
 
     // Fetched alongside ExifProperties but not shown as their own raw rows - used to compute the
-    // signed decimal-degree coordinate and camera heading for the map, and to build the friendlier
-    // "GPS location"/"Camera heading" rows below.
+    // signed decimal-degree coordinate, altitude, and camera heading for the map and the debug rows
+    // below.
     private static readonly string[] GpsSupportKeys =
     {
         "System.GPS.LatitudeRef",
         "System.GPS.LongitudeRef",
+        "System.GPS.Altitude",
+        "System.GPS.AltitudeRef",
         "System.GPS.ImgDirection",
         "System.GPS.ImgDirectionRef",
+    };
+
+    // On at least some codecs/systems, the Windows Property System's own "System.GPS.Latitude"/
+    // "Longitude" (VT_VECTOR|VT_R8 canonical properties) silently come back not-present via
+    // GetPropertiesAsync even though every other GPS property (refs, altitude, heading) resolves
+    // fine - confirmed empirically against a real geotagged JPEG on this machine. These raw WIC
+    // metadata query-language paths read the same EXIF GPS IFD tags directly and reliably do work,
+    // so they're used as a fallback when the canonical property comes back empty. JPEG-specific
+    // (the App1/Exif segment path), which covers the overwhelming majority of geotagged photos.
+    private static readonly (string Key, string RefKey, char NegativeRef)[] GpsRawFallback =
+    {
+        ("/app1/ifd/gps/{ushort=2}", "/app1/ifd/gps/{ushort=1}", 'S'),
+        ("/app1/ifd/gps/{ushort=4}", "/app1/ifd/gps/{ushort=3}", 'W'),
     };
 
     public static async Task<ImageMetadata?> ReadAsync(string path, string extension)
@@ -69,6 +85,7 @@ public static class ImageMetadataService
             var exif = new List<(string, string)>();
             double? latitude = null;
             double? longitude = null;
+            double? altitude = null;
             double? heading = null;
 
             try
@@ -80,8 +97,7 @@ public static class ImageMetadataService
                 {
                     if (key is "System.GPS.Latitude" or "System.GPS.Longitude")
                     {
-                        // Shown below as a single friendlier decimal-degree "GPS location" row instead
-                        // of raw degrees/minutes/seconds arrays.
+                        // Shown below as explicit decimal-degree rows instead of raw DMS arrays.
                         continue;
                     }
 
@@ -102,15 +118,61 @@ public static class ImageMetadataService
                     props.TryGetValue("System.GPS.LongitudeRef", out var lonRef) ? lonRef.Value as string : null,
                     negativeRef: 'W');
 
-                if (latitude is not null && longitude is not null)
+                if (latitude is null || longitude is null)
                 {
-                    exif.Add(("GPS location", $"{latitude:0.00000}, {longitude:0.00000}"));
+                    // Canonical System.GPS.Latitude/Longitude came back empty - fall back to reading
+                    // the same EXIF GPS IFD tags directly (see GpsRawFallback's comment above).
+                    try
+                    {
+                        var rawKeys = GpsRawFallback.SelectMany(f => new[] { f.Key, f.RefKey });
+                        var rawProps = await decoder.BitmapProperties.GetPropertiesAsync(rawKeys);
+
+                        latitude ??= ToDecimalDegrees(
+                            rawProps.TryGetValue(GpsRawFallback[0].Key, out var rawLat) ? rawLat.Value : null,
+                            rawProps.TryGetValue(GpsRawFallback[0].RefKey, out var rawLatRef) ? rawLatRef.Value as string : null,
+                            GpsRawFallback[0].NegativeRef);
+
+                        longitude ??= ToDecimalDegrees(
+                            rawProps.TryGetValue(GpsRawFallback[1].Key, out var rawLon) ? rawLon.Value : null,
+                            rawProps.TryGetValue(GpsRawFallback[1].RefKey, out var rawLonRef) ? rawLonRef.Value as string : null,
+                            GpsRawFallback[1].NegativeRef);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        // Raw metadata query paths are JPEG-specific and not every WIC codec supports
+                        // the query language at all - if this fails, the photo just has no location.
+                    }
+                }
+
+                if (latitude is not null)
+                {
+                    exif.Add(("GPS latitude", $"{latitude:0.00000}°"));
+                }
+
+                if (longitude is not null)
+                {
+                    exif.Add(("GPS longitude", $"{longitude:0.00000}°"));
+                }
+
+                if (props.TryGetValue("System.GPS.Altitude", out var alt) && alt.Value is not null)
+                {
+                    altitude = Convert.ToDouble(alt.Value);
+                    // AltitudeRef: 0 = above sea level, 1 = below sea level.
+                    if (props.TryGetValue("System.GPS.AltitudeRef", out var altRef) &&
+                        altRef.Value is byte { } refByte && refByte == 1)
+                    {
+                        altitude = -altitude;
+                    }
+
+                    exif.Add(("GPS altitude", $"{altitude:0.#} m"));
                 }
 
                 if (props.TryGetValue("System.GPS.ImgDirection", out var dir) && dir.Value is not null)
                 {
                     heading = Convert.ToDouble(dir.Value);
-                    exif.Add(("Camera heading", $"{heading:0.#}°"));
+                    var isMagnetic = props.TryGetValue("System.GPS.ImgDirectionRef", out var dirRef) &&
+                        string.Equals(dirRef.Value as string, "M", StringComparison.OrdinalIgnoreCase);
+                    exif.Add(("Camera heading", $"{heading:0.#}° ({(isMagnetic ? "magnetic" : "true")} north)"));
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -133,6 +195,7 @@ public static class ImageMetadataService
                 exif,
                 latitude,
                 longitude,
+                altitude,
                 heading);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
@@ -187,6 +250,9 @@ public static class ImageMetadataService
 
     /// GPS.Latitude/Longitude come back as a 3-element [degrees, minutes, seconds] array with a
     /// separate single-letter ref ("N"/"S" or "E"/"W") giving the sign - not a signed value itself.
+    /// The canonical System.GPS.* property returns already-computed doubles; the raw
+    /// "/app1/ifd/gps/..." query-path fallback returns each component as a packed 64-bit rational
+    /// (low 32 bits = numerator, high 32 bits = denominator) instead - both are handled here.
     private static double? ToDecimalDegrees(object? dmsValue, string? refLetter, char negativeRef)
     {
         if (dmsValue is not Array arr || arr.Length < 3)
@@ -194,7 +260,20 @@ public static class ImageMetadataService
             return null;
         }
 
-        var degrees = Convert.ToDouble(arr.GetValue(0)) + Convert.ToDouble(arr.GetValue(1)) / 60.0 + Convert.ToDouble(arr.GetValue(2)) / 3600.0;
+        double Component(int index)
+        {
+            var raw = arr.GetValue(index);
+            if (raw is ulong packedRational)
+            {
+                var numerator = packedRational & 0xFFFFFFFF;
+                var denominator = packedRational >> 32;
+                return denominator == 0 ? 0 : (double)numerator / denominator;
+            }
+
+            return Convert.ToDouble(raw);
+        }
+
+        var degrees = Component(0) + Component(1) / 60.0 + Component(2) / 3600.0;
 
         if (!string.IsNullOrWhiteSpace(refLetter) && refLetter.Trim().Equals(negativeRef.ToString(), StringComparison.OrdinalIgnoreCase))
         {
