@@ -178,6 +178,21 @@ for the full build/signing/sideload-testing walkthrough and what's still needed 
 Center's side (account, app-name reservation, Store listing) before it can actually be
 submitted.
 
+## Testing
+
+Two xUnit projects under `tests/`, split by whether the code under test needs WinUI/Windows App SDK types:
+
+- **`tests/FileExplorer.Tests`** — pure logic with zero WinUI dependency (`RemotePathService`, `FileOperationService`, `JsonFileStore<T>`, `FuzzyMatcher`, `LoggingService`). Links the real source files from `src/FileExplorer` rather than duplicating them. Builds and runs with plain `dotnet test` from the project directory — no Visual Studio involved.
+- **`tests/FileExplorer.WinUI.Tests`** — code that needs a real `FileSystemItem` or other WinUI-touching type (`FileSystemItem`'s own formatting/display logic, `RenamePatternService`). References `FileExplorer.csproj` directly via `ProjectReference`. Because of that reference, this project **cannot be built** with the dotnet CLI — same `MrtCore.PriGen` limitation that keeps the main app from building via `dotnet build` (see "Why build via Visual Studio's MSBuild" above). Build it with VS's MSBuild exactly like the app:
+
+  ```powershell
+  & "F:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" `
+      "tests\FileExplorer.WinUI.Tests\FileExplorer.WinUI.Tests.csproj" `
+      /p:Configuration=Debug /v:minimal /nr:false /m:1
+  ```
+
+  Once built, running the tests works fine through the ordinary dotnet CLI (only the *build* step touches the Windows App SDK targets) — from the project directory, run `dotnet test` in its skip-rebuild mode (see `dotnet test --help`) against the Debug configuration.
+
 ## Project structure
 
 ```

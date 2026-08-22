@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Covers the app code that needs WinUI/Windows App SDK types to even compile (FileSystemItem
+       pulls in Microsoft.UI.Xaml.Media.Imaging; RenamePatternService needs a real FileSystemItem).
+
+       Unlike tests/FileExplorer.Tests, this project cannot be built with plain dotnet build or
+       dotnet test: the dotnet CLI can't load the Windows App SDK's MrtCore.PriGen build task
+       (same root cause as the main app not building via dotnet CLI, see build_toolchain notes),
+       which the ProjectReference to FileExplorer.csproj pulls in transitively. Build it with VS's
+       MSBuild instead, same as the app, e.g.:
+       MSBuild.exe tests\FileExplorer.WinUI.Tests\FileExplorer.WinUI.Tests.csproj /p:Configuration=Debug /v:minimal /nr:false /m:1
+
+       Once built, running the tests works fine through the ordinary dotnet CLI, since only the
+       Build step touches the Windows App SDK targets. From this project's directory, run dotnet
+       test in its "assume already built, just execute" mode (documented in dotnet test's own
+       help output) against the Debug configuration to run the suite without re-invoking Build.
+
+       Deliberately does not enable WinUI support in this project itself (only FileExplorer.csproj
+       needs that, to compile its own XAML) - enabling it here broke the test host's own
+       dependency copying (Microsoft.TestPlatform.CoreUtilities.dll and friends went missing from
+       the output folder, causing a FileNotFoundException at test-run time) for reasons not fully
+       root-caused; leaving it disabled is what made the build-free test run work. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250228001" />
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FileExplorer\FileExplorer.csproj" />
+  </ItemGroup>
+
+</Project>
