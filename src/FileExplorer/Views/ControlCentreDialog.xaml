@@ -124,11 +124,14 @@
                             <TextBlock Text="Keyboard Shortcuts" FontWeight="SemiBold" FontSize="16" />
                             <TextBlock Text="Global accelerators work anywhere in the window; the driving pane is whichever one was last active, not literal focus."
                                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10" />
-                            <Grid ColumnSpacing="24">
+                            <!-- Auto (not *) columns: each is only as wide as its own content, so the
+                                 whole block hugs the left edge instead of stretching to fill the
+                                 panel's full 1088px width with empty space between columns. -->
+                            <Grid ColumnSpacing="28" HorizontalAlignment="Left">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel x:Name="ShortcutsColumn1" Grid.Column="0" Spacing="4" />
                                 <StackPanel x:Name="ShortcutsColumn2" Grid.Column="1" Spacing="4" />

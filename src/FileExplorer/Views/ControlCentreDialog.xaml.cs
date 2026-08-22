@@ -263,9 +263,16 @@ public sealed partial class ControlCentreDialog : UserControl
             Style = (Style)Resources["ShortcutGroupHeaderStyle"],
         });
 
-        var grid = new Grid { ColumnSpacing = 10, RowSpacing = 8, Margin = new Thickness(0, 0, 0, 6) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(128) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        // Key column stays a fixed width (roughly the longest key label, "Ctrl+Shift+Tab") so the
+        // chips line up across rows within a group. Description column is Auto, not a fixed
+        // width or Star - Auto sizes to that group's own longest description (e.g. TOOLS ends up
+        // much narrower than WHEN FOCUSED), which is what actually packs each column tight
+        // instead of every row reserving room for the single longest description in the whole
+        // panel. Auto is also the safe choice inside a ScrollViewer's unconstrained measure pass;
+        // Star is not (see the About panel's own Width-not-MaxWidth comment).
+        var grid = new Grid { ColumnSpacing = 8, RowSpacing = 8, Margin = new Thickness(0, 0, 0, 6) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         for (var i = 0; i < group.Rows.Length; i++)
         {
@@ -289,6 +296,7 @@ public sealed partial class ControlCentreDialog : UserControl
                 Opacity = 0.85,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 230,
             };
             Grid.SetRow(descText, i);
             Grid.SetColumn(descText, 1);
