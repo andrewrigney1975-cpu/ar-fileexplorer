@@ -63,10 +63,26 @@
             <TextBox Grid.Row="0" x:Name="NameBox" PlaceholderText="Script name" Margin="0,0,0,8"
                      AutomationProperties.Name="Script name" />
 
-            <TextBox Grid.Row="1" x:Name="CodeBox" AcceptsReturn="True" TextWrapping="NoWrap"
-                     FontFamily="Cascadia Mono, Consolas" FontSize="12"
-                     AutomationProperties.Name="Script code"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <ScrollViewer Grid.Column="0" x:Name="LineNumberScroll"
+                              VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                              IsTabStop="False" IsHitTestVisible="False"
+                              Background="{ThemeResource ControlFillColorDefaultBrush}">
+                    <TextBlock x:Name="LineNumbersText" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                               TextAlignment="Right" Padding="8,8,6,8" Opacity="0.5" />
+                </ScrollViewer>
+
+                <TextBox Grid.Column="1" x:Name="CodeBox" AcceptsReturn="True" TextWrapping="NoWrap"
+                         FontFamily="Cascadia Mono, Consolas" FontSize="12" Padding="8,8,8,8"
+                         AutomationProperties.Name="Script code"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         TextChanged="CodeBox_TextChanged" Loaded="CodeBox_Loaded" />
+            </Grid>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,8,0,8" VerticalAlignment="Center">
                 <Button Content="Save" Click="Save_Click" />

@@ -120,6 +120,31 @@ public static class WatchService
     public static bool IsWatched(string path) =>
         LoadCache().Any(t => string.Equals(t.FolderPath, path, StringComparison.OrdinalIgnoreCase));
 
+    /// Disables the live FileSystemWatcher for one task while its script runs, so the script's own
+    /// writes into the watched folder (e.g. a rename-in-place) can't re-trigger the same watch and
+    /// loop forever. Call before running a triggered script and ResumeWatcher in a finally block.
+    public static void PauseWatcher(string id)
+    {
+        lock (_lock)
+        {
+            if (_watchers.TryGetValue(id, out var watcher))
+            {
+                watcher.EnableRaisingEvents = false;
+            }
+        }
+    }
+
+    public static void ResumeWatcher(string id)
+    {
+        lock (_lock)
+        {
+            if (_watchers.TryGetValue(id, out var watcher))
+            {
+                watcher.EnableRaisingEvents = true;
+            }
+        }
+    }
+
     private static void StartWatcher(WatchTaskState task)
     {
         if (_watchers.ContainsKey(task.Id) || !Directory.Exists(task.FolderPath))

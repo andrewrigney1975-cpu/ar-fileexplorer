@@ -12,6 +12,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Clickable breadcrumb path bar (click to edit as raw text, click a segment to jump to it)
 - Back / forward / up navigation with history per pane
 - Session restore: Workspaces (including custom names) and pane paths persist across restarts
+- Switching Workspace tabs auto-refreshes both panes of the tab being switched to, so disk changes made while it wasn't the active tab are reflected immediately rather than waiting for a manual refresh
 - Command palette (`Ctrl+K`) for navigation, view switching, running actions by name, and opening the Control Centre; a persistent "Command Palette (Ctrl+K)" bar sits top-center of the toolbar as a discoverable, clickable entry point to the same popup
 - Collapsible left-rail sections (Favourites, Saved Searches, Network Locations, Cloud Storage), VS Code style
 - Favourites: pin any folder from the left rail's own `+` button or a folder's context menu ("Add to Favourites"), click to navigate, `−` to unpin
@@ -50,7 +51,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - A Windows notification reports success or failure (with the error) when a sync task finishes
 
 ### Scripting
-- Control Centre → Scripts: a list of saved scripts on the left, a code editor + Run/Save on the right, and an "API Reference..." button with the full function list; each list entry has a Rename button alongside Delete — renaming actually renames the underlying file (not a copy) and repoints any folder watch or interval schedule bound to that script at the new name, so automation keeps working across the rename
+- Control Centre → Scripts: a list of saved scripts on the left, a code editor (with a line-number gutter, synced to the editor's scroll position) + Run/Save on the right, and an "API Reference..." button with the full function list; each list entry has a Rename button alongside Delete — renaming actually renames the underlying file (not a copy) and repoints any folder watch or interval schedule bound to that script at the new name, so automation keeps working across the rename
 - Scripts are plain **JavaScript** (ES5.1, run by the embedded [Jint](https://github.com/sebastienros/jint) interpreter), each saved as a `.js` file; every saved script also gets its own `"Run Script: <name>"` entry in the command palette for one-key execution against the active pane's current selection
 - API surface: `selection()` / `listFiles(path)` (folder contents), `currentPath`, `addedFiles` (the files that triggered a folder-watch run; empty otherwise), `rename`/`copyTo`/`moveTo`/`deleteItem`/`createFolder`, `readText`/`writeText`/`exists`, `prompt`/`confirm` (blocking input dialogs), `notify` (Windows toast), `refresh` (reload open panes), and `log` (shown in the run's output)
 - Scripts run off the UI thread with a 30-second timeout guard; `deleteItem` defaults to the Recycle Bin; script-driven file changes are **not** tracked by Undo, and there's no sandboxing beyond the timeout (the app already ships a full terminal, so a script has no more reach than the user already does)
@@ -59,6 +60,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 ### Automation: folder watches & schedules
 - Right-click any folder → "Watch this folder..." to bind it to a saved script; the folder gets a light-blue highlight bar (independent of, and stackable with, the sync source/target bars) wherever it's browsed, and "Stop watching folder" removes the binding
 - Watching is backed by a live `FileSystemWatcher` per folder; rapid bursts of new files (e.g. a batch copy landing at once) are debounced (~750ms) into a single script run, with the newly-added files passed in as `addedFiles`
+- A watched folder's own watcher is paused for the duration of its triggered script's run, so a script that renames or moves files in place within the watched folder can't have its own writes re-trigger the same watch and loop forever
 - Control Centre → Automation lists all folder watches (with delete), plus interval-based schedules: run a saved script, or trigger a saved sync task, every N minutes — reusing the same script engine and sync/File-operations queue as manual runs
 - A background poller (30s tick) checks due schedules independently of whether Control Centre is open; both watch triggers and schedule runs report completion via a Windows toast, same as a manually-run script
 - Folder watching can be turned off separately from scripting in Control Centre → Preferences (hides the watch context-menu entries and highlight bar; existing watch bindings are kept, just inactive, and schedules are unaffected)
@@ -76,7 +78,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Recursive search toggle: scans the current folder's subtree by filename and, for text/code files, file content
 - Saved/smart searches: pin a (root path, query) pair to the left rail and re-run it with one click
 - Color tags/labels on files and folders, shown as a colored dot in every view mode
-- Duplicate file finder (size-then-hash scan) with a review-and-delete dialog
+- Duplicate file finder (size-then-hash scan) with a review-and-delete dialog; deletion runs off the UI thread with a live "Deleting N of M..." progress dialog, so a large batch (e.g. cleaning up a slow removable drive) never looks like a hang
 - Checksum command (context menu → "Checksum..."): SHA-256, SHA-1, or MD5, with copy-to-clipboard; paste a known hash to verify a file against it (per-file MATCH/NO MATCH), or select exactly two files with no expected hash entered to get an automatic "identical"/"differ" comparison
 
 ### Preview pane

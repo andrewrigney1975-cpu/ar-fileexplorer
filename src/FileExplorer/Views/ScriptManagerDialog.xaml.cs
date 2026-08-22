@@ -1,3 +1,4 @@
+using System.Linq;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
 using Microsoft.UI.Xaml;
@@ -33,6 +34,44 @@ public sealed partial class ScriptManagerDialog : UserControl
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();
+
+    private void CodeBox_Loaded(object sender, RoutedEventArgs e)
+    {
+        UpdateLineNumbers();
+
+        if (FindDescendantScrollViewer(CodeBox) is { } scroller)
+        {
+            scroller.ViewChanged += (_, _) =>
+                LineNumberScroll.ChangeView(null, scroller.VerticalOffset, null, disableAnimation: true);
+        }
+    }
+
+    private void CodeBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateLineNumbers();
+
+    private void UpdateLineNumbers()
+    {
+        var lineCount = Math.Max(1, CodeBox.Text.Count(c => c == '\n') + 1);
+        LineNumbersText.Text = string.Join("\n", Enumerable.Range(1, lineCount));
+    }
+
+    private static ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer scrollViewer)
+            {
+                return scrollViewer;
+            }
+
+            if (FindDescendantScrollViewer(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
 
     public void HideCloseButton() => CloseButtonElement.Visibility = Visibility.Collapsed;
 

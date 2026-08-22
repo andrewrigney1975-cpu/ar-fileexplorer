@@ -186,6 +186,7 @@ public sealed partial class MainWindow : Window
         {
             SubscribeToActiveTab(_viewModel.SelectedTab);
             SubscribeSyncDropdown(_viewModel.SelectedTab);
+            _viewModel.SelectedTab?.RefreshBoth();
         }
     }
 
@@ -1655,8 +1656,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await ScriptEngineService.RunAsync(
-            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot, addedPaths);
+        // Paused for the duration of the run so the script's own writes into the watched folder
+        // (e.g. a rename-in-place) can't re-trigger this same watch and loop forever.
+        WatchService.PauseWatcher(task.Id);
+        ScriptRunResult result;
+        try
+        {
+            result = await ScriptEngineService.RunAsync(
+                code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot, addedPaths);
+        }
+        finally
+        {
+            WatchService.ResumeWatcher(task.Id);
+        }
 
         var summary = result.Success
             ? (result.Log.Count > 0 ? string.Join(" | ", result.Log.TakeLast(3)) : "Completed.")
@@ -1773,22 +1785,67 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        foreach (var duplicate in groups.SelectMany(g => g.Skip(1)))
+        var toDelete = groups.SelectMany(g => g.Skip(1)).ToList();
+        var progressText = new TextBlock { Text = $"Deleting 0 of {toDelete.Count} ...", TextWrapping = TextWrapping.Wrap };
+        var progressDialog = new ContentDialog
         {
-            try
+            XamlRoot = Content.XamlRoot,
+            Title = "Deleting Duplicates",
+            Content = new StackPanel
             {
-                Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-                    duplicate,
-                    Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                    Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                Orientation = Orientation.Horizontal,
+                Spacing = 12,
+                Children = { new ProgressRing { IsActive = true, Width = 24, Height = 24 }, progressText },
+            },
+        };
+        var progressShowTask = progressDialog.ShowAsync().AsTask();
+
+        var failures = new List<string>();
+
+        // Each Recycle Bin move is a shell operation and can be slow (especially on removable/USB
+        // drives) - running this loop on the UI thread, as this code used to, froze the whole app for
+        // the entire batch with no way to tell it apart from a genuine hang.
+        await Task.Run(() =>
+        {
+            var done = 0;
+            foreach (var duplicate in toDelete)
             {
-                LoggingService.LogWarning($"MainWindow.ShowDuplicateFinderAsync (delete): {duplicate}", ex);
+                try
+                {
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                        duplicate,
+                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    LoggingService.LogWarning($"MainWindow.ShowDuplicateFinderAsync (delete): {duplicate}", ex);
+                    failures.Add(duplicate);
+                }
+
+                done++;
+                var current = done;
+                DispatcherQueue.TryEnqueue(() => progressText.Text = $"Deleting {current} of {toDelete.Count} ...");
             }
-        }
+        });
+
+        progressDialog.Hide();
+        await progressShowTask;
 
         _viewModel.RefreshAllPanes();
+
+        if (failures.Count > 0)
+        {
+            var failureDialog = new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = failures.Count == 1 ? "Couldn't delete 1 file" : $"Couldn't delete {failures.Count} files",
+                Content = new TextBlock { Text = string.Join("\n", failures), TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "Close",
+            };
+
+            await failureDialog.ShowAsync();
+        }
     }
 
     private async Task UndoAndRefreshAsync()
