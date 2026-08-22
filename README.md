@@ -1,4 +1,4 @@
-# arExx Pro
+# enfyl Explorer
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
 
@@ -161,10 +161,10 @@ Open `FileExplorer.sln` in Visual Studio, select the `x64` platform and `Debug`/
 
 ### Output
 
-The build produces a self-contained `FileExplorer.exe` (with the Windows App SDK runtime bundled in) at:
+The build produces a self-contained `enfyl-explorer.exe` (with the Windows App SDK runtime bundled in) at:
 
 ```
-src\FileExplorer\bin\x64\<Configuration>\net8.0-windows10.0.19041.0\win-x64\FileExplorer.exe
+src\FileExplorer\bin\<Configuration>\net8.0-windows10.0.19041.0\win-x64\enfyl-explorer.exe
 ```
 
 No installer or MSIX packaging step is required — the exe runs directly.

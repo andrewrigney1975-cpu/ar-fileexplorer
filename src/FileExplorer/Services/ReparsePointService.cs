@@ -93,7 +93,7 @@ public static class ReparsePointService
         catch (UnauthorizedAccessException)
         {
             return new LinkCreationResult(false,
-                "Creating symbolic links needs either Developer Mode turned on (Settings > Privacy & security > For developers) or running arExx Pro as Administrator.");
+                "Creating symbolic links needs either Developer Mode turned on (Settings > Privacy & security > For developers) or running enfyl Explorer as Administrator.");
         }
         catch (Exception ex) when (ex is IOException or ArgumentException)
         {

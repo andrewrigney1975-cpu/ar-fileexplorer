@@ -29,8 +29,10 @@ public sealed partial class MainWindow : Window
         _sessionService = sessionService;
         _remoteConnectionService = remoteConnectionService;
 
-        Title = "arExx Pro";
-        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+        Title = "enfyl Explorer";
+        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        AppWindow.SetIcon(iconPath);
+        TitleBarIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
