@@ -17,10 +17,17 @@ namespace FileExplorer;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
+    private readonly IFileSystemService _fileSystemService;
+    private readonly ISessionService _sessionService;
+    private readonly IRemoteConnectionService _remoteConnectionService;
 
-    public MainWindow()
+    public MainWindow(IFileSystemService fileSystemService, ISessionService sessionService, IRemoteConnectionService remoteConnectionService)
     {
         InitializeComponent();
+
+        _fileSystemService = fileSystemService;
+        _sessionService = sessionService;
+        _remoteConnectionService = remoteConnectionService;
 
         Title = "arExx Pro";
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
@@ -30,7 +37,7 @@ public sealed partial class MainWindow : Window
         ConfigureTitleBarButtons();
         RootGrid.ActualThemeChanged += (_, _) => ConfigureTitleBarButtons();
 
-        _viewModel = new MainViewModel(DispatcherQueue);
+        _viewModel = new MainViewModel(DispatcherQueue, _fileSystemService, _sessionService, _remoteConnectionService);
         RootGrid.DataContext = _viewModel;
 
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
@@ -332,7 +339,7 @@ public sealed partial class MainWindow : Window
     {
         DriveTree.RootNodes.Clear();
 
-        foreach (var drive in FileSystemService.GetReadyDrives())
+        foreach (var drive in _fileSystemService.GetReadyDrives())
         {
             var label = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
 
@@ -360,7 +367,7 @@ public sealed partial class MainWindow : Window
                     UsedPercent = usedPercent,
                     UsageText = usageText,
                 },
-                HasUnrealizedChildren = FileSystemService.HasSubdirectories(drive.RootDirectory.FullName),
+                HasUnrealizedChildren = _fileSystemService.HasSubdirectories(drive.RootDirectory.FullName),
             };
             DriveTree.RootNodes.Add(node);
         }
@@ -394,12 +401,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        foreach (var child in FileSystemService.GetSubfolderNodes(folder.FullPath))
+        foreach (var child in _fileSystemService.GetSubfolderNodes(folder.FullPath))
         {
             var childNode = new TreeViewNode
             {
                 Content = child,
-                HasUnrealizedChildren = FileSystemService.HasSubdirectories(child.FullPath),
+                HasUnrealizedChildren = _fileSystemService.HasSubdirectories(child.FullPath),
             };
             node.Children.Add(childNode);
         }
@@ -657,7 +664,7 @@ public sealed partial class MainWindow : Window
         void RefreshMapped()
         {
             mappedPanel.Children.Clear();
-            var networkDrives = FileSystemService.GetReadyDrives().Where(d => d.DriveType == DriveType.Network).ToList();
+            var networkDrives = _fileSystemService.GetReadyDrives().Where(d => d.DriveType == DriveType.Network).ToList();
             mappedEmptyText.Visibility = networkDrives.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             foreach (var drive in networkDrives)
@@ -801,7 +808,7 @@ public sealed partial class MainWindow : Window
 
     private void PopulateRemoteConnections()
     {
-        RemoteConnectionsList.ItemsSource = RemoteConnectionService.Load();
+        RemoteConnectionsList.ItemsSource = _remoteConnectionService.Load();
     }
 
     private async void AddRemoteConnectionButton_Click(object sender, RoutedEventArgs e)
@@ -860,7 +867,7 @@ public sealed partial class MainWindow : Window
         var name = string.IsNullOrWhiteSpace(nameBox.Text) ? host : nameBox.Text.Trim();
         var connection = new RemoteConnection(Guid.NewGuid().ToString(), name, protocol, host, (int)portBox.Value, usernameBox.Text.Trim());
 
-        RemoteConnectionService.Add(connection);
+        _remoteConnectionService.Add(connection);
         PopulateRemoteConnections();
     }
 
@@ -934,7 +941,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button { Tag: RemoteConnection connection })
         {
-            RemoteConnectionService.Remove(connection);
+            _remoteConnectionService.Remove(connection);
             PopulateRemoteConnections();
         }
     }

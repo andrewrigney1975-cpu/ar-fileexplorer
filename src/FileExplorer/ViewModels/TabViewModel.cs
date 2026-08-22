@@ -8,16 +8,18 @@ public sealed partial class TabViewModel : ObservableObject
 {
     private bool _hasCustomHeader;
     private PaneViewModel _activePane;
+    private readonly IRemoteConnectionService _remoteConnectionService;
 
-    public TabViewModel(DispatcherQueue dispatcher, string startPath, string? name = null)
-        : this(dispatcher, startPath, startPath, name)
+    public TabViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, IRemoteConnectionService remoteConnectionService, string startPath, string? name = null)
+        : this(dispatcher, fileSystemService, remoteConnectionService, startPath, startPath, name)
     {
     }
 
-    public TabViewModel(DispatcherQueue dispatcher, string leftPath, string rightPath, string? name = null)
+    public TabViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, IRemoteConnectionService remoteConnectionService, string leftPath, string rightPath, string? name = null)
     {
-        LeftPane = new PaneViewModel(dispatcher, leftPath);
-        RightPane = new PaneViewModel(dispatcher, rightPath);
+        _remoteConnectionService = remoteConnectionService;
+        LeftPane = new PaneViewModel(dispatcher, fileSystemService, leftPath);
+        RightPane = new PaneViewModel(dispatcher, fileSystemService, rightPath);
         _activePane = LeftPane;
 
         LeftPane.IsActive = true;
@@ -97,7 +99,7 @@ public sealed partial class TabViewModel : ObservableObject
             if (string.IsNullOrEmpty(name) && RemotePathService.TryParse(path, out _, out var connectionId, out _))
             {
                 // At a connection's root - fall back to its saved display name rather than "".
-                name = RemoteConnectionService.Find(connectionId)?.Name;
+                name = _remoteConnectionService.Find(connectionId)?.Name;
             }
         }
         else

@@ -1,6 +1,7 @@
 using FileExplorer.ViewModels;
 using Jint;
 using Jint.Runtime;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -96,7 +97,7 @@ public static class ScriptEngineService
         }));
 
         engine.SetValue("listFiles", new Func<string, List<ScriptFileItem>>(path =>
-            FileSystemService.GetItems(path).Select(ToScriptItem).ToList()));
+            App.Services.GetRequiredService<IFileSystemService>().GetItems(path).Select(ToScriptItem).ToList()));
 
         engine.SetValue("exists", new Func<string, bool>(path => File.Exists(path) || Directory.Exists(path)));
 

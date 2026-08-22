@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FileExplorer.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FileExplorer.Services;
 
@@ -11,7 +12,7 @@ public static class DiskSpaceAnalyserService
     {
         var result = new List<DriveSummary>();
 
-        foreach (var drive in FileSystemService.GetReadyDrives())
+        foreach (var drive in App.Services.GetRequiredService<IFileSystemService>().GetReadyDrives())
         {
             var label = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
 

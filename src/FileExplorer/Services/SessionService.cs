@@ -4,13 +4,19 @@ namespace FileExplorer.Services;
 
 public sealed record TabState(string LeftPath, string RightPath, string? Name = null);
 
+public interface ISessionService
+{
+    List<TabState> Load();
+    void Save(IEnumerable<TabState> tabs);
+}
+
 /// Persists which tabs (and each pane's folder) were open, so the next launch can restore them.
-public static class SessionService
+public sealed class SessionService : ISessionService
 {
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "session.json");
 
-    public static List<TabState> Load()
+    public List<TabState> Load()
     {
         try
         {
@@ -36,7 +42,7 @@ public static class SessionService
 
     private static bool ExistsLocally(string path) => !RemotePathService.IsRemote(path) && Directory.Exists(path);
 
-    public static void Save(IEnumerable<TabState> tabs)
+    public void Save(IEnumerable<TabState> tabs)
     {
         try
         {
