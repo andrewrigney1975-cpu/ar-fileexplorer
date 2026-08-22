@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
@@ -10,8 +9,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using SharpCompress.Archives;
-using SharpCompress.Common;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using Windows.UI.Core;
@@ -659,38 +656,10 @@ public sealed partial class PaneView : UserControl
         var baseName = selection.Count == 1 ? Path.GetFileNameWithoutExtension(selection[0].Name) : "Archive";
         var zipPath = FileOperationService.MakeUniqueDestination(Path.Combine(ViewModel.CurrentPath, baseName + ".zip"));
 
-        await Task.Run(() =>
-        {
-            try
-            {
-                using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
-                foreach (var item in selection)
-                {
-                    if (item.IsDirectory)
-                    {
-                        AddDirectoryToZip(archive, item.FullPath, item.Name);
-                    }
-                    else
-                    {
-                        archive.CreateEntryFromFile(item.FullPath, item.Name, CompressionLevel.Optimal);
-                    }
-                }
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        });
+        await Task.Run(() => ArchiveService.CreateZip(zipPath, selection));
 
         UndoService.Instance.Push(new CopyUndo(new List<string> { zipPath }));
         ViewModel.Refresh(zipPath);
-    }
-
-    private static void AddDirectoryToZip(ZipArchive archive, string sourceDir, string entryPrefix)
-    {
-        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
-        {
-            var relative = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
-            archive.CreateEntryFromFile(file, $"{entryPrefix}/{relative}", CompressionLevel.Optimal);
-        }
     }
 
     /// Extracts .zip/.rar/.7z/.tar/.gz/.tgz/.bz2/.xz - SharpCompress auto-detects the actual format
@@ -711,15 +680,7 @@ public sealed partial class PaneView : UserControl
 
             try
             {
-                await Task.Run(() =>
-                {
-                    using var archive = ArchiveFactory.OpenArchive(item.FullPath);
-                    archive.WriteToDirectory(destination, new ExtractionOptions
-                    {
-                        ExtractFullPath = true,
-                        Overwrite = true,
-                    });
-                });
+                await Task.Run(() => ArchiveService.Extract(item.FullPath, destination));
                 destinations.Add(destination);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
@@ -842,7 +803,7 @@ public sealed partial class PaneView : UserControl
 
             if (regexRadio.IsChecked != true)
             {
-                return ApplyPattern(patternBox.Text, item, index) + item.Extension;
+                return RenamePatternService.Apply(patternBox.Text, item, index) + item.Extension;
             }
 
             if (string.IsNullOrEmpty(findBox.Text))
@@ -978,18 +939,6 @@ public sealed partial class PaneView : UserControl
         }
 
         ViewModel.Refresh();
-    }
-
-    private static string ApplyPattern(string pattern, FileSystemItem item, int index)
-    {
-        var nameNoExt = item.IsDirectory ? item.Name : Path.GetFileNameWithoutExtension(item.Name);
-        var result = pattern.Replace("{name}", nameNoExt);
-
-        return System.Text.RegularExpressions.Regex.Replace(result, @"\{n(:([0#]+))?\}", m =>
-        {
-            var number = index + 1;
-            return m.Groups[2].Success ? number.ToString(m.Groups[2].Value) : number.ToString();
-        });
     }
 
     /// F3 behavior. Called from MainWindow's global F3 KeyboardAccelerator (see RenameSelectionAsync).

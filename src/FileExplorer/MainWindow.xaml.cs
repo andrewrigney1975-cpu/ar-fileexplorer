@@ -1272,13 +1272,7 @@ public sealed partial class MainWindow : Window
         }
 
         var pane = tab.ActivePane;
-        var basePath = pane.CurrentPath;
-        var candidate = System.IO.Path.Combine(basePath, "New folder");
-
-        for (int i = 2; Directory.Exists(candidate) || File.Exists(candidate); i++)
-        {
-            candidate = System.IO.Path.Combine(basePath, $"New folder ({i})");
-        }
+        var candidate = FileOperationService.MakeUniqueDestination(System.IO.Path.Combine(pane.CurrentPath, "New folder"));
 
         try
         {
