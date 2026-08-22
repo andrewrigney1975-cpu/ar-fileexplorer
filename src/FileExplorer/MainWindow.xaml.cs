@@ -1646,7 +1646,9 @@ public sealed partial class MainWindow : Window
     // Unloaded-cancels-the-loop hookup is fragile against spurious Unloaded events triggered by a
     // sibling element's own layout churn, and MainWindow itself has no equivalent "this control gets
     // disposed and recreated" lifecycle to guard against here anyway.
-    private const int RailDiskActivityHistoryLength = 60;
+    // 240 samples at the 250ms refresh rate = a rolling minute of history, matching the dialog's own.
+    private const int RailDiskActivityHistoryLength = 240;
+    private static readonly TimeSpan RailDiskActivityRefreshInterval = TimeSpan.FromMilliseconds(250);
     private readonly Queue<double> _railDiskReadHistory = new();
     private readonly Queue<double> _railDiskWriteHistory = new();
     private bool _isRailDiskActivitySampling;
@@ -1681,7 +1683,7 @@ public sealed partial class MainWindow : Window
                 }
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1));
+            await Task.Delay(RailDiskActivityRefreshInterval);
         }
     }
 

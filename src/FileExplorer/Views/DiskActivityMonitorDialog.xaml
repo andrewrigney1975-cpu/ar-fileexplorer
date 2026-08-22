@@ -18,7 +18,7 @@
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0" Text="Disk Activity Monitor" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Text="Updated every second. Read = green, Write = orange." Opacity="0.7" FontSize="12"
+            <TextBlock Grid.Column="1" Text="Updated 4 times a second. Read = green, Write = orange." Opacity="0.7" FontSize="12"
                        Margin="24,0,0,0" VerticalAlignment="Center" />
             <Button Grid.Column="2" Content="Close" Click="Close_Click" />
         </Grid>

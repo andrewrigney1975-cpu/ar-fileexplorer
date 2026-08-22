@@ -10,9 +10,10 @@ namespace FileExplorer.Views;
 
 public sealed partial class DiskActivityMonitorDialog : UserControl
 {
-    // 60 one-second samples = a rolling minute of history per drive, matching what a glance at the
-    // chart is actually useful for (Task Manager's own disk graph uses the same window).
-    private const int HistoryLength = 60;
+    // 240 samples at the 250ms refresh rate = a rolling minute of history per drive, matching what
+    // a glance at the chart is actually useful for (Task Manager's own disk graph uses that window).
+    private const int HistoryLength = 240;
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(250);
     private static readonly Color ReadColor = Color.FromArgb(255, 16, 137, 62);
     private static readonly Color WriteColor = Color.FromArgb(255, 255, 140, 0);
 
@@ -59,7 +60,7 @@ public sealed partial class DiskActivityMonitorDialog : UserControl
 
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(RefreshInterval, token);
             }
             catch (TaskCanceledException)
             {
