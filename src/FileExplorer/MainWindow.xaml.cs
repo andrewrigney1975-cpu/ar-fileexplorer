@@ -115,6 +115,8 @@ public sealed partial class MainWindow : Window
             var railWidth = RailColumn.ActualWidth > 0 ? RailColumn.ActualWidth : (double?)null;
             LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true, PreviewToggleButton.IsChecked == true, railWidth));
         };
+
+        _ = RailDiskActivityLoopAsync();
     }
 
     private readonly FileOperationQueueService _operationQueue;
@@ -489,6 +491,9 @@ public sealed partial class MainWindow : Window
 
     private void FavouritesHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
         ToggleSection(FavouritesChevron, FavouritesList);
+
+    private void DiskActivityHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(DiskActivityChevron, RailDiskActivityHost);
 
     // ----- Favourites (left rail) -----
 
@@ -1630,6 +1635,106 @@ public sealed partial class MainWindow : Window
         dialog.Resources["ContentDialogMaxHeight"] = 900d;
 
         await dialog.ShowAsync();
+    }
+
+    // ----- Left-rail aggregated disk activity indicator -----
+    //
+    // A glance-able "something is happening" chart, summed across every drive - no numeric readout
+    // by design (the full per-drive breakdown with numbers lives in the dialog above). Started once
+    // from the constructor and left running for the app's lifetime rather than tied to any
+    // Loaded/Unloaded pairing - see DiskActivityMonitorDialog's own history for why: a naive
+    // Unloaded-cancels-the-loop hookup is fragile against spurious Unloaded events triggered by a
+    // sibling element's own layout churn, and MainWindow itself has no equivalent "this control gets
+    // disposed and recreated" lifecycle to guard against here anyway.
+    private const int RailDiskActivityHistoryLength = 60;
+    private readonly Queue<double> _railDiskReadHistory = new();
+    private readonly Queue<double> _railDiskWriteHistory = new();
+    private bool _isRailDiskActivitySampling;
+
+    private async Task RailDiskActivityLoopAsync()
+    {
+        while (true)
+        {
+            if (!_isRailDiskActivitySampling)
+            {
+                _isRailDiskActivitySampling = true;
+                try
+                {
+                    var samples = await Task.Run(DiskActivityMonitorService.Sample);
+                    var totalRead = samples.Sum(s => Math.Max(0, s.ReadMBps));
+                    var totalWrite = samples.Sum(s => Math.Max(0, s.WriteMBps));
+
+                    if (_railDiskReadHistory.Count >= RailDiskActivityHistoryLength)
+                    {
+                        _railDiskReadHistory.Dequeue();
+                        _railDiskWriteHistory.Dequeue();
+                    }
+
+                    _railDiskReadHistory.Enqueue(totalRead);
+                    _railDiskWriteHistory.Enqueue(totalWrite);
+
+                    RedrawRailDiskActivity();
+                }
+                finally
+                {
+                    _isRailDiskActivitySampling = false;
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+    }
+
+    private void RailDiskActivityHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        RailDiskActivityCanvas.Width = e.NewSize.Width;
+        RailDiskActivityCanvas.Height = e.NewSize.Height;
+        RedrawRailDiskActivity();
+    }
+
+    private void RedrawRailDiskActivity()
+    {
+        var canvas = RailDiskActivityCanvas;
+        var width = canvas.Width;
+        var height = canvas.Height;
+        canvas.Children.Clear();
+
+        if (double.IsNaN(width) || double.IsNaN(height) || width <= 0 || height <= 0 || _railDiskReadHistory.Count < 2)
+        {
+            return;
+        }
+
+        const double padding = 3;
+        var plotHeight = height - padding * 2;
+        var maxValue = Math.Max(1.0, Math.Max(_railDiskReadHistory.Max(), _railDiskWriteHistory.Max()));
+
+        AddRailDiskActivityLine(canvas, _railDiskReadHistory, width, plotHeight, padding, maxValue,
+            Windows.UI.Color.FromArgb(255, 16, 137, 62));
+        AddRailDiskActivityLine(canvas, _railDiskWriteHistory, width, plotHeight, padding, maxValue,
+            Windows.UI.Color.FromArgb(255, 255, 140, 0));
+    }
+
+    private static void AddRailDiskActivityLine(
+        Canvas canvas, Queue<double> history, double width, double plotHeight, double padding, double maxValue, Windows.UI.Color color)
+    {
+        var values = history.ToArray();
+        var stepX = width / (RailDiskActivityHistoryLength - 1);
+        var startIndex = RailDiskActivityHistoryLength - values.Length;
+
+        var points = new PointCollection();
+        for (var i = 0; i < values.Length; i++)
+        {
+            var x = (startIndex + i) * stepX;
+            var y = padding + plotHeight - (values[i] / maxValue * plotHeight);
+            points.Add(new Windows.Foundation.Point(x, y));
+        }
+
+        canvas.Children.Add(new Polyline
+        {
+            Points = points,
+            Stroke = new SolidColorBrush(color),
+            StrokeThickness = 1.25,
+        });
     }
 
     private async Task RunScriptAsync(string scriptName)
