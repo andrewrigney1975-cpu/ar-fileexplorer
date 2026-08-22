@@ -45,6 +45,10 @@ public static class ArchiveService
     /// from content (so e.g. "backup.tgz" or "logs.tar.gz" work the same as a plain .tar).
     public static void Extract(string archivePath, string destinationPath)
     {
+        // Unlike most extraction APIs, SharpCompress's WriteToDirectory throws
+        // ExtractionException rather than creating the target itself if it doesn't exist yet.
+        Directory.CreateDirectory(destinationPath);
+
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         archive.WriteToDirectory(destinationPath, new ExtractionOptions
         {

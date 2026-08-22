@@ -684,6 +684,7 @@ public sealed partial class PaneView : UserControl
         }
 
         var destinations = new List<string>();
+        var failures = new List<(string Name, string Error)>();
 
         foreach (var item in items)
         {
@@ -695,19 +696,25 @@ public sealed partial class PaneView : UserControl
                 await Task.Run(() => ArchiveService.Extract(item.FullPath, destination));
                 destinations.Add(destination);
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException
+                or UnauthorizedAccessException or SharpCompress.Common.ExtractionException)
             {
                 LoggingService.LogWarning($"PaneView.ExtractZipsAsync: {item.FullPath}", ex);
+                failures.Add((item.Name, ex.Message));
             }
         }
 
-        if (destinations.Count == 0)
+        if (destinations.Count > 0)
         {
-            return;
+            UndoService.Instance.Push(new CopyUndo(destinations));
+            ViewModel.Refresh(destinations[^1]);
         }
 
-        UndoService.Instance.Push(new CopyUndo(destinations));
-        ViewModel.Refresh(destinations[^1]);
+        if (failures.Count > 0)
+        {
+            var message = string.Join("\n", failures.Select(f => $"{f.Name}: {f.Error}"));
+            await ShowErrorAsync(failures.Count == 1 ? "Couldn't extract archive" : "Some archives couldn't be extracted", message);
+        }
     }
 
     /// F2 behavior: rename the single selected item in place, or open the batch-rename dialog for
