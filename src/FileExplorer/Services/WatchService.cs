@@ -131,11 +131,20 @@ public static class WatchService
         {
             var watcher = new FileSystemWatcher(task.FolderPath)
             {
-                NotifyFilter = NotifyFilters.FileName,
+                // FileName and DirectoryName are separate Win32 notification classes -
+                // FileName alone (the original setting here) never raises Created/Renamed for a
+                // folder at all, only for files. Verified empirically: a plain subfolder create,
+                // and a same-volume Directory.Move into the watched folder, both produced zero
+                // events with FileName alone, and both fired Created once DirectoryName was added.
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
                 EnableRaisingEvents = true,
             };
 
+            // A same-volume move fires Created when the source was outside the watched folder
+            // (confirmed above), but renaming an item already inside it fires Renamed instead -
+            // wire both to the same handler so neither case is missed.
             watcher.Created += (_, e) => OnCreated(task, e.FullPath);
+            watcher.Renamed += (_, e) => OnCreated(task, e.FullPath);
             _watchers[task.Id] = watcher;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)

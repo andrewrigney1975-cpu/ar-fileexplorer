@@ -143,7 +143,19 @@ public static class ScriptEngineService
 
             if (Directory.Exists(path))
             {
-                Directory.Move(path, destination);
+                // Directory.Move throws IOException ("Source and destination path must have
+                // identical roots") across drive letters - unlike File.Move, it has no built-in
+                // cross-volume fallback. Reuse the same copy-then-delete CopyDirectory already
+                // uses for copyTo.
+                if (FileOperationService.SameDrive(path, destination))
+                {
+                    Directory.Move(path, destination);
+                }
+                else
+                {
+                    CopyDirectory(path, destination);
+                    Directory.Delete(path, recursive: true);
+                }
             }
             else if (File.Exists(path))
             {
