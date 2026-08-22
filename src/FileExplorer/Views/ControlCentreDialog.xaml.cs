@@ -37,6 +37,7 @@ public sealed partial class ControlCentreDialog : UserControl
             LoadPreferences();
             ThumbnailSizeBox.Value = SettingsService.Current.ThumbnailSize;
             AboutVersionText.Text = $"Version {AppVersionInfo.Version}";
+            LoadAboutTileImages();
 
             SyncTaskService.Changed += OnSyncTasksChanged;
             SettingsService.Changed += OnSettingsChanged;
@@ -169,6 +170,43 @@ public sealed partial class ControlCentreDialog : UserControl
     }
 
     private bool _loadingPreferences;
+
+    /// Unpackaged app - loaded via a file stream + SetSourceAsync (same proven pattern
+    /// PreviewPaneuses for image previews), rather than `new BitmapImage(new Uri(path))`, which
+    /// silently failed to render here for reasons not root-caused.
+    private async void LoadAboutTileImages()
+    {
+        var aboutDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "About");
+
+        DualPaneImage.Source = await LoadAboutImageAsync(aboutDir, "dual-pane.png");
+        ScriptingImage.Source = await LoadAboutImageAsync(aboutDir, "scripting.png");
+        WatchingImage.Source = await LoadAboutImageAsync(aboutDir, "watching.png");
+        SyncImage.Source = await LoadAboutImageAsync(aboutDir, "sync.png");
+        AnalyserImage.Source = await LoadAboutImageAsync(aboutDir, "analyser.png");
+        BenchmarkImage.Source = await LoadAboutImageAsync(aboutDir, "benchmark.png");
+    }
+
+    private static async Task<Microsoft.UI.Xaml.Media.Imaging.BitmapImage?> LoadAboutImageAsync(string aboutDir, string fileName)
+    {
+        var path = System.IO.Path.Combine(aboutDir, fileName);
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var memStream = new MemoryStream();
+            await stream.CopyToAsync(memStream);
+
+            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            using var bytesStream = new MemoryStream(memStream.ToArray());
+            await bitmap.SetSourceAsync(bytesStream.AsRandomAccessStream());
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning($"ControlCentreDialog.LoadAboutImageAsync: {path}", ex);
+            return null;
+        }
+    }
 
     private void LoadPreferences()
     {

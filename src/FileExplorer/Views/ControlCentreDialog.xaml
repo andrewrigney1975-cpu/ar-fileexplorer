@@ -99,11 +99,146 @@
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="AboutPanel" Visibility="Collapsed">
-                        <StackPanel Spacing="6" MaxWidth="560" HorizontalAlignment="Left">
-                            <TextBlock Text="arExx Pro" FontWeight="SemiBold" FontSize="22" />
-                            <TextBlock x:Name="AboutVersionText" Opacity="0.7" FontSize="13" />
-                            <TextBlock Text="A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8."
-                                       Opacity="0.85" FontSize="13" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <!-- Fixed Width (not MaxWidth) is required here: this panel sits inside a
+                             horizontally-auto-scrolling ScrollViewer, which measures unconstrained
+                             content with infinite available width - without an explicit cap the
+                             3-star-column tile Grid below blows out to some huge arbitrary width
+                             instead of the dialog's real content area. 1088 = the fixed 1300-wide
+                             dialog minus its 180 nav column minus 16+16 content padding. -->
+                        <StackPanel Spacing="12" Width="1088" HorizontalAlignment="Left">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="enfyl Explorer" FontWeight="SemiBold" FontSize="22" />
+                                <TextBlock x:Name="AboutVersionText" Opacity="0.7" FontSize="13" />
+                                <TextBlock Text="A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8."
+                                           Opacity="0.85" FontSize="13" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <Grid ColumnSpacing="10" RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Border Grid.Row="0" Grid.Column="0" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE89A;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Dual-Pane Browsing &amp; Workspaces" FontWeight="SemiBold" FontSize="14"
+                                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="Two independently-navigable panes per tab, with drag-and-drop between them. Rename, duplicate, and reorder Workspace tabs to keep multiple projects organized side by side."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="DualPaneImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="0" Grid.Column="1" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE943;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Scripting" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="Automate file operations with JavaScript, using a curated API for listing, moving, renaming, and tagging files - run on demand or wired up to a watch or schedule."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="ScriptingImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="0" Grid.Column="2" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xEAD6;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Folder Watching" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="Bind a script to a folder so it runs automatically whenever files are added - bursts of activity (like a batch copy) are debounced into a single run."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="WatchingImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="1" Grid.Column="0" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE895;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Sync Tasks" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="Keep two folders mirrored with one-way sync, optionally including hidden/system files, run on demand or on an interval schedule."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="SyncImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="1" Grid.Column="1" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xEB05;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Disk Space Analyser" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="See what's eating a drive with a donut chart and size-sorted breakdown, drilling down folder by folder down to individual files."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="AnalyserImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="1" Grid.Column="2" Padding="12" CornerRadius="6"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE95E;" FontSize="20" FontFamily="Segoe Fluent Icons"
+                                                      Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="Disk Benchmark" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="Measure real sequential and random read/write throughput with unbuffered disk I/O, alongside drive hardware info pulled from WMI."
+                                                   FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                        <Border Height="110" CornerRadius="4" BorderThickness="1"
+                                                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                                            <Image x:Name="BenchmarkImage" Stretch="UniformToFill" />
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </StackPanel>
                     </Grid>
                 </Grid>
