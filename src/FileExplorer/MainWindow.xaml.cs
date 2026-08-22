@@ -1264,6 +1264,145 @@ public sealed partial class MainWindow : Window
         tab.ActivePane.Refresh();
     }
 
+    private void FindDuplicatesAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        _ = ShowDuplicateFinderAsync(tab.ActivePane.CurrentPath);
+    }
+
+    private void TogglePreviewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        TogglePreview();
+    }
+
+    private void ToggleTerminalAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        ToggleTerminal();
+    }
+
+    private void ChecksumAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_activePaneView is not { } pane)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        _ = pane.ComputeHashesForSelectionAsync();
+    }
+
+    private void ControlCentreAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        _ = OpenControlCentreAsync();
+    }
+
+    private void NextTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        CycleTab(forward: true);
+    }
+
+    private void PreviousTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        CycleTab(forward: false);
+    }
+
+    private void CycleTab(bool forward)
+    {
+        var tabs = _viewModel.Tabs;
+        if (tabs.Count < 2 || _viewModel.SelectedTab is not { } current)
+        {
+            return;
+        }
+
+        var index = tabs.IndexOf(current);
+        var next = (index + (forward ? 1 : -1) + tabs.Count) % tabs.Count;
+        _viewModel.SelectedTab = tabs[next];
+    }
+
+    private void NewTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        _viewModel.NewTabCommand.Execute(null);
+    }
+
+    private void CloseTabAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        _viewModel.CloseTabCommand.Execute(tab);
+    }
+
+    private void BackAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        tab.ActivePane.NavigateBack();
+    }
+
+    private void ForwardAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        tab.ActivePane.NavigateForward();
+    }
+
+    private void UpAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        tab.ActivePane.NavigateUp();
+    }
+
+    private void IconsViewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetViewMode(ViewMode.Icons);
+    }
+
+    private void ListViewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetViewMode(ViewMode.List);
+    }
+
+    private void DetailsViewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetViewMode(ViewMode.Details);
+    }
+
+    private void GalleryViewAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetViewMode(ViewMode.Gallery);
+    }
+
     private void PasteButton_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel.SelectedTab is { } tab)

@@ -40,7 +40,23 @@
             <KeyboardAccelerator Key="Delete" Modifiers="Shift" Invoked="ShiftDeleteAccelerator_Invoked" />
             <KeyboardAccelerator Key="F2" Invoked="RenameAccelerator_Invoked" />
             <KeyboardAccelerator Key="F3" Invoked="MoveToFolderAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F4" Invoked="FindDuplicatesAccelerator_Invoked" />
             <KeyboardAccelerator Key="F5" Invoked="RefreshAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F6" Invoked="TogglePreviewAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F7" Invoked="ToggleTerminalAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F8" Invoked="ChecksumAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F10" Invoked="ControlCentreAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="Tab" Invoked="NextTabAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="Tab" Invoked="PreviousTabAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="T" Invoked="NewTabAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="W" Invoked="CloseTabAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Menu" Key="Left" Invoked="BackAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Menu" Key="Right" Invoked="ForwardAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Menu" Key="Up" Invoked="UpAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="Number1" Invoked="IconsViewAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="Number2" Invoked="ListViewAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="Number3" Invoked="DetailsViewAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control,Shift" Key="Number4" Invoked="GalleryViewAccelerator_Invoked" />
         </Grid.KeyboardAccelerators>
 
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area

@@ -497,6 +497,17 @@ public sealed partial class PaneView : UserControl
         WatchService.AddTask(folderPath, scriptName);
     }
 
+    /// F8 behavior. Called from MainWindow's global F8 KeyboardAccelerator (driven by the active
+    /// pane, not literal focus - see the Delete/F2/F3 accelerators for why).
+    public async Task ComputeHashesForSelectionAsync()
+    {
+        var selected = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
+        if (selected.Count > 0)
+        {
+            await ComputeHashesAsync(selected);
+        }
+    }
+
     private async Task ComputeHashesAsync(IReadOnlyList<FileSystemItem> selection)
     {
         if (selection.Count == 0)
