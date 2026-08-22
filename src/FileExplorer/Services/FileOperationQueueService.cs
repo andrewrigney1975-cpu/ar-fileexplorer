@@ -885,8 +885,10 @@ public sealed class FileOperationQueueService
                 File.Delete(source);
             }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("FileOperationQueueService.DeleteSource", ex);
+        }
     }
 
     /// resolvedTopLevel is already collision-resolved (unique, or the prior occupant already cleared

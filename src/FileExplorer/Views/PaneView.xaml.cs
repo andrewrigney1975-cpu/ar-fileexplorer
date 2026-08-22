@@ -310,8 +310,9 @@ public sealed partial class PaneView : UserControl
                 UseShellExecute = true,
             });
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex)
         {
+            LoggingService.LogWarning("PaneView.OpenWithPicker", ex);
         }
     }
 
@@ -929,8 +930,10 @@ public sealed partial class PaneView : UserControl
 
                 renamed.Add((item.FullPath, newPath));
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LoggingService.LogWarning("PaneView.BatchRenameAsync", ex);
+            }
         }
 
         if (renamed.Count > 0)
@@ -1104,8 +1107,10 @@ public sealed partial class PaneView : UserControl
             UndoService.Instance.Push(new RenameUndo(item.FullPath, newPath));
             ViewModel.Refresh(newPath);
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("PaneView.CommitRename", ex);
+        }
     }
 
     /// No Undo support for remote rename (see CreateLinkUndo/RenameUndo etc - all local-only by
@@ -1594,12 +1599,7 @@ public sealed partial class PaneView : UserControl
             return;
         }
 
-        var candidate = Path.Combine(basePath, "New folder");
-
-        for (int i = 2; Directory.Exists(candidate) || File.Exists(candidate); i++)
-        {
-            candidate = Path.Combine(basePath, $"New folder ({i})");
-        }
+        var candidate = FileOperationService.MakeUniqueDestination(Path.Combine(basePath, "New folder"));
 
         try
         {
@@ -1607,8 +1607,10 @@ public sealed partial class PaneView : UserControl
             UndoService.Instance.Push(new CreateFolderUndo(candidate));
             ViewModel.Refresh(candidate);
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("PaneView.NewFolder", ex);
+        }
     }
 
     /// No Undo support for remote folder creation (remote operations never push an UndoAction).

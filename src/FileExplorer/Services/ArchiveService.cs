@@ -26,8 +26,10 @@ public static class ArchiveService
                 }
             }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("ArchiveService.CreateZip", ex);
+        }
     }
 
     private static void AddDirectoryToZip(ZipArchive archive, string sourceDir, string entryPrefix)

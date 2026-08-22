@@ -1280,8 +1280,10 @@ public sealed partial class MainWindow : Window
             UndoService.Instance.Push(new CreateFolderUndo(candidate));
             pane.Refresh(candidate);
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("MainWindow.NewFolderButton_Click", ex);
+        }
     }
 
     private void CancelJob_Click(object sender, RoutedEventArgs e)

@@ -238,20 +238,8 @@ public static class ThumbnailCacheService
         }
     }
 
-    // Temporary diagnostic - this WinRT imaging pipeline is new/unverified, and failures inside the
-    // try above were previously swallowed silently with no way to tell what actually went wrong.
-    private static void LogFailure(string sourcePath, Exception ex)
-    {
-        try
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "thumbnail-errors.log");
-            File.AppendAllText(path, $"[{DateTime.Now:O}] {sourcePath}\n{ex}\n\n");
-        }
-        catch
-        {
-            // best effort
-        }
-    }
+    private static void LogFailure(string sourcePath, Exception ex) =>
+        LoggingService.LogWarning($"ThumbnailCacheService: {sourcePath}", ex);
 
     private static Dictionary<string, DiskEntry> LoadFolderIndex(string folder)
     {

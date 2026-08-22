@@ -121,8 +121,10 @@ public static class CloudProviderService
                 return ""; // checkmark: always kept on this device
             }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("CloudProviderService.GetBadgeGlyph", ex);
+        }
 
         return null;
     }

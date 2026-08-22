@@ -90,6 +90,9 @@ public sealed class FileSystemService : IFileSystemService
                 result.Add(new FolderNode { Name = Path.GetFileName(dir), FullPath = dir });
             }
         }
+        // Deliberately not logged: this fires routinely for ordinary ACL-protected system folders
+        // (System Volume Information, $Recycle.Bin, ...) on every folder listing - logging it would
+        // flood app.log with expected noise rather than surfacing real problems.
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
 
@@ -126,6 +129,7 @@ public sealed class FileSystemService : IFileSystemService
                 });
             }
         }
+        // Deliberately not logged - see the comment in GetSubfolderNodes above.
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
 
@@ -155,6 +159,7 @@ public sealed class FileSystemService : IFileSystemService
                 });
             }
         }
+        // Deliberately not logged - see the comment in GetSubfolderNodes above.
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
 

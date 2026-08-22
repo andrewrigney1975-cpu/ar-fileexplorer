@@ -22,8 +22,10 @@ public sealed record CreateFolderUndo(string Path) : UndoAction
                     Directory.Delete(Path);
                 }
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LoggingService.LogWarning("CreateFolderUndo.UndoAsync", ex);
+            }
         });
     }
 }
@@ -50,8 +52,10 @@ public sealed record CreateLinkUndo(string Path) : UndoAction
                     File.Delete(Path);
                 }
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LoggingService.LogWarning("CreateLinkUndo.UndoAsync", ex);
+            }
         });
     }
 }
@@ -75,8 +79,10 @@ public sealed record RenameUndo(string OldPath, string NewPath) : UndoAction
                     File.Move(NewPath, OldPath);
                 }
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LoggingService.LogWarning("RenameUndo.UndoAsync", ex);
+            }
         });
     }
 }
@@ -95,8 +101,10 @@ public sealed record MoveUndo(IReadOnlyList<(string Source, string Destination)>
                 {
                     MoveBack(destination, source);
                 }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    LoggingService.LogWarning("MoveUndo.UndoAsync", ex);
+                }
             }
 
             // Only remove the destination folder if this move itself created it (e.g. "Move to new
@@ -110,8 +118,10 @@ public sealed record MoveUndo(IReadOnlyList<(string Source, string Destination)>
                         Directory.Delete(folder);
                     }
                 }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    LoggingService.LogWarning("MoveUndo.UndoAsync (cleanup)", ex);
+                }
             }
         });
     }
@@ -172,8 +182,10 @@ public sealed record CopyUndo(IReadOnlyList<string> CreatedPaths) : UndoAction
                         File.Delete(path);
                     }
                 }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    LoggingService.LogWarning("CopyUndo.UndoAsync", ex);
+                }
             }
         });
     }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using FileExplorer.Services;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
@@ -90,8 +91,10 @@ public sealed partial class TerminalPane : UserControl
                 _process.Kill(entireProcessTree: true);
             }
         }
-        catch (InvalidOperationException) { }
-        catch (System.ComponentModel.Win32Exception) { }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            LoggingService.LogWarning("TerminalPane.StopShell", ex);
+        }
         finally
         {
             _process?.Dispose();
