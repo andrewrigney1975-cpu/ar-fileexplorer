@@ -5,6 +5,42 @@ namespace FileExplorer.Tests;
 public class FileOperationServiceTests
 {
     [Fact]
+    public void DetermineDropOperation_SameDrive_IsMove()
+    {
+        var op = FileOperationService.DetermineDropOperation(new[] { @"C:\a\file.txt" }, @"C:\b", forceMove: false);
+
+        Assert.Equal(FileDropOperation.Move, op);
+    }
+
+    [Fact]
+    public void DetermineDropOperation_DifferentDrive_IsCopy()
+    {
+        var op = FileOperationService.DetermineDropOperation(new[] { @"C:\a\file.txt" }, @"D:\b", forceMove: false);
+
+        Assert.Equal(FileDropOperation.Copy, op);
+    }
+
+    [Fact]
+    public void DetermineDropOperation_DifferentDriveWithForceMove_IsMove()
+    {
+        var op = FileOperationService.DetermineDropOperation(new[] { @"C:\a\file.txt" }, @"D:\b", forceMove: true);
+
+        Assert.Equal(FileDropOperation.Move, op);
+    }
+
+    [Fact]
+    public void DropCaption_Move_UsesMovePrefix()
+    {
+        Assert.Equal("Move to Target", FileOperationService.DropCaption(FileDropOperation.Move, @"C:\Folder\Target"));
+    }
+
+    [Fact]
+    public void DropCaption_Copy_UsesCopyPrefix()
+    {
+        Assert.Equal("Copy to Target", FileOperationService.DropCaption(FileDropOperation.Copy, @"C:\Folder\Target\"));
+    }
+
+    [Fact]
     public void SameDrive_SamePathRoot_ReturnsTrue()
     {
         Assert.True(FileOperationService.SameDrive(@"C:\Users\me\a", @"C:\Users\me\b"));

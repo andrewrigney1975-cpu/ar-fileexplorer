@@ -1186,14 +1186,11 @@ public sealed partial class PaneView : UserControl
                 return;
             }
 
-            bool forceMove = IsAltPressed();
-            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], targetFolder);
-            var op = forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
+            var op = FileOperationService.DetermineDropOperation(sourcePaths, targetFolder, IsAltPressed());
 
             e.AcceptedOperation = op == FileDropOperation.Move ? DataPackageOperation.Move : DataPackageOperation.Copy;
             e.DragUIOverride.IsCaptionVisible = true;
-            var targetName = Path.GetFileName(targetFolder.TrimEnd('\\'));
-            e.DragUIOverride.Caption = (op == FileDropOperation.Move ? "Move to " : "Copy to ") + targetName;
+            e.DragUIOverride.Caption = FileOperationService.DropCaption(op, targetFolder);
             e.DragUIOverride.IsGlyphVisible = true;
         }
         finally
@@ -1227,9 +1224,7 @@ public sealed partial class PaneView : UserControl
                 return;
             }
 
-            bool forceMove = IsAltPressed();
-            bool sameDrive = FileOperationService.SameDrive(sourcePaths[0], targetFolder);
-            var op = forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
+            var op = FileOperationService.DetermineDropOperation(sourcePaths, targetFolder, IsAltPressed());
 
             FileOperationQueueService.Current?.Enqueue(sourcePaths, targetFolder, op);
         }
@@ -1282,7 +1277,7 @@ public sealed partial class PaneView : UserControl
 
         if (!_marqueeActive)
         {
-            if (Math.Abs(point.X - start.X) < 4 && Math.Abs(point.Y - start.Y) < 4)
+            if (!MarqueeGeometry.ExceedsDragThreshold(start.X, start.Y, point.X, point.Y))
             {
                 return;
             }
@@ -1292,10 +1287,7 @@ public sealed partial class PaneView : UserControl
             ItemsList.SelectedItems.Clear();
         }
 
-        var x = Math.Min(start.X, point.X);
-        var y = Math.Min(start.Y, point.Y);
-        var w = Math.Abs(point.X - start.X);
-        var h = Math.Abs(point.Y - start.Y);
+        var (x, y, w, h) = MarqueeGeometry.ComputeRect(start.X, start.Y, point.X, point.Y);
 
         Canvas.SetLeft(MarqueeRect, x);
         Canvas.SetTop(MarqueeRect, y);
@@ -1348,9 +1340,10 @@ public sealed partial class PaneView : UserControl
 
             var bounds = container.TransformToVisual(ItemsList)
                 .TransformBounds(new Windows.Foundation.Rect(0, 0, container.ActualWidth, container.ActualHeight));
-            bounds.Intersect(rectOnItemsList);
 
-            if (bounds.Width > 0 && bounds.Height > 0)
+            if (MarqueeGeometry.Intersects(
+                    bounds.X, bounds.Y, bounds.Width, bounds.Height,
+                    rectOnItemsList.X, rectOnItemsList.Y, rectOnItemsList.Width, rectOnItemsList.Height))
             {
                 yield return container;
             }

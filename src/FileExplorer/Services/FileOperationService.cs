@@ -65,6 +65,21 @@ public static class FileOperationService
         return true;
     }
 
+    /// Move when Alt is held (an explicit override) or the drop stays on the same drive (matching
+    /// Explorer's own same-drive-defaults-to-move convention); Copy otherwise.
+    public static FileDropOperation DetermineDropOperation(IReadOnlyList<string> sourcePaths, string targetFolder, bool forceMove)
+    {
+        var sameDrive = sourcePaths.Count > 0 && SameDrive(sourcePaths[0], targetFolder);
+        return forceMove || sameDrive ? FileDropOperation.Move : FileDropOperation.Copy;
+    }
+
+    /// The drag-over caption ("Move to X" / "Copy to X") shown while hovering a valid drop target.
+    public static string DropCaption(FileDropOperation operation, string targetFolder)
+    {
+        var targetName = Path.GetFileName(targetFolder.TrimEnd(Path.DirectorySeparatorChar));
+        return (operation == FileDropOperation.Move ? "Move to " : "Copy to ") + targetName;
+    }
+
     /// Appends " (2)", " (3)", ... to avoid overwriting an existing file or folder at the destination.
     public static string MakeUniqueDestination(string destination)
     {
