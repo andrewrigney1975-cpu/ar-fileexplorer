@@ -74,6 +74,11 @@ public sealed partial class MainWindow : Window
         PreviewColumn.Width = new GridLength(_previewExpandedWidth);
         SetPreviewVisible(savedLayout.PreviewOpen);
 
+        if (savedLayout.RailWidth is { } railWidth)
+        {
+            RailColumn.Width = new GridLength(railWidth);
+        }
+
         TerminalToggleButton.IsChecked = savedLayout.TerminalOpen;
         TerminalRow.Height = savedLayout.TerminalOpen ? new GridLength(260) : new GridLength(0);
         ApplyFeatureVisibility();
@@ -105,7 +110,8 @@ public sealed partial class MainWindow : Window
         {
             _viewModel.SaveSession();
             var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
-            LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true, PreviewToggleButton.IsChecked == true));
+            var railWidth = RailColumn.ActualWidth > 0 ? RailColumn.ActualWidth : (double?)null;
+            LayoutSettingsService.Save(new LayoutState(width, TerminalToggleButton.IsChecked == true, PreviewToggleButton.IsChecked == true, railWidth));
         };
     }
 
