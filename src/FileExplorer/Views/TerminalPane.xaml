@@ -20,11 +20,14 @@
             <TextBlock Grid.Column="0" Text="Terminal — PowerShell" FontWeight="SemiBold" FontSize="12"
                        VerticalAlignment="Center" />
             <Button Grid.Column="1" x:Name="GoToActiveFolderButton" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Click="GoToActiveFolderButton_Click" ToolTipService.ToolTip="Set location to active pane's folder">
+                    Click="GoToActiveFolderButton_Click"
+                    AutomationProperties.Name="Set location to active pane's folder"
+                    ToolTipService.ToolTip="Set location to active pane's folder">
                 <FontIcon Glyph="&#xE8DD;" FontSize="14" />
             </Button>
             <Button Grid.Column="2" x:Name="ClearButton" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Click="ClearButton_Click" ToolTipService.ToolTip="Clear">
+                    Click="ClearButton_Click"
+                    AutomationProperties.Name="Clear terminal" ToolTipService.ToolTip="Clear">
                 <FontIcon Glyph="&#xE74D;" FontSize="14" />
             </Button>
         </Grid>
@@ -42,7 +45,8 @@
             <TextBlock Grid.Column="0" Text="PS&gt;" FontFamily="Cascadia Mono, Consolas" FontSize="12"
                        VerticalAlignment="Center" Opacity="0.8" />
             <TextBox Grid.Column="1" x:Name="InputBox" FontFamily="Cascadia Mono, Consolas" FontSize="12"
-                      PlaceholderText="Type a command and press Enter" KeyDown="InputBox_KeyDown" />
+                      PlaceholderText="Type a command and press Enter"
+                      AutomationProperties.Name="Terminal command input" KeyDown="InputBox_KeyDown" />
         </Grid>
     </Grid>
 </UserControl>

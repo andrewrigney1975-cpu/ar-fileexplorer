@@ -12,7 +12,8 @@
         <!-- Section nav -->
         <StackPanel Grid.Column="0" Spacing="4" Padding="8">
             <TextBlock Text="Control Centre" FontWeight="SemiBold" FontSize="16" Margin="6,4,0,10" />
-            <ListView x:Name="SectionList" SelectionMode="Single" SelectionChanged="SectionList_SelectionChanged">
+            <ListView x:Name="SectionList" SelectionMode="Single"
+                      AutomationProperties.Name="Control Centre sections" SelectionChanged="SectionList_SelectionChanged">
                 <ListViewItem Content="Scripts" x:Name="ScriptsNavItem" />
                 <ListViewItem Content="Sync Tasks" x:Name="SyncTasksNavItem" />
                 <ListViewItem Content="Automation" x:Name="AutomationNavItem" />
@@ -37,7 +38,8 @@
                             <TextBlock Text="Sync Tasks" FontWeight="SemiBold" FontSize="16" />
                             <TextBlock Text="Right-click a folder → &quot;Set sync source...&quot; then another folder → &quot;Set sync target&quot; to create a new one. Manage existing tasks here."
                                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
-                            <ListView x:Name="SyncTasksList" SelectionMode="None" MaxHeight="560">
+                            <ListView x:Name="SyncTasksList" SelectionMode="None" MaxHeight="560"
+                                      AutomationProperties.Name="Sync tasks list">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid ColumnSpacing="8" Padding="0,6">
@@ -57,11 +59,13 @@
                                             </StackPanel>
                                             <Button Grid.Column="1" Content="Run now" Click="RunSyncTask_Click" Tag="{Binding Id}" />
                                             <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
-                                                    Click="RenameSyncTask_Click" Tag="{Binding}" ToolTipService.ToolTip="Rename sync task">
+                                                    Click="RenameSyncTask_Click" Tag="{Binding}"
+                                                    AutomationProperties.Name="Rename sync task" ToolTipService.ToolTip="Rename sync task">
                                                 <FontIcon Glyph="&#xE8AC;" FontSize="12" />
                                             </Button>
                                             <Button Grid.Column="3" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
-                                                    Click="DeleteSyncTask_Click" Tag="{Binding Id}" ToolTipService.ToolTip="Delete sync task">
+                                                    Click="DeleteSyncTask_Click" Tag="{Binding Id}"
+                                                    AutomationProperties.Name="Delete sync task" ToolTipService.ToolTip="Delete sync task">
                                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                                             </Button>
                                         </Grid>

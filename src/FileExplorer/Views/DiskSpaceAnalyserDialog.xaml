@@ -36,7 +36,8 @@
         <Grid Grid.Row="1">
             <!-- Drive selection grid -->
             <Grid x:Name="DriveGridPanel" Visibility="Visible">
-                <GridView x:Name="DriveGridView" SelectionMode="Single" DoubleTapped="DriveGridView_DoubleTapped">
+                <GridView x:Name="DriveGridView" SelectionMode="Single"
+                          AutomationProperties.Name="Drives" DoubleTapped="DriveGridView_DoubleTapped">
                     <GridView.ItemTemplate>
                         <DataTemplate>
                             <Grid Width="220" Height="140" Padding="16" CornerRadius="6"
@@ -72,6 +73,7 @@
 
                 <Grid Grid.Column="0">
                     <Canvas x:Name="ChartCanvas" Width="680" Height="680"
+                            AutomationProperties.Name="Folder size breakdown chart"
                             HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Border x:Name="HoverPopover" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -92,7 +94,8 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
                 </Grid>
 
-                <ListView x:Name="EntriesList" Grid.Column="1" SelectionMode="Single" DoubleTapped="EntriesList_DoubleTapped">
+                <ListView x:Name="EntriesList" Grid.Column="1" SelectionMode="Single"
+                          AutomationProperties.Name="Folder contents by size" DoubleTapped="EntriesList_DoubleTapped">
                     <ListView.ItemTemplate>
                         <DataTemplate>
                             <Grid ColumnSpacing="8" Padding="0,6">

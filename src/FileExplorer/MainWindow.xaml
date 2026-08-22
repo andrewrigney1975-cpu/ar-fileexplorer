@@ -167,6 +167,7 @@
                                 <TextBlock Text="Sync tasks" FontWeight="SemiBold" Margin="0,0,0,4" />
                                 <TextBlock x:Name="SyncTasksEmptyText" Text="No sync tasks" Opacity="0.6" FontSize="12" />
                                 <ListView x:Name="SyncTasksList" MaxHeight="360" SelectionMode="None"
+                                          AutomationProperties.Name="Sync tasks list"
                                           IsItemClickEnabled="True" ItemClick="SyncTasksList_ItemClick">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
@@ -179,6 +180,7 @@
                                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                                         Padding="4" Click="DeleteSyncTask_Click" Tag="{Binding}"
+                                                        AutomationProperties.Name="Delete sync task"
                                                         ToolTipService.ToolTip="Delete sync task">
                                                     <FontIcon Glyph="&#xE74D;" FontSize="12" />
                                                 </Button>
@@ -202,7 +204,8 @@
                         <Flyout Placement="Bottom">
                             <StackPanel Width="360" Spacing="4">
                                 <TextBlock Text="File operations" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                <ListView x:Name="OperationsList" MaxHeight="360" SelectionMode="None">
+                                <ListView x:Name="OperationsList" MaxHeight="360" SelectionMode="None"
+                                          AutomationProperties.Name="File operations list">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
                                             <Grid Padding="0,6" ColumnSpacing="8" RowSpacing="4">
@@ -219,6 +222,7 @@
                                                 <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                                         Padding="4" Click="CancelJob_Click" Tag="{Binding}"
                                                         Visibility="{Binding CanCancel, Converter={StaticResource BoolToVis}}"
+                                                        AutomationProperties.Name="Cancel job"
                                                         ToolTipService.ToolTip="Cancel">
                                                     <FontIcon Glyph="&#xE711;" FontSize="11" />
                                                 </Button>
@@ -271,6 +275,7 @@
                 <TextBlock Grid.Row="0" Text="This PC" FontWeight="SemiBold" Margin="12,10,12,4" />
                 <TreeView x:Name="DriveTree" Grid.Row="1" Margin="4,0,4,4"
                           SelectionMode="Single"
+                          AutomationProperties.Name="Drives and folders"
                           ItemInvoked="DriveTree_ItemInvoked"
                           Expanding="DriveTree_Expanding">
                     <TreeView.ItemTemplate>
@@ -316,12 +321,15 @@
                               Margin="4,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="Favourites" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
-                            Click="AddFavouriteButton_Click" ToolTipService.ToolTip="Pin the active pane's folder to Favourites">
+                            Click="AddFavouriteButton_Click"
+                            AutomationProperties.Name="Add favourite"
+                            ToolTipService.ToolTip="Pin the active pane's folder to Favourites">
                         <FontIcon Glyph="&#xE710;" FontSize="12" />
                     </Button>
                 </Grid>
 
                 <ListView Grid.Row="4" x:Name="FavouritesList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Favourites list"
                           SelectionMode="None" ItemClick="FavouritesList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -337,6 +345,7 @@
                                 </StackPanel>
                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                         Click="RemoveFavouriteButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Remove favourite"
                                         ToolTipService.ToolTip="Remove">
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
@@ -357,12 +366,15 @@
                               Margin="4,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="Saved Searches" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
-                            Click="SaveCurrentSearchButton_Click" ToolTipService.ToolTip="Save the active pane's search">
+                            Click="SaveCurrentSearchButton_Click"
+                            AutomationProperties.Name="Save current search"
+                            ToolTipService.ToolTip="Save the active pane's search">
                         <FontIcon Glyph="&#xE710;" FontSize="12" />
                     </Button>
                 </Grid>
 
                 <ListView Grid.Row="7" x:Name="SavedSearchesList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Saved searches list"
                           SelectionMode="None" ItemClick="SavedSearchesList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -378,6 +390,7 @@
                                 </StackPanel>
                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                         Click="RemoveSavedSearchButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Remove saved search"
                                         ToolTipService.ToolTip="Remove">
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
@@ -399,16 +412,21 @@
                               Margin="4,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="Network Locations" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
-                            Click="MapNetworkDriveButton_Click" ToolTipService.ToolTip="Map a network drive letter...">
+                            Click="MapNetworkDriveButton_Click"
+                            AutomationProperties.Name="Map network drive"
+                            ToolTipService.ToolTip="Map a network drive letter...">
                         <FontIcon Glyph="&#xE71B;" FontSize="12" />
                     </Button>
                     <Button Grid.Column="3" Style="{StaticResource ToolbarIconButtonStyle}"
-                            Click="AddNetworkLocationButton_Click" ToolTipService.ToolTip="Add a network location (\\server\share)">
+                            Click="AddNetworkLocationButton_Click"
+                            AutomationProperties.Name="Add network location"
+                            ToolTipService.ToolTip="Add a network location (\\server\share)">
                         <FontIcon Glyph="&#xE710;" FontSize="12" />
                     </Button>
                 </Grid>
 
                 <ListView Grid.Row="10" x:Name="NetworkLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Network locations list"
                           SelectionMode="None" ItemClick="NetworkLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -424,6 +442,7 @@
                                 </StackPanel>
                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                         Click="RemoveNetworkLocationButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Remove network location"
                                         ToolTipService.ToolTip="Remove">
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
@@ -445,6 +464,7 @@
                 </Grid>
 
                 <ListView Grid.Row="13" x:Name="CloudLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Cloud storage locations list"
                           SelectionMode="None" ItemClick="CloudLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -469,12 +489,15 @@
                               Margin="4,0,6,0" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Text="Remote Connections" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
-                            Click="AddRemoteConnectionButton_Click" ToolTipService.ToolTip="Add an FTP/SFTP connection">
+                            Click="AddRemoteConnectionButton_Click"
+                            AutomationProperties.Name="Add remote connection"
+                            ToolTipService.ToolTip="Add an FTP/SFTP connection">
                         <FontIcon Glyph="&#xE710;" FontSize="12" />
                     </Button>
                 </Grid>
 
                 <ListView Grid.Row="16" x:Name="RemoteConnectionsList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Remote connections list"
                           SelectionMode="None" ItemClick="RemoteConnectionsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -490,6 +513,7 @@
                                 </StackPanel>
                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
                                         Click="RemoveRemoteConnectionButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Remove remote connection"
                                         ToolTipService.ToolTip="Remove">
                                     <FontIcon Glyph="&#xE711;" FontSize="10" />
                                 </Button>
@@ -505,6 +529,7 @@
 
             <!-- Main content: tabs, each hosting a dual pane -->
             <TabView x:Name="MainTabView" Grid.Column="2"
+                     AutomationProperties.Name="Workspaces"
                      TabItemsSource="{Binding Tabs}"
                      SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                      AddTabButtonClick="MainTabView_AddTabButtonClick"
@@ -571,8 +596,10 @@
                     </Grid.RowDefinitions>
                     <TextBox Grid.Row="0" x:Name="CommandPaletteBox" Margin="10"
                               PlaceholderText="Type a command or a folder path..."
+                              AutomationProperties.Name="Command palette input"
                               TextChanged="CommandPaletteBox_TextChanged" KeyDown="CommandPaletteBox_KeyDown" />
                     <ListView Grid.Row="1" x:Name="CommandPaletteList" MaxHeight="360"
+                              AutomationProperties.Name="Command palette results"
                               SelectionMode="Single" IsItemClickEnabled="True" ItemClick="CommandPaletteList_ItemClick">
                         <ListView.ItemTemplate>
                             <DataTemplate>

@@ -40,7 +40,8 @@
         <Grid Grid.Row="1">
             <!-- Drive selection grid -->
             <Grid x:Name="DriveGridPanel" Visibility="Visible">
-                <GridView x:Name="DriveGridView" SelectionMode="Single" DoubleTapped="DriveGridView_DoubleTapped">
+                <GridView x:Name="DriveGridView" SelectionMode="Single"
+                          AutomationProperties.Name="Drives" DoubleTapped="DriveGridView_DoubleTapped">
                     <GridView.ItemTemplate>
                         <DataTemplate>
                             <Grid Width="220" Height="140" Padding="16" CornerRadius="6"
@@ -75,6 +76,7 @@
                 </Grid.ColumnDefinitions>
 
                 <Canvas x:Name="ChartCanvas" Grid.Column="0" Width="860" Height="680"
+                        AutomationProperties.Name="Benchmark results chart"
                         HorizontalAlignment="Left" VerticalAlignment="Top" />
 
                 <Border Grid.Column="1" Padding="16" CornerRadius="6" VerticalAlignment="Top"

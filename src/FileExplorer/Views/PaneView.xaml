@@ -177,15 +177,18 @@
             </Grid.ColumnDefinitions>
 
             <Button Grid.Column="0" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Command="{Binding NavigateBackCommand}" ToolTipService.ToolTip="Back">
+                    Command="{Binding NavigateBackCommand}"
+                    AutomationProperties.Name="Back" ToolTipService.ToolTip="Back">
                 <FontIcon Glyph="&#xE72B;" FontSize="14" />
             </Button>
             <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Command="{Binding NavigateForwardCommand}" ToolTipService.ToolTip="Forward">
+                    Command="{Binding NavigateForwardCommand}"
+                    AutomationProperties.Name="Forward" ToolTipService.ToolTip="Forward">
                 <FontIcon Glyph="&#xE72A;" FontSize="14" />
             </Button>
             <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Command="{Binding NavigateUpCommand}" ToolTipService.ToolTip="Up one level">
+                    Command="{Binding NavigateUpCommand}"
+                    AutomationProperties.Name="Up one level" ToolTipService.ToolTip="Up one level">
                 <FontIcon Glyph="&#xE74A;" FontSize="14" />
             </Button>
 
@@ -199,21 +202,25 @@
                     </ScrollViewer>
                 </Border>
                 <TextBox x:Name="PathBox" Text="{Binding CurrentPath, Mode=OneWay}" Visibility="Collapsed"
+                          AutomationProperties.Name="Folder path"
                           VerticalAlignment="Center" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" />
             </Grid>
 
             <TextBox Grid.Column="4" x:Name="SearchBox" Text="{Binding SearchText, Mode=TwoWay}"
                      PlaceholderText="Search this folder" VerticalAlignment="Center"
+                     AutomationProperties.Name="Search this folder"
                      KeyDown="SearchBox_KeyDown" />
 
             <ToggleButton Grid.Column="5" Style="{StaticResource ToolbarIconToggleButtonStyle}"
                           IsChecked="{Binding IsRecursiveSearch, Mode=TwoWay}"
+                          AutomationProperties.Name="Search subfolders and file contents"
                           ToolTipService.ToolTip="Search subfolders and file contents">
                 <FontIcon Glyph="&#xE773;" FontSize="14" />
             </ToggleButton>
 
             <Button Grid.Column="6" Style="{StaticResource ToolbarIconButtonStyle}"
-                    Command="{Binding RefreshCommand}" ToolTipService.ToolTip="Refresh">
+                    Command="{Binding RefreshCommand}"
+                    AutomationProperties.Name="Refresh" ToolTipService.ToolTip="Refresh">
                 <FontIcon Glyph="&#xE72C;" FontSize="14" />
             </Button>
         </Grid>
@@ -257,6 +264,7 @@
         </Grid>
 
         <ListView x:Name="ItemsList" Grid.Row="2"
+                  AutomationProperties.Name="Files and folders"
                   ItemsSource="{Binding Items}"
                   SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                   SelectionMode="Extended"
@@ -290,6 +298,7 @@
                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                     BorderThickness="1.5" CornerRadius="4" Padding="4">
                 <TextBox x:Name="RenameTextBox" MinWidth="200"
+                         AutomationProperties.Name="New name"
                          KeyDown="RenameTextBox_KeyDown" LostFocus="RenameTextBox_LostFocus" />
             </Border>
         </Popup>
@@ -304,7 +313,8 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Button Grid.Row="0" HorizontalAlignment="Right" Margin="6"
-                            Style="{StaticResource ToolbarIconButtonStyle}" Click="QuickLookCloseButton_Click">
+                            Style="{StaticResource ToolbarIconButtonStyle}" Click="QuickLookCloseButton_Click"
+                            AutomationProperties.Name="Close Quick Look" ToolTipService.ToolTip="Close Quick Look">
                         <FontIcon Glyph="&#xE711;" FontSize="14" />
                     </Button>
                     <views:PreviewPane x:Name="QuickLookPreview" Grid.Row="1" />

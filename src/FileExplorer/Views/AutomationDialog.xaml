@@ -19,7 +19,8 @@
             <TextBlock Text="Runs a script automatically when files are added to a watched folder. To add one, right-click a folder and choose &quot;Watch this folder...&quot;."
                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
 
-            <ListView x:Name="WatchesList" MaxHeight="220" SelectionMode="None">
+            <ListView x:Name="WatchesList" MaxHeight="220" SelectionMode="None"
+                      AutomationProperties.Name="Folder watches list">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <Grid ColumnSpacing="8" Padding="0,4">
@@ -32,7 +33,8 @@
                                 <TextBlock Text="{Binding ScriptName}" Opacity="0.7" FontSize="12" />
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
-                                    Click="DeleteWatch_Click" Tag="{Binding Id}" ToolTipService.ToolTip="Stop watching">
+                                    Click="DeleteWatch_Click" Tag="{Binding Id}"
+                                    AutomationProperties.Name="Stop watching" ToolTipService.ToolTip="Stop watching">
                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                             </Button>
                         </Grid>
@@ -48,7 +50,8 @@
             <TextBlock Text="Runs a script or sync task automatically on a repeating interval."
                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
 
-            <ListView x:Name="SchedulesList" MaxHeight="180" SelectionMode="None">
+            <ListView x:Name="SchedulesList" MaxHeight="180" SelectionMode="None"
+                      AutomationProperties.Name="Scheduled tasks list">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <Grid ColumnSpacing="8" Padding="0,4">
@@ -61,7 +64,8 @@
                                 <TextBlock Text="{Binding ScheduleDisplay}" Opacity="0.7" FontSize="12" />
                             </StackPanel>
                             <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
-                                    Click="DeleteSchedule_Click" Tag="{Binding Id}" ToolTipService.ToolTip="Remove schedule">
+                                    Click="DeleteSchedule_Click" Tag="{Binding Id}"
+                                    AutomationProperties.Name="Remove schedule" ToolTipService.ToolTip="Remove schedule">
                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                             </Button>
                         </Grid>
@@ -78,11 +82,13 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <ComboBox Grid.Column="0" x:Name="ScheduleKindBox" Width="90" VerticalAlignment="Bottom" SelectionChanged="ScheduleKindBox_SelectionChanged">
+                <ComboBox Grid.Column="0" x:Name="ScheduleKindBox" Width="90" VerticalAlignment="Bottom"
+                          AutomationProperties.Name="Schedule kind" SelectionChanged="ScheduleKindBox_SelectionChanged">
                     <ComboBoxItem x:Name="ScheduleKindScriptItem" Content="Script" />
                     <ComboBoxItem x:Name="ScheduleKindSyncItem" Content="Sync" />
                 </ComboBox>
-                <ComboBox Grid.Column="1" x:Name="ScheduleTargetBox" HorizontalAlignment="Stretch" VerticalAlignment="Bottom" PlaceholderText="Choose a script or sync task" />
+                <ComboBox Grid.Column="1" x:Name="ScheduleTargetBox" HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                          AutomationProperties.Name="Schedule target" PlaceholderText="Choose a script or sync task" />
                 <NumberBox Grid.Column="2" x:Name="ScheduleIntervalBox" Width="110" Minimum="1" Value="60"
                            SpinButtonPlacementMode="Compact" Header="Every (min)" />
                 <Button Grid.Column="3" Content="Add" VerticalAlignment="Bottom" Click="AddSchedule_Click" />
