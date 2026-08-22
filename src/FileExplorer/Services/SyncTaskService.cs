@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FileExplorer.Models;
 
 namespace FileExplorer.Services;
@@ -12,10 +11,7 @@ public sealed record SyncTaskState(string Id, string Name, string SourcePath, st
 /// "set source, then set target" selection state used while the user is defining a new one.
 public static class SyncTaskService
 {
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "sync-tasks.json");
-
-    private static List<SyncTaskState>? _cache;
+    private static readonly JsonFileStore<List<SyncTaskState>> Store = new("sync-tasks.json", () => new List<SyncTaskState>());
 
     /// Raised whenever pending selection state changes or a task is added/removed, so panes can
     /// re-render their highlight bars and the toolbar can refresh its task list.
@@ -133,39 +129,7 @@ public static class SyncTaskService
         return SyncRole.None;
     }
 
-    private static List<SyncTaskState> LoadCache()
-    {
-        if (_cache is not null)
-        {
-            return _cache;
-        }
+    private static List<SyncTaskState> LoadCache() => Store.Load();
 
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                _cache = JsonSerializer.Deserialize<List<SyncTaskState>>(json) ?? new List<SyncTaskState>();
-                return _cache;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        _cache = new List<SyncTaskState>();
-        return _cache;
-    }
-
-    private static void Save(List<SyncTaskState> list)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(list));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private static void Save(List<SyncTaskState> list) => Store.Save(list);
 }

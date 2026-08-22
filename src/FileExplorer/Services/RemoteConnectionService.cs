@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FileExplorer.Models;
 
 namespace FileExplorer.Services;
@@ -16,35 +15,9 @@ public interface IRemoteConnectionService
 /// RemoteConnection's doc comment.
 public sealed class RemoteConnectionService : IRemoteConnectionService
 {
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "remoteconnections.json");
+    private readonly JsonFileStore<List<RemoteConnection>> _store = new("remoteconnections.json", () => new List<RemoteConnection>());
 
-    private List<RemoteConnection>? _cache;
-
-    public List<RemoteConnection> Load()
-    {
-        if (_cache is not null)
-        {
-            return _cache;
-        }
-
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                var loaded = JsonSerializer.Deserialize<List<RemoteConnection>>(json);
-                _cache = loaded ?? new List<RemoteConnection>();
-                return _cache;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        _cache = new List<RemoteConnection>();
-        return _cache;
-    }
+    public List<RemoteConnection> Load() => _store.Load();
 
     public RemoteConnection? Find(string id) => Load().FirstOrDefault(c => c.Id == id);
 
@@ -64,15 +37,5 @@ public sealed class RemoteConnectionService : IRemoteConnectionService
         RemoteHostKeyStore.Remove(connection.Id);
     }
 
-    private static void Save(List<RemoteConnection> list)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(list));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private void Save(List<RemoteConnection> list) => _store.Save(list);
 }

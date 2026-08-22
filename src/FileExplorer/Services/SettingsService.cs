@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace FileExplorer.Services;
 
 public sealed record AppSettings(
@@ -21,54 +19,17 @@ public static class SettingsService
         EnableFolderWatching: true,
         EnableScripting: true);
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "settings.json");
-
-    private static AppSettings? _current;
+    private static readonly JsonFileStore<AppSettings> Store = new("settings.json", () => Defaults);
 
     /// Raised whenever settings are updated, so open UI (toolbar buttons, context menus, panes,
     /// the Control Centre itself) can re-evaluate what should be visible/enabled.
     public static event EventHandler? Changed;
 
-    public static AppSettings Current => _current ??= Load();
+    public static AppSettings Current => Store.Load();
 
     public static void Update(AppSettings settings)
     {
-        _current = settings;
-        Save(settings);
+        Store.Save(settings);
         Changed?.Invoke(null, EventArgs.Empty);
-    }
-
-    private static AppSettings Load()
-    {
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json);
-                if (loaded is not null)
-                {
-                    return loaded;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        return Defaults;
-    }
-
-    private static void Save(AppSettings settings)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(settings));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
     }
 }

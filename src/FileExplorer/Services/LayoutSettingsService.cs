@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace FileExplorer.Services;
 
 public sealed record LayoutState(double? PreviewWidth, bool TerminalOpen, bool PreviewOpen = true);
@@ -8,37 +6,9 @@ public sealed record LayoutState(double? PreviewWidth, bool TerminalOpen, bool P
 /// open/closed) between sessions.
 public static class LayoutSettingsService
 {
-    private static string FilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "layout.json");
+    private static readonly JsonFileStore<LayoutState> Store = new("layout.json", () => new LayoutState(null, false));
 
-    public static LayoutState Load()
-    {
-        try
-        {
-            if (!File.Exists(FilePath))
-            {
-                return new LayoutState(null, false);
-            }
+    public static LayoutState Load() => Store.Load();
 
-            var json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<LayoutState>(json) ?? new LayoutState(null, false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return new LayoutState(null, false);
-        }
-    }
-
-    public static void Save(LayoutState state)
-    {
-        try
-        {
-            var path = FilePath;
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(state));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    public static void Save(LayoutState state) => Store.Save(state);
 }

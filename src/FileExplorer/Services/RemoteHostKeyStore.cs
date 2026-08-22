@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace FileExplorer.Services;
 
 /// Trust-on-first-use SSH host key pinning for SFTP connections: the fingerprint seen on a
@@ -10,10 +8,7 @@ namespace FileExplorer.Services;
 /// the same host doesn't silently reset trust.
 public static class RemoteHostKeyStore
 {
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "remotehostkeys.json");
-
-    private static Dictionary<string, string>? _cache;
+    private static readonly JsonFileStore<Dictionary<string, string>> Store = new("remotehostkeys.json", () => new Dictionary<string, string>());
 
     /// Returns the pinned fingerprint for connectionId, or null if this connection has never
     /// successfully connected before (first-use case).
@@ -35,40 +30,7 @@ public static class RemoteHostKeyStore
         }
     }
 
-    private static Dictionary<string, string> Load()
-    {
-        if (_cache is not null)
-        {
-            return _cache;
-        }
+    private static Dictionary<string, string> Load() => Store.Load();
 
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                _cache = loaded ?? new Dictionary<string, string>();
-                return _cache;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        _cache = new Dictionary<string, string>();
-        return _cache;
-    }
-
-    private static void Save(Dictionary<string, string> map)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(map));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private static void Save(Dictionary<string, string> map) => Store.Save(map);
 }

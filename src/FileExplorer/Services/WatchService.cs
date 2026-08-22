@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace FileExplorer.Services;
 
 public sealed record WatchTaskState(string Id, string FolderPath, string ScriptName);
@@ -17,15 +15,12 @@ public static class WatchService
 {
     private const int DebounceMilliseconds = 750;
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "watches.json");
+    private static readonly JsonFileStore<List<WatchTaskState>> Store = new("watches.json", () => new List<WatchTaskState>());
 
     private static readonly Dictionary<string, FileSystemWatcher> _watchers = new();
     private static readonly Dictionary<string, Timer> _debounceTimers = new();
     private static readonly Dictionary<string, List<string>> _pendingPaths = new();
     private static readonly object _lock = new();
-
-    private static List<WatchTaskState>? _cache;
 
     /// Raised whenever a watch task is added or removed, so panes can re-render their highlight bars.
     public static event EventHandler? Changed;
@@ -204,39 +199,7 @@ public static class WatchService
         Triggered?.Invoke(null, new WatchTriggeredEventArgs { Task = task, AddedPaths = paths });
     }
 
-    private static List<WatchTaskState> LoadCache()
-    {
-        if (_cache is not null)
-        {
-            return _cache;
-        }
+    private static List<WatchTaskState> LoadCache() => Store.Load();
 
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                _cache = JsonSerializer.Deserialize<List<WatchTaskState>>(json) ?? new List<WatchTaskState>();
-                return _cache;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        _cache = new List<WatchTaskState>();
-        return _cache;
-    }
-
-    private static void Save(List<WatchTaskState> list)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(list));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private static void Save(List<WatchTaskState> list) => Store.Save(list);
 }

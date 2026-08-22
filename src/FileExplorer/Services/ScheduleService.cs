@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace FileExplorer.Services;
 
 public enum ScheduleKind
@@ -19,11 +17,9 @@ public static class ScheduleService
 {
     private const int PollIntervalSeconds = 30;
 
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "schedules.json");
+    private static readonly JsonFileStore<List<ScheduleState>> Store = new("schedules.json", () => new List<ScheduleState>());
 
     private static readonly object _lock = new();
-    private static List<ScheduleState>? _cache;
     private static Timer? _pollTimer;
 
     /// Raised whenever a schedule is added or removed, so the manager UI can refresh its list.
@@ -123,39 +119,7 @@ public static class ScheduleService
         }
     }
 
-    private static List<ScheduleState> LoadCache()
-    {
-        if (_cache is not null)
-        {
-            return _cache;
-        }
+    private static List<ScheduleState> LoadCache() => Store.Load();
 
-        try
-        {
-            if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                _cache = JsonSerializer.Deserialize<List<ScheduleState>>(json) ?? new List<ScheduleState>();
-                return _cache;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-        }
-
-        _cache = new List<ScheduleState>();
-        return _cache;
-    }
-
-    private static void Save(List<ScheduleState> list)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(list));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+    private static void Save(List<ScheduleState> list) => Store.Save(list);
 }
