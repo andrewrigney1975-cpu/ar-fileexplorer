@@ -78,7 +78,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Recursive search toggle: scans the current folder's subtree by filename and, for text/code files, file content
 - Saved/smart searches: pin a (root path, query) pair to the left rail and re-run it with one click
 - Color tags/labels on files and folders, shown as a colored dot in every view mode
-- Duplicate file finder (size-then-hash scan) with a review-and-delete dialog; deletion runs off the UI thread with a live "Deleting N of M..." progress dialog, so a large batch (e.g. cleaning up a slow removable drive) never looks like a hang
+- Duplicate file finder (size-then-hash scan) with a review-and-delete dialog; deletion runs off the UI thread with a live "Deleting N of M..." progress dialog, so a large batch (e.g. cleaning up a slow removable drive) never looks like a hang. Also reachable from the right-click menu — on a folder (scoped to that folder) or on empty pane space (scoped to the pane's current folder) — not just F4/command palette
 - Checksum command (context menu → "Checksum..."): SHA-256, SHA-1, or MD5, with copy-to-clipboard; paste a known hash to verify a file against it (per-file MATCH/NO MATCH), or select exactly two files with no expected hash entered to get an automatic "identical"/"differ" comparison
 
 ### Preview pane

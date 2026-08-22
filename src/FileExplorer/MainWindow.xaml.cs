@@ -1110,7 +1110,12 @@ public sealed partial class MainWindow : Window
 
         pane.Activated -= PaneView_Activated;
         pane.Activated += PaneView_Activated;
+
+        pane.FindDuplicatesRequested -= PaneView_FindDuplicatesRequested;
+        pane.FindDuplicatesRequested += PaneView_FindDuplicatesRequested;
     }
+
+    private void PaneView_FindDuplicatesRequested(object? sender, string path) => _ = ShowDuplicateFinderAsync(path);
 
     private void PaneView_Activated(object? sender, EventArgs e)
     {

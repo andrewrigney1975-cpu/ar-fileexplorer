@@ -24,6 +24,11 @@ public sealed partial class PaneView : UserControl
 
     public event EventHandler? Activated;
 
+    /// Raised with the folder path to scan; MainWindow owns the actual duplicate-finder dialog (see
+    /// its F4 KeyboardAccelerator/command-palette entry, which drive the same event handler), so this
+    /// is a thin request bridge rather than duplicating that ~90-line dialog flow here.
+    public event EventHandler<string>? FindDuplicatesRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1524,6 +1529,8 @@ public sealed partial class PaneView : UserControl
                     ? NewMenuItem("Stop watching folder", string.Empty, () => WatchService.RemoveTask(existingWatch.Id))
                     : NewMenuItem("Watch this folder...", string.Empty, async () => await WatchFolderAsync(folder.FullPath)));
             }
+
+            menu.Items.Add(NewMenuItem("Find Duplicate Files...", "", () => FindDuplicatesRequested?.Invoke(this, folder.FullPath)));
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
@@ -1591,6 +1598,7 @@ public sealed partial class PaneView : UserControl
         {
         menu.Items.Add(NewMenuItem("New link...", string.Empty, async () => await CreateNewLinkAsync()));
         menu.Items.Add(NewMenuItem("Export folder listing (JSON)...", string.Empty, async () => await ExportFolderListingAsync()));
+        menu.Items.Add(NewMenuItem("Find Duplicate Files...", string.Empty, () => FindDuplicatesRequested?.Invoke(this, ViewModel.CurrentPath)));
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
