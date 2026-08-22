@@ -44,6 +44,7 @@ public sealed partial class PropertiesDialog : UserControl
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"PropertiesDialog.ApplyAttributeChanges: {_selection[0].FullPath}", ex);
         }
     }
 

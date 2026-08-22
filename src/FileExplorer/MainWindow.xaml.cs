@@ -1579,6 +1579,9 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Falls back to an empty result, which then shows "No duplicate files found." - not
+            // technically true when the scan itself failed, so this needs a trail somewhere.
+            LoggingService.LogWarning($"MainWindow.ShowDuplicateFinderAsync: {rootPath}", ex);
             groups = new List<List<string>>();
         }
 
@@ -1634,6 +1637,7 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                LoggingService.LogWarning($"MainWindow.ShowDuplicateFinderAsync (delete): {duplicate}", ex);
             }
         }
 

@@ -243,6 +243,9 @@ public sealed class FileOperationQueueService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // job.ErrorMessage isn't bound anywhere in the Operations flyout XAML (only Status is) -
+            // without this the user sees just "Failed" with no reason why.
+            LoggingService.LogWarning($"FileOperationQueueService.RunJobAsync: {job.Title}", ex);
             _dispatcher.TryEnqueue(() =>
             {
                 job.ErrorMessage = ex.Message;
@@ -254,6 +257,7 @@ public sealed class FileOperationQueueService
             // Any other unexpected failure must still end this one job rather than escape - an
             // unhandled exception here would otherwise kill ProcessLoopAsync's while(true) forever,
             // silently freezing every future file operation for the rest of the app session.
+            LoggingService.LogError($"FileOperationQueueService.RunJobAsync (unexpected): {job.Title}", ex);
             _dispatcher.TryEnqueue(() =>
             {
                 job.ErrorMessage = ex.Message;
@@ -521,6 +525,7 @@ public sealed class FileOperationQueueService
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
+                    LoggingService.LogWarning($"FileOperationQueueService.BuildRemoteAwareCopyPlanAsync (skipped): {source}", ex);
                     continue;
                 }
 
@@ -592,6 +597,7 @@ public sealed class FileOperationQueueService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                LoggingService.LogWarning($"FileOperationQueueService.CollectLocalSourceTreeAsync (skipped dir): {dir}", ex);
                 continue;
             }
 
@@ -616,6 +622,7 @@ public sealed class FileOperationQueueService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                LoggingService.LogWarning($"FileOperationQueueService.CollectLocalSourceTreeAsync (skipped file): {file}", ex);
                 continue;
             }
 
@@ -907,6 +914,7 @@ public sealed class FileOperationQueueService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                LoggingService.LogWarning($"FileOperationQueueService.EnumerateFilesSkippingLinks (skipped): {entry}", ex);
                 continue;
             }
 
@@ -972,6 +980,7 @@ public sealed class FileOperationQueueService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"FileOperationQueueService.CollectCopyEntries (skipped): {source}", ex);
             return;
         }
 

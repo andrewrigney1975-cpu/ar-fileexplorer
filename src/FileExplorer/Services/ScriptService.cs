@@ -26,6 +26,7 @@ public static class ScriptService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning("ScriptService.List", ex);
             return new List<string>();
         }
     }
@@ -39,6 +40,7 @@ public static class ScriptService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"ScriptService.Load: {name}", ex);
             return null;
         }
     }
@@ -52,6 +54,7 @@ public static class ScriptService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"ScriptService.Save: {name}", ex);
         }
     }
 
@@ -67,6 +70,7 @@ public static class ScriptService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"ScriptService.Delete: {name}", ex);
         }
     }
 
@@ -96,6 +100,7 @@ public static class ScriptService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"ScriptService.Rename: {oldName} -> {newName}", ex);
             return false;
         }
     }

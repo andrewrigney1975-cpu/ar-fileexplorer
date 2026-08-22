@@ -27,6 +27,7 @@
     <Compile Include="..\..\src\FileExplorer\Services\RemotePathService.cs" Link="Sources\RemotePathService.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\FileOperationService.cs" Link="Sources\FileOperationService.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\JsonFileStore.cs" Link="Sources\JsonFileStore.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\LoggingService.cs" Link="Sources\LoggingService.cs" />
     <Compile Include="..\..\src\FileExplorer\Helpers\FuzzyMatcher.cs" Link="Sources\FuzzyMatcher.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\RemoteProtocol.cs" Link="Sources\RemoteProtocol.cs" />
   </ItemGroup>

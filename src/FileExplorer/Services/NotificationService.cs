@@ -17,8 +17,11 @@ public static class NotificationService
             AppNotificationManager.Default.Register();
             _registered = true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            // Every future Show() call silently no-ops for the rest of the app session once this
+            // fails - worth a trail since there's otherwise zero indication toasts are dead.
+            LoggingService.LogWarning("NotificationService.Register", ex);
             _registered = false;
         }
     }
@@ -39,9 +42,10 @@ public static class NotificationService
 
             AppNotificationManager.Default.Show(notification);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Best-effort: a failed toast should never take down the app.
+            LoggingService.LogWarning($"NotificationService.Show: {title}", ex);
         }
     }
 }

@@ -686,6 +686,7 @@ public sealed partial class PaneView : UserControl
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
+                LoggingService.LogWarning($"PaneView.ExtractZipsAsync: {item.FullPath}", ex);
             }
         }
 
@@ -1004,6 +1005,7 @@ public sealed partial class PaneView : UserControl
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning("PaneView.MoveSelectionToNewFolderAsync", ex);
             return;
         }
 

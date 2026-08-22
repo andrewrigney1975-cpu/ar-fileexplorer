@@ -140,6 +140,9 @@ public static class WatchService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
+            // The watch task still shows as saved in the UI but silently never triggers - no other
+            // signal exists that it failed to actually start.
+            LoggingService.LogWarning($"WatchService.StartWatcher: {task.FolderPath}", ex);
         }
     }
 

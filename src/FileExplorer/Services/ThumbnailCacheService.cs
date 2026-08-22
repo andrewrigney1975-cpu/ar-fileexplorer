@@ -277,6 +277,7 @@ public static class ThumbnailCacheService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
         {
+            LoggingService.LogWarning($"ThumbnailCacheService.LoadFolderIndex: {folder}", ex);
             index.Clear();
         }
 
@@ -352,6 +353,7 @@ public static class ThumbnailCacheService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"ThumbnailCacheService.SaveFolderIndex: {folder}", ex);
         }
     }
 }

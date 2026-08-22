@@ -221,6 +221,7 @@ public static class ImageMetadataService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException)
         {
+            LoggingService.LogWarning($"ImageMetadataService.ReadAsync: {path}", ex);
             return null;
         }
     }
@@ -245,8 +246,9 @@ public static class ImageMetadataService
                 colorModel,
                 Array.Empty<(string, string)>());
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LoggingService.LogWarning($"ImageMetadataService.ReadAvif: {path}", ex);
             return null;
         }
     }

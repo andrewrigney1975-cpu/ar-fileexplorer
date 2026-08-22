@@ -55,6 +55,7 @@ public static class DiskBenchmarkService
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
+                    LoggingService.LogWarning($"DiskBenchmarkService.RunBenchmarkAsync (temp file cleanup): {testFile}", ex);
                 }
             }
         }
@@ -267,6 +268,9 @@ public static class DiskBenchmarkService
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException)
         {
+            // Falls back to "Unknown" fields in the drive info panel, which reads like a bug rather
+            // than an expected gap - worth a trail (WMI query failures aren't routine).
+            LoggingService.LogWarning("DiskBenchmarkService.GetDriveHardwareInfo", ex);
         }
 
         return new DriveHardwareInfo(manufacturer, model, capacityBytes, fileSystem, interfaceType, ApproximateInterfaceSpeed(interfaceType, model));

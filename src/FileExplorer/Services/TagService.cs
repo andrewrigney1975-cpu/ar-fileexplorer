@@ -56,6 +56,7 @@ public static class TagService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
+            LoggingService.LogWarning("TagService.LoadCache", ex);
         }
 
         _cache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -71,6 +72,7 @@ public static class TagService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning("TagService.Save", ex);
         }
     }
 }

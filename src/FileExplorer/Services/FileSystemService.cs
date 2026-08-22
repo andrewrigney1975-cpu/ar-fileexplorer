@@ -59,8 +59,9 @@ public sealed class FileSystemService : IFileSystemService
         {
             return DriveInfo.GetDrives().Where(d => d.IsReady).ToList();
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            LoggingService.LogWarning("FileSystemService.GetReadyDrives", ex);
             return Array.Empty<DriveInfo>();
         }
     }
@@ -195,8 +196,11 @@ public sealed class FileSystemService : IFileSystemService
         {
             files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories);
         }
-        catch (IOException) { return new List<FileSystemItem>(); }
-        catch (UnauthorizedAccessException) { return new List<FileSystemItem>(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("FileSystemService.SearchRecursive", ex);
+            return new List<FileSystemItem>();
+        }
 
         foreach (var file in files)
         {

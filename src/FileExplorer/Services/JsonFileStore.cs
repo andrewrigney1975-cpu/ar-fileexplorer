@@ -41,6 +41,10 @@ public sealed class JsonFileStore<T>
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
+            // Falls back to a fresh default (e.g. an empty favourites/sync-tasks/etc list) - to
+            // every caller this looks identical to "nothing saved yet", not a read failure, so this
+            // is the only place that failure is ever visible at all.
+            LoggingService.LogWarning($"JsonFileStore<{typeof(T).Name}>.Load: {_filePath}", ex);
         }
 
         _cache = _createDefault();
@@ -58,6 +62,7 @@ public sealed class JsonFileStore<T>
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LoggingService.LogWarning($"JsonFileStore<{typeof(T).Name}>.Save: {_filePath}", ex);
         }
     }
 }

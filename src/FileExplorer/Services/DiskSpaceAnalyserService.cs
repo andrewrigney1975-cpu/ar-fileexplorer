@@ -20,8 +20,12 @@ public static class DiskSpaceAnalyserService
             {
                 result.Add(new DriveSummary(drive, label, drive.TotalSize - drive.TotalFreeSpace, drive.TotalSize));
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                // 0/0 renders as "empty drive" in the UI, which is misleading if this was actually a
+                // read failure rather than a genuinely empty drive - worth a trail, unlike the
+                // per-folder ACL noise below (this fires once per drive, not once per protected folder).
+                LoggingService.LogWarning($"DiskSpaceAnalyserService.GetDrives: {drive.Name}", ex);
                 result.Add(new DriveSummary(drive, label, 0, 0));
             }
         }
