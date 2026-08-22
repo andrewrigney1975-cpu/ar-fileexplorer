@@ -1613,6 +1613,25 @@ public sealed partial class MainWindow : Window
         await dialog.ShowAsync();
     }
 
+    private void DiskActivityMonitorButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskActivityMonitorAsync();
+
+    private async Task OpenDiskActivityMonitorAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Disk Activity Monitor",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var monitor = new DiskActivityMonitorDialog { RequestClose = () => dialog.Hide() };
+        dialog.Content = monitor;
+
+        dialog.Resources["ContentDialogMaxWidth"] = 1360d;
+        dialog.Resources["ContentDialogMaxHeight"] = 900d;
+
+        await dialog.ShowAsync();
+    }
+
     private async Task RunScriptAsync(string scriptName)
     {
         if (!SettingsService.Current.EnableScripting)

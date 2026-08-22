@@ -142,6 +142,11 @@
                         Click="DiskBenchmarkButton_Click">
                     <FontIcon Glyph="&#xE95E;" FontSize="16" />
                 </Button>
+                <Button x:Name="DiskActivityMonitorButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                        AutomationProperties.Name="Disk activity monitor" ToolTipService.ToolTip="Disk activity monitor"
+                        Click="DiskActivityMonitorButton_Click">
+                    <FontIcon Glyph="&#xE9D9;" FontSize="16" />
+                </Button>
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
