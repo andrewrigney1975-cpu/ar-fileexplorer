@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using FileExplorer.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FileExplorer.Services;
 
@@ -37,7 +38,10 @@ public static class RemoteSessionManager
                 return new RemoteConnectResult(existing, false);
             }
 
-            var connection = RemoteConnectionService.Find(connectionId)
+            // RemoteSessionManager itself isn't DI-registered (see the dependency-injection
+            // migration plan) - resolving IRemoteConnectionService from the composition root here
+            // is the same locator pattern used by the XAML-instantiated Views.
+            var connection = App.Services.GetRequiredService<IRemoteConnectionService>().Find(connectionId)
                 ?? throw new InvalidOperationException("This connection no longer exists.");
 
             var password = await passwordPrompt().ConfigureAwait(false);

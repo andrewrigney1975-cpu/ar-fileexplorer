@@ -9,10 +9,16 @@ namespace FileExplorer.ViewModels;
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly DispatcherQueue _dispatcher;
+    private readonly IFileSystemService _fileSystemService;
+    private readonly ISessionService _sessionService;
+    private readonly IRemoteConnectionService _remoteConnectionService;
 
-    public MainViewModel(DispatcherQueue dispatcher)
+    public MainViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, ISessionService sessionService, IRemoteConnectionService remoteConnectionService)
     {
         _dispatcher = dispatcher;
+        _fileSystemService = fileSystemService;
+        _sessionService = sessionService;
+        _remoteConnectionService = remoteConnectionService;
         RestoreSessionOrDefault();
     }
 
@@ -27,7 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
     public TabViewModel AddTab(string? startPath = null)
     {
         var path = startPath ?? GetDefaultStartPath();
-        var tab = new TabViewModel(_dispatcher, path);
+        var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, path);
         Tabs.Add(tab);
         SelectedTab = tab;
         return tab;
@@ -35,7 +41,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public TabViewModel AddTab(string leftPath, string rightPath)
     {
-        var tab = new TabViewModel(_dispatcher, leftPath, rightPath);
+        var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, leftPath, rightPath);
         Tabs.Add(tab);
         SelectedTab = tab;
         return tab;
@@ -45,7 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
     public void DuplicateTab(TabViewModel source)
     {
         var name = source.HasCustomHeader ? source.Header : null;
-        var tab = new TabViewModel(_dispatcher, source.LeftPane.CurrentPath, source.RightPane.CurrentPath, name);
+        var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, source.LeftPane.CurrentPath, source.RightPane.CurrentPath, name);
         var index = Tabs.IndexOf(source);
         Tabs.Insert(index < 0 ? Tabs.Count : index + 1, tab);
         SelectedTab = tab;
@@ -53,7 +59,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void RestoreSessionOrDefault()
     {
-        var saved = SessionService.Load();
+        var saved = _sessionService.Load();
         if (saved.Count == 0)
         {
             AddTab();
@@ -62,7 +68,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         foreach (var state in saved)
         {
-            Tabs.Add(new TabViewModel(_dispatcher, state.LeftPath, state.RightPath, state.Name));
+            Tabs.Add(new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, state.LeftPath, state.RightPath, state.Name));
         }
 
         SelectedTab = Tabs[0];
@@ -70,7 +76,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void SaveSession()
     {
-        SessionService.Save(Tabs.Select(t => new TabState(
+        _sessionService.Save(Tabs.Select(t => new TabState(
             t.LeftPane.CurrentPath, t.RightPane.CurrentPath, t.HasCustomHeader ? t.Header : null)));
     }
 

@@ -3,6 +3,7 @@ using System.IO.Compression;
 using FileExplorer.Models;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -119,7 +120,7 @@ public sealed partial class PaneView : UserControl
 
         if (RemotePathService.TryParse(path, out var scheme, out var connectionId, out _))
         {
-            var rootLabel = RemoteConnectionService.Find(connectionId)?.Name ?? connectionId;
+            var rootLabel = App.Services.GetRequiredService<IRemoteConnectionService>().Find(connectionId)?.Name ?? connectionId;
             segments = new List<(string Label, string FullPath)> { (rootLabel, RemotePathService.BuildRoot(scheme, connectionId)) };
             segments.AddRange(RemotePathService.GetBreadcrumbSegments(path).Select(s => (s.Name, s.Path)));
         }

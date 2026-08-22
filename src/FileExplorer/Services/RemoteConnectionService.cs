@@ -3,17 +3,25 @@ using FileExplorer.Models;
 
 namespace FileExplorer.Services;
 
+public interface IRemoteConnectionService
+{
+    List<RemoteConnection> Load();
+    RemoteConnection? Find(string id);
+    void Add(RemoteConnection connection);
+    void Remove(RemoteConnection connection);
+}
+
 /// JSON-backed store of saved FTP/SFTP connection profiles, shown in the left rail's "Remote
 /// Connections" section. Mirrors NetworkLocationService exactly. Never stores a password - see
 /// RemoteConnection's doc comment.
-public static class RemoteConnectionService
+public sealed class RemoteConnectionService : IRemoteConnectionService
 {
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "remoteconnections.json");
 
-    private static List<RemoteConnection>? _cache;
+    private List<RemoteConnection>? _cache;
 
-    public static List<RemoteConnection> Load()
+    public List<RemoteConnection> Load()
     {
         if (_cache is not null)
         {
@@ -38,16 +46,16 @@ public static class RemoteConnectionService
         return _cache;
     }
 
-    public static RemoteConnection? Find(string id) => Load().FirstOrDefault(c => c.Id == id);
+    public RemoteConnection? Find(string id) => Load().FirstOrDefault(c => c.Id == id);
 
-    public static void Add(RemoteConnection connection)
+    public void Add(RemoteConnection connection)
     {
         var list = Load();
         list.Add(connection);
         Save(list);
     }
 
-    public static void Remove(RemoteConnection connection)
+    public void Remove(RemoteConnection connection)
     {
         var list = Load();
         list.Remove(connection);

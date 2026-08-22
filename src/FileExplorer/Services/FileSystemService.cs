@@ -3,20 +3,30 @@ using FileExplorer.Models;
 
 namespace FileExplorer.Services;
 
-public static class FileSystemService
+public interface IFileSystemService
+{
+    Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken);
+    IReadOnlyList<DriveInfo> GetReadyDrives();
+    bool HasSubdirectories(string path);
+    List<FolderNode> GetSubfolderNodes(string path);
+    List<FileSystemItem> GetItems(string path);
+    List<FileSystemItem> SearchRecursive(string root, string query, CancellationToken cancellationToken);
+}
+
+public sealed class FileSystemService : IFileSystemService
 {
     /// Local branch wraps the existing synchronous GetItems (unchanged) in Task.Run; remote
     /// branch lists via whichever session is already open for that connection - see
     /// RemoteSessionManager, established by the left-rail "Remote Connections" click-to-connect
     /// flow before any navigation into that connection happens.
-    public static Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken)
+    public Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken)
     {
         return RemotePathService.IsRemote(path)
             ? GetRemoteItemsAsync(path, cancellationToken)
             : Task.Run(() => GetItems(path), cancellationToken);
     }
 
-    private static async Task<List<FileSystemItem>> GetRemoteItemsAsync(string path, CancellationToken cancellationToken)
+    private async Task<List<FileSystemItem>> GetRemoteItemsAsync(string path, CancellationToken cancellationToken)
     {
         if (!RemotePathService.TryParse(path, out _, out var connectionId, out var remotePath))
         {
@@ -43,7 +53,7 @@ public static class FileSystemService
             .ToList();
     }
 
-    public static IReadOnlyList<DriveInfo> GetReadyDrives()
+    public IReadOnlyList<DriveInfo> GetReadyDrives()
     {
         try
         {
@@ -55,7 +65,7 @@ public static class FileSystemService
         }
     }
 
-    public static bool HasSubdirectories(string path)
+    public bool HasSubdirectories(string path)
     {
         try
         {
@@ -65,7 +75,7 @@ public static class FileSystemService
         catch (IOException) { return false; }
     }
 
-    public static List<FolderNode> GetSubfolderNodes(string path)
+    public List<FolderNode> GetSubfolderNodes(string path)
     {
         var result = new List<FolderNode>();
         try
@@ -86,7 +96,7 @@ public static class FileSystemService
         return result;
     }
 
-    public static List<FileSystemItem> GetItems(string path)
+    public List<FileSystemItem> GetItems(string path)
     {
         var items = new List<FileSystemItem>();
 
@@ -171,7 +181,7 @@ public static class FileSystemService
 
     /// Recursive fuzzy filename + (for text/code files) content search under root, ranked by
     /// relevance and capped for responsiveness.
-    public static List<FileSystemItem> SearchRecursive(string root, string query, CancellationToken cancellationToken)
+    public List<FileSystemItem> SearchRecursive(string root, string query, CancellationToken cancellationToken)
     {
         var candidates = new List<(FileSystemItem Item, int Score)>();
 

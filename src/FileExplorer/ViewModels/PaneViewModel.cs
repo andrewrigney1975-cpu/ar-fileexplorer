@@ -10,6 +10,7 @@ namespace FileExplorer.ViewModels;
 public sealed partial class PaneViewModel : ObservableObject
 {
     private readonly DispatcherQueue _dispatcher;
+    private readonly IFileSystemService _fileSystemService;
     private readonly List<string> _back = new();
     private readonly List<string> _forward = new();
     private readonly List<FileSystemItem> _allItems = new();
@@ -20,9 +21,10 @@ public sealed partial class PaneViewModel : ObservableObject
     // be redundant and briefly show stale results.
     private bool _suppressSearchFilter;
 
-    public PaneViewModel(DispatcherQueue dispatcher, string startPath)
+    public PaneViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, string startPath)
     {
         _dispatcher = dispatcher;
+        _fileSystemService = fileSystemService;
         CurrentPath = startPath;
 
         Refresh();
@@ -201,7 +203,7 @@ public sealed partial class PaneViewModel : ObservableObject
 
         try
         {
-            items = await FileSystemService.GetItemsAsync(path, CancellationToken.None);
+            items = await _fileSystemService.GetItemsAsync(path, CancellationToken.None);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -307,7 +309,7 @@ public sealed partial class PaneViewModel : ObservableObject
         List<FileSystemItem> results;
         try
         {
-            results = await Task.Run(() => FileSystemService.SearchRecursive(root, query, token), token);
+            results = await Task.Run(() => _fileSystemService.SearchRecursive(root, query, token), token);
         }
         catch (OperationCanceledException)
         {
