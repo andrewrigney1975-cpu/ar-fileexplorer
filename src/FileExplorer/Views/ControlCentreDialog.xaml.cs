@@ -38,6 +38,7 @@ public sealed partial class ControlCentreDialog : UserControl
             ThumbnailSizeBox.Value = SettingsService.Current.ThumbnailSize;
             AboutVersionText.Text = $"Version {AppVersionInfo.Version}";
             LoadAboutTileImages();
+            PopulateKeyboardShortcuts();
 
             SyncTaskService.Changed += OnSyncTasksChanged;
             SettingsService.Changed += OnSettingsChanged;
@@ -82,6 +83,7 @@ public sealed partial class ControlCentreDialog : UserControl
             ThumbnailSizeBox.Value = SettingsService.Current.ThumbnailSize;
         }
         PreferencesPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, PreferencesNavItem) ? Visibility.Visible : Visibility.Collapsed;
+        KeyboardShortcutsPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, KeyboardShortcutsNavItem) ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, AboutNavItem) ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -170,6 +172,131 @@ public sealed partial class ControlCentreDialog : UserControl
     }
 
     private bool _loadingPreferences;
+
+    /// Built in code rather than hand-written XAML rows - the two-column layout and the
+    /// keep-groups-together column split are both far easier to get right (and re-balance later)
+    /// as data than as ~200 lines of repeated Grid/Border/TextBlock markup.
+    private void PopulateKeyboardShortcuts()
+    {
+        // Function keys grouped together and sorted by number, per the user's explicit ask -
+        // otherwise they'd be scattered across Files/Navigation/View/Tools by topic.
+        var functionKeys = ("FUNCTION KEYS", new[]
+        {
+            ("F2", "Rename"),
+            ("F3", "Move to new folder"),
+            ("F4", "Find duplicate files"),
+            ("F5", "Refresh"),
+            ("F6", "Toggle preview pane"),
+            ("F7", "Toggle terminal"),
+            ("F8", "Checksum selection"),
+            ("F10", "Control Centre"),
+        });
+
+        var files = ("FILES", new[]
+        {
+            ("Delete", "Delete to Recycle Bin"),
+            ("Shift+Delete", "Delete permanently"),
+            ("Ctrl+X", "Cut"),
+            ("Ctrl+C", "Copy"),
+            ("Ctrl+V", "Paste"),
+            ("Ctrl+Shift+N", "New folder"),
+            ("Ctrl+Z", "Undo"),
+        });
+
+        var navigation = ("NAVIGATION", new[]
+        {
+            ("Alt+Left", "Back"),
+            ("Alt+Right", "Forward"),
+            ("Alt+Up", "Up one level"),
+        });
+
+        var view = ("VIEW", new[]
+        {
+            ("Ctrl+Shift+1", "Icons view"),
+            ("Ctrl+Shift+2", "List view"),
+            ("Ctrl+Shift+3", "Details view"),
+            ("Ctrl+Shift+4", "Gallery view"),
+        });
+
+        var workspaces = ("WORKSPACES", new[]
+        {
+            ("Ctrl+T", "New Workspace tab"),
+            ("Ctrl+W", "Close Workspace tab"),
+            ("Ctrl+Tab", "Next Workspace"),
+            ("Ctrl+Shift+Tab", "Previous Workspace"),
+        });
+
+        var tools = ("TOOLS", new[]
+        {
+            ("Ctrl+K", "Command Palette"),
+        });
+
+        // Not KeyboardAccelerators - routed KeyDown, so only active while that specific control
+        // has literal focus (see the keyboard-shortcut-pattern lesson: Space is deliberately kept
+        // routed rather than global so it doesn't hijack every button's activation key).
+        var focusScoped = ("WHEN FOCUSED", new[]
+        {
+            ("Space", "Quick Look preview (file list)"),
+            ("Enter", "Navigate typed path / run terminal command"),
+            ("Esc", "Revert path box / clear search box"),
+            ("Up / Down", "Terminal command history"),
+        });
+
+        // Balanced by row count (including each group's own header) across 3 columns, not just by
+        // topic - Function Keys is the biggest single group so it gets a column mostly to itself.
+        AddShortcutGroup(ShortcutsColumn1, functionKeys);
+        AddShortcutGroup(ShortcutsColumn1, tools);
+
+        AddShortcutGroup(ShortcutsColumn2, files);
+        AddShortcutGroup(ShortcutsColumn2, navigation);
+
+        AddShortcutGroup(ShortcutsColumn3, view);
+        AddShortcutGroup(ShortcutsColumn3, workspaces);
+        AddShortcutGroup(ShortcutsColumn3, focusScoped);
+    }
+
+    private void AddShortcutGroup(StackPanel column, (string Header, (string Key, string Description)[] Rows) group)
+    {
+        column.Children.Add(new TextBlock
+        {
+            Text = group.Header,
+            Style = (Style)Resources["ShortcutGroupHeaderStyle"],
+        });
+
+        var grid = new Grid { ColumnSpacing = 10, RowSpacing = 8, Margin = new Thickness(0, 0, 0, 6) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(128) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        for (var i = 0; i < group.Rows.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var (key, description) = group.Rows[i];
+
+            var keyBorder = new Border
+            {
+                Style = (Style)Resources["ShortcutKeyStyle"],
+                Child = new TextBlock { Text = key, FontSize = 12 },
+            };
+            Grid.SetRow(keyBorder, i);
+            Grid.SetColumn(keyBorder, 0);
+            grid.Children.Add(keyBorder);
+
+            var descText = new TextBlock
+            {
+                Text = description,
+                FontSize = 12,
+                Opacity = 0.85,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            Grid.SetRow(descText, i);
+            Grid.SetColumn(descText, 1);
+            grid.Children.Add(descText);
+        }
+
+        column.Children.Add(grid);
+    }
 
     /// Unpackaged app - loaded via a file stream + SetSourceAsync (same proven pattern
     /// PreviewPaneuses for image previews), rather than `new BitmapImage(new Uri(path))`, which
