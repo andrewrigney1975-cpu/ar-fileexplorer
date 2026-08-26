@@ -43,7 +43,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Filename collisions on copy/move (drag-and-drop, paste, "Move to folder...") and sync tasks prompt **Overwrite / Skip / Rename / Cancel**, with an "apply to all remaining conflicts" option; Rename auto-appends a bracketed number (`file (2).txt`) with no further input needed
 - Undo for create-folder, rename, move, and copy operations
 - Resilient, parallel, queued file-copy engine with automatic restart on transient I/O errors
-- The File operations toolbar icon spins while any job is queued or running, so activity is visible without opening the flyout
+- The File operations toolbar icon spins while any job is queued or running, so activity is visible without opening the flyout — also spins for a running script, whether triggered manually, by a folder watch, or by an interval schedule
 - "Open with..." context menu entry
 
 ### Folder sync

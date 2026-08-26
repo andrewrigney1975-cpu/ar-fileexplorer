@@ -168,10 +168,29 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonPressedForegroundColor = glyphColor;
     }
 
+    // Tracks running scripts (folder-watch triggers, interval schedules, manual "Run Script")
+    // alongside _operationQueue.Jobs so the same gear spins for those too, not just copy/move/sync
+    // jobs - a script run doesn't produce a FileOperationQueueService job, so it needs its own
+    // counter rather than piggybacking on Jobs.CollectionChanged.
+    private int _scriptRunsInProgress;
+
+    private void BeginScriptRun()
+    {
+        _scriptRunsInProgress++;
+        UpdateOperationsSpinner();
+    }
+
+    private void EndScriptRun()
+    {
+        _scriptRunsInProgress--;
+        UpdateOperationsSpinner();
+    }
+
     private void UpdateOperationsSpinner()
     {
         var spin = (Storyboard)RootGrid.Resources["OperationsGearSpin"];
-        var inProgress = _operationQueue.Jobs.Any(j => j.Status is FileOperationStatus.Queued or FileOperationStatus.Running);
+        var inProgress = _scriptRunsInProgress > 0 ||
+            _operationQueue.Jobs.Any(j => j.Status is FileOperationStatus.Queued or FileOperationStatus.Running);
         var spinning = spin.GetCurrentState() == ClockState.Active;
 
         if (inProgress && !spinning)
@@ -1763,8 +1782,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await ScriptEngineService.RunAsync(
-            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+        BeginScriptRun();
+        ScriptRunResult result;
+        try
+        {
+            result = await ScriptEngineService.RunAsync(
+                code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+        }
+        finally
+        {
+            EndScriptRun();
+        }
 
         if (result.Success)
         {
@@ -1801,6 +1829,7 @@ public sealed partial class MainWindow : Window
         // Paused for the duration of the run so the script's own writes into the watched folder
         // (e.g. a rename-in-place) can't re-trigger this same watch and loop forever.
         WatchService.PauseWatcher(task.Id);
+        BeginScriptRun();
         ScriptRunResult result;
         try
         {
@@ -1809,6 +1838,7 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            EndScriptRun();
             WatchService.ResumeWatcher(task.Id);
         }
 
@@ -1848,8 +1878,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await ScriptEngineService.RunAsync(
-            code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+        BeginScriptRun();
+        ScriptRunResult result;
+        try
+        {
+            result = await ScriptEngineService.RunAsync(
+                code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+        }
+        finally
+        {
+            EndScriptRun();
+        }
 
         var summary = result.Success
             ? (result.Log.Count > 0 ? string.Join(" | ", result.Log.TakeLast(3)) : "Completed.")
