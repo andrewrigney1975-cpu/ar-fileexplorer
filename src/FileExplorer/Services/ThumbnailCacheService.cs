@@ -30,6 +30,19 @@ public static class ThumbnailCacheService
 
     private static uint _lastKnownMaxDimension = MaxDimension;
 
+    // Decoded BitmapImages are the memory-heavy side of this cache (pixel data, not the compressed
+    // PNG bytes) - budget a fixed byte ceiling and derive the entry cap from the current thumbnail
+    // size, so a user running 1024px thumbnails doesn't get the same entry count as one running the
+    // 192px default. FolderIndexes holds only compressed PNG bytes per folder, so a flat entry cap
+    // is enough there - it was previously unbounded for the app's whole lifetime (see the "big
+    // folder" memory report this was added for: ~20k thumbnails realized in one session held both
+    // their decoded bitmap and encoded bytes forever, several GB total).
+    private const long MemoryCacheBudgetBytes = 250 * 1024 * 1024;
+    private const int MaxFolderIndexEntries = 100;
+
+    private static int MaxMemoryCacheEntries =>
+        (int)Math.Clamp(MemoryCacheBudgetBytes / Math.Max(1, (long)MaxDimension * MaxDimension * 4), 100, 5000);
+
     static ThumbnailCacheService()
     {
         SettingsService.Changed += (_, _) =>
@@ -48,7 +61,11 @@ public static class ThumbnailCacheService
             lock (Sync)
             {
                 MemoryCache.Clear();
+                MemoryCacheOrder.Clear();
+                MemoryCacheNodes.Clear();
                 FolderIndexes.Clear();
+                FolderIndexOrder.Clear();
+                FolderIndexNodes.Clear();
                 foreach (var timer in FlushTimers.Values)
                 {
                     timer.Dispose();
@@ -60,23 +77,34 @@ public static class ThumbnailCacheService
 
     private sealed record DiskEntry(long ModifiedTicks, byte[] Png);
 
-    // Guards every read/write of FolderIndexes/the per-folder dictionaries/FlushTimers. The
-    // debounced save below runs on a ThreadPool timer thread while new thumbnails keep being added
-    // from the UI thread as the user scrolls - Dictionary<> is not safe for that without a lock
-    // (this was the actual bug behind "thumbnails stop generating after scrolling a bit": the
-    // background save was enumerating the same dictionary the UI thread was still writing to).
+    // Guards every read/write of FolderIndexes/the per-folder dictionaries/FlushTimers, and now
+    // also MemoryCache/the two LRU tracking structures below - GetOrCreateAsync is invoked from
+    // the UI thread as items realize, but the settings-changed handler above can clear everything
+    // from whatever thread raised SettingsService.Changed, so both sides need the same lock.
     private static readonly object Sync = new();
 
     private static readonly Dictionary<string, BitmapImage> MemoryCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, Dictionary<string, DiskEntry>> FolderIndexes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, Timer> FlushTimers = new(StringComparer.OrdinalIgnoreCase);
 
+    // Least-recently-used tracking for MemoryCache/FolderIndexes: most-recently-touched key at the
+    // front, oldest at the back, so eviction on overflow drops whatever hasn't been used in a while
+    // rather than an arbitrary dictionary-order entry.
+    private static readonly LinkedList<string> MemoryCacheOrder = new();
+    private static readonly Dictionary<string, LinkedListNode<string>> MemoryCacheNodes = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly LinkedList<string> FolderIndexOrder = new();
+    private static readonly Dictionary<string, LinkedListNode<string>> FolderIndexNodes = new(StringComparer.OrdinalIgnoreCase);
+
     public static async Task<BitmapImage?> GetOrCreateAsync(string fullPath, DateTimeOffset modified, bool isDirectory = false)
     {
         var memoryKey = $"{fullPath}|{modified.UtcTicks}";
-        if (MemoryCache.TryGetValue(memoryKey, out var cached))
+        lock (Sync)
         {
-            return cached;
+            if (MemoryCache.TryGetValue(memoryKey, out var cached))
+            {
+                TouchMemoryCacheLocked(memoryKey);
+                return cached;
+            }
         }
 
         var folder = Path.GetDirectoryName(fullPath);
@@ -125,8 +153,60 @@ public static class ThumbnailCacheService
         using var stream = new MemoryStream(png);
         await bitmap.SetSourceAsync(stream.AsRandomAccessStream());
 
-        MemoryCache[memoryKey] = bitmap;
+        lock (Sync)
+        {
+            MemoryCache[memoryKey] = bitmap;
+            TouchMemoryCacheLocked(memoryKey);
+        }
+
         return bitmap;
+    }
+
+    /// Marks memoryKey as most-recently-used and, on first insertion, evicts the least-recently-used
+    /// entries until the cache is back within MaxMemoryCacheEntries. Caller must hold Sync.
+    private static void TouchMemoryCacheLocked(string memoryKey)
+    {
+        if (MemoryCacheNodes.TryGetValue(memoryKey, out var node))
+        {
+            MemoryCacheOrder.Remove(node);
+            MemoryCacheOrder.AddFirst(node);
+            return;
+        }
+
+        MemoryCacheNodes[memoryKey] = MemoryCacheOrder.AddFirst(memoryKey);
+
+        var cap = MaxMemoryCacheEntries;
+        while (MemoryCacheOrder.Count > cap)
+        {
+            var oldest = MemoryCacheOrder.Last!;
+            MemoryCacheOrder.RemoveLast();
+            MemoryCacheNodes.Remove(oldest.Value);
+            MemoryCache.Remove(oldest.Value);
+        }
+    }
+
+    /// Marks folder as most-recently-used and, on first insertion, evicts the least-recently-used
+    /// folder indexes until back within MaxFolderIndexEntries. Caller must hold Sync. A folder's
+    /// on-disk cache file is untouched by this - eviction only drops the in-memory copy, so a
+    /// revisit after eviction just re-reads it from disk instead of re-encoding thumbnails.
+    private static void TouchFolderIndexLocked(string folder)
+    {
+        if (FolderIndexNodes.TryGetValue(folder, out var node))
+        {
+            FolderIndexOrder.Remove(node);
+            FolderIndexOrder.AddFirst(node);
+            return;
+        }
+
+        FolderIndexNodes[folder] = FolderIndexOrder.AddFirst(folder);
+
+        while (FolderIndexOrder.Count > MaxFolderIndexEntries)
+        {
+            var oldest = FolderIndexOrder.Last!;
+            FolderIndexOrder.RemoveLast();
+            FolderIndexNodes.Remove(oldest.Value);
+            FolderIndexes.Remove(oldest.Value);
+        }
     }
 
     /// Looks for a representative image inside a folder: files directly in it first (alphabetical),
@@ -247,6 +327,7 @@ public static class ThumbnailCacheService
         {
             if (FolderIndexes.TryGetValue(folder, out var cached))
             {
+                TouchFolderIndexLocked(folder);
                 return cached;
             }
         }
@@ -287,10 +368,12 @@ public static class ThumbnailCacheService
             // index while the file read above was in flight - keep whichever came first.
             if (FolderIndexes.TryGetValue(folder, out var existing))
             {
+                TouchFolderIndexLocked(folder);
                 return existing;
             }
 
             FolderIndexes[folder] = index;
+            TouchFolderIndexLocked(folder);
             return index;
         }
     }
