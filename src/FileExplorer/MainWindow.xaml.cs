@@ -108,6 +108,17 @@ public sealed partial class MainWindow : Window
 
         UndoService.Instance.Changed += (_, _) => DispatcherQueue.TryEnqueue(() => UndoButton.IsEnabled = UndoService.Instance.CanUndo);
 
+        // Picks up changes made outside the app (another program writing files, a sync tool, etc.)
+        // the moment the user comes back to it, same as switching Workspace tabs already does -
+        // without this, disk state can silently drift from what's shown until a manual refresh.
+        Activated += (_, args) =>
+        {
+            if (args.WindowActivationState != WindowActivationState.Deactivated)
+            {
+                _viewModel.SelectedTab?.RefreshBoth();
+            }
+        };
+
         Closed += (_, _) =>
         {
             _viewModel.SaveSession();

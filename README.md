@@ -13,6 +13,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Back / forward / up navigation with history per pane
 - Session restore: Workspaces (including custom names) and pane paths persist across restarts
 - Switching Workspace tabs auto-refreshes both panes of the tab being switched to, so disk changes made while it wasn't the active tab are reflected immediately rather than waiting for a manual refresh
+- The active tab's panes also auto-refresh whenever the app window regains focus (Alt-Tab back to it, click it after using another program), for the same reason - picks up files added/changed/removed elsewhere while the app was in the background
 - Command palette (`Ctrl+K`) for navigation, view switching, running actions by name, and opening the Control Centre; a persistent "Command Palette (Ctrl+K)" bar sits top-center of the toolbar as a discoverable, clickable entry point to the same popup
 - Collapsible left-rail sections (Favourites, Saved Searches, Network Locations, Cloud Storage), VS Code style
 - Favourites: pin any folder from the left rail's own `+` button or a folder's context menu ("Add to Favourites"), click to navigate, `−` to unpin
