@@ -325,6 +325,12 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (TryHandleTypeAhead(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Space is the standard activation key for any focused button-like control throughout
         // WinUI (Button, ToggleButton, CheckBox, MenuFlyoutItem...) - unlike Delete/F2/F3, it can't
         // safely become a window-global KeyboardAccelerator without hijacking Space-to-activate
@@ -337,6 +343,115 @@ public sealed partial class PaneView : UserControl
 
         e.Handled = true;
         ToggleQuickLook();
+    }
+
+    // ----- Type-ahead-to-jump (works identically across Icons/List/Details/Gallery - it operates
+    // on ViewModel.Items and ListView.SelectedItem/ScrollIntoView, neither of which cares which
+    // ItemsPanel template is currently active) -----
+
+    private string _typeAheadBuffer = string.Empty;
+    private DateTime _typeAheadLastKeyTime;
+    private static readonly TimeSpan TypeAheadResetTimeout = TimeSpan.FromSeconds(1);
+
+    /// Classic "type to jump" behavior, same shape as Explorer/WPF's TextSearch: typing different
+    /// characters within the timeout accumulates a prefix search from the top of the list; typing
+    /// the same character repeatedly instead cycles forward through every item starting with it
+    /// (so mashing "s" steps through Screenshots, Src, Summary, ... one at a time). Deliberately
+    /// scoped to ItemsList's own routed KeyDown rather than a window-level KeyboardAccelerator -
+    /// unlike Delete/F2/F3 this is meaningless without the list actually having keyboard focus (you
+    /// have to click/Tab into it before typing means anything), same reasoning as the Space handler
+    /// above.
+    private bool TryHandleTypeAhead(VirtualKey key)
+    {
+        if (ViewModel is null || ViewModel.Items.Count == 0 || KeyToTypeAheadChar(key) is not { } ch)
+        {
+            return false;
+        }
+
+        // Ctrl/Alt-modified letters are shortcuts (Ctrl+A select-all, Ctrl+C copy, ...), not typing.
+        if (IsControlPressed() || IsAltPressed())
+        {
+            return false;
+        }
+
+        var now = DateTime.Now;
+        var continuesTyping = now - _typeAheadLastKeyTime < TypeAheadResetTimeout;
+        _typeAheadLastKeyTime = now;
+
+        if (!continuesTyping)
+        {
+            _typeAheadBuffer = string.Empty;
+        }
+
+        FileSystemItem? match;
+
+        if (_typeAheadBuffer.Length == 0 || _typeAheadBuffer.All(c => c == ch))
+        {
+            _typeAheadBuffer += ch;
+            match = FindNextTypeAheadCyclicMatch(ch);
+        }
+        else
+        {
+            _typeAheadBuffer += ch;
+            match = FindFirstItemStartingWith(_typeAheadBuffer);
+            if (match is null)
+            {
+                // Accumulated prefix no longer matches anything - start fresh from this keystroke
+                // rather than getting stuck on a dead prefix for the rest of the timeout window.
+                _typeAheadBuffer = ch.ToString();
+                match = FindFirstItemStartingWith(_typeAheadBuffer);
+            }
+        }
+
+        if (match is not null)
+        {
+            ViewModel.SelectedItem = match;
+            ItemsList.ScrollIntoView(match);
+        }
+
+        return true;
+    }
+
+    private FileSystemItem? FindFirstItemStartingWith(string prefix) =>
+        ViewModel!.Items.FirstOrDefault(i => i.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+    private FileSystemItem? FindNextTypeAheadCyclicMatch(char ch)
+    {
+        var items = ViewModel!.Items;
+        var count = items.Count;
+        var startIndex = ViewModel.SelectedItem is { } selected ? items.IndexOf(selected) + 1 : 0;
+
+        for (var offset = 0; offset < count; offset++)
+        {
+            var index = (startIndex + offset) % count;
+            if (items[index].Name.StartsWith(ch.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return items[index];
+            }
+        }
+
+        return null;
+    }
+
+    private static char? KeyToTypeAheadChar(VirtualKey key)
+    {
+        if (key >= VirtualKey.A && key <= VirtualKey.Z)
+        {
+            return (char)('A' + (key - VirtualKey.A));
+        }
+
+        if (key >= VirtualKey.Number0 && key <= VirtualKey.Number9)
+        {
+            return (char)('0' + (key - VirtualKey.Number0));
+        }
+
+        return null;
+    }
+
+    private static bool IsControlPressed()
+    {
+        var state = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
+        return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
     private void ToggleQuickLook()
