@@ -5,7 +5,8 @@ public sealed record AppSettings(
     bool EnableTerminal,
     bool EnableSyncTasks,
     bool EnableFolderWatching,
-    bool EnableScripting);
+    bool EnableScripting,
+    bool EnableFolderListingCache);
 
 /// App-local store of user preferences (thumbnail bitmap size, feature toggles for the Terminal /
 /// Sync Tasks / Folder Watching / Scripting). Everything that reads a setting should read
@@ -17,7 +18,8 @@ public static class SettingsService
         EnableTerminal: true,
         EnableSyncTasks: true,
         EnableFolderWatching: true,
-        EnableScripting: true);
+        EnableScripting: true,
+        EnableFolderListingCache: true);
 
     private static readonly JsonFileStore<AppSettings> Store = new("settings.json", () => Defaults);
 

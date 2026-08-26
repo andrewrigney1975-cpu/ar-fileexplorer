@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using FileExplorer.Helpers;
 using FileExplorer.Models;
 
@@ -5,7 +6,7 @@ namespace FileExplorer.Services;
 
 public interface IFileSystemService
 {
-    Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken);
+    Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken, bool bypassCache = false);
     IReadOnlyList<DriveInfo> GetReadyDrives();
     bool HasSubdirectories(string path);
     List<FolderNode> GetSubfolderNodes(string path);
@@ -15,15 +16,54 @@ public interface IFileSystemService
 
 public sealed class FileSystemService : IFileSystemService
 {
-    /// Local branch wraps the existing synchronous GetItems (unchanged) in Task.Run; remote
+    private const int CacheTtlSeconds = 300;
+
+    // Keyed by folder path (case-insensitive). Populated on every local GetItemsAsync call and
+    // served back until either CacheTtlSeconds elapses or WatchService reports a file landing in
+    // that folder (see the static constructor below) - only folders with an active watch task get
+    // that early invalidation, everything else relies on the TTL.
+    private static readonly ConcurrentDictionary<string, (List<FileSystemItem> Items, DateTime ExpiresAtUtc)> _listingCache = new(StringComparer.OrdinalIgnoreCase);
+
+    static FileSystemService()
+    {
+        WatchService.Triggered += (_, e) => _listingCache.TryRemove(e.Task.FolderPath, out var _unused);
+        SettingsService.Changed += (_, _) =>
+        {
+            if (!SettingsService.Current.EnableFolderListingCache)
+            {
+                _listingCache.Clear();
+            }
+        };
+    }
+
+    /// Local branch serves from the in-memory listing cache when fresh, otherwise wraps the
+    /// existing synchronous GetItems (unchanged) in Task.Run and repopulates the cache; remote
     /// branch lists via whichever session is already open for that connection - see
     /// RemoteSessionManager, established by the left-rail "Remote Connections" click-to-connect
     /// flow before any navigation into that connection happens.
-    public Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken)
+    public Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken, bool bypassCache = false)
     {
-        return RemotePathService.IsRemote(path)
-            ? GetRemoteItemsAsync(path, cancellationToken)
-            : Task.Run(() => GetItems(path), cancellationToken);
+        if (RemotePathService.IsRemote(path))
+        {
+            return GetRemoteItemsAsync(path, cancellationToken);
+        }
+
+        var cacheEnabled = SettingsService.Current.EnableFolderListingCache;
+
+        if (cacheEnabled && !bypassCache && _listingCache.TryGetValue(path, out var cached) && cached.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            return Task.FromResult(new List<FileSystemItem>(cached.Items));
+        }
+
+        return Task.Run(() =>
+        {
+            var items = GetItems(path);
+            if (cacheEnabled)
+            {
+                _listingCache[path] = (new List<FileSystemItem>(items), DateTime.UtcNow.AddSeconds(CacheTtlSeconds));
+            }
+            return items;
+        }, cancellationToken);
     }
 
     private async Task<List<FileSystemItem>> GetRemoteItemsAsync(string path, CancellationToken cancellationToken)

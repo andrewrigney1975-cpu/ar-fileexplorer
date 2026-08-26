@@ -114,6 +114,7 @@
                             <ToggleSwitch x:Name="SyncTasksToggle" Header="Sync Tasks" OnContent="On" OffContent="Off" Toggled="FeatureToggle_Toggled" />
                             <ToggleSwitch x:Name="FolderWatchingToggle" Header="Folder watching" OnContent="On" OffContent="Off" Toggled="FeatureToggle_Toggled" />
                             <ToggleSwitch x:Name="ScriptingToggle" Header="Scripting" OnContent="On" OffContent="Off" Toggled="FeatureToggle_Toggled" />
+                            <ToggleSwitch x:Name="FolderListingCacheToggle" Header="Folder listing cache" OnContent="On" OffContent="Off" Toggled="FeatureToggle_Toggled" />
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="KeyboardShortcutsPanel" Visibility="Collapsed">

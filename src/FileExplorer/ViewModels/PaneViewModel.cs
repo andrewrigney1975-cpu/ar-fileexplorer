@@ -173,7 +173,7 @@ public sealed partial class PaneViewModel : ObservableObject
     public bool CanNavigateForward => _forward.Count > 0;
 
     [RelayCommand]
-    public void Refresh(string? selectPathAfterLoad = null) => _ = LoadAsync(selectPathAfterLoad);
+    public void Refresh(string? selectPathAfterLoad = null) => _ = LoadAsync(selectPathAfterLoad, bypassCache: true);
 
     /// _back/_forward are plain Lists (not observable collections), so CanNavigateBack/Forward
     /// don't auto-notify - raised manually here alongside the command re-evaluation every
@@ -192,7 +192,7 @@ public sealed partial class PaneViewModel : ObservableObject
     /// clicks, PathChanged handlers) aren't set up to await. WinUI's DispatcherQueueSynchronizationContext
     /// means the code after each await below still resumes on the UI thread automatically, same as
     /// it did through the explicit _dispatcher.TryEnqueue this replaced.
-    private async Task LoadAsync(string? selectPathAfterLoad = null)
+    private async Task LoadAsync(string? selectPathAfterLoad = null, bool bypassCache = false)
     {
         IsLoading = true;
         LoadError = null;
@@ -203,7 +203,7 @@ public sealed partial class PaneViewModel : ObservableObject
 
         try
         {
-            items = await _fileSystemService.GetItemsAsync(path, CancellationToken.None);
+            items = await _fileSystemService.GetItemsAsync(path, CancellationToken.None, bypassCache);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {

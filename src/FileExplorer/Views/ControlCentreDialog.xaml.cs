@@ -346,8 +346,8 @@ public sealed partial class ControlCentreDialog : UserControl
     private void LoadPreferences()
     {
         // Setting IsOn programmatically fires Toggled just like a user click - without this guard,
-        // each of the four lines below would fire FeatureToggle_Toggled immediately, which reads
-        // *all four* switches' current IsOn to build the saved settings. Since the other three
+        // each of the lines below would fire FeatureToggle_Toggled immediately, which reads
+        // *all* switches' current IsOn to build the saved settings. Since the others
         // haven't been set yet at that point, it would momentarily persist wrong values (e.g. only
         // the first switch set, the rest still at their default-false) before the last line's fire
         // corrects it - a real bug, not just a cosmetic one, since every intermediate write also
@@ -358,6 +358,7 @@ public sealed partial class ControlCentreDialog : UserControl
         SyncTasksToggle.IsOn = settings.EnableSyncTasks;
         FolderWatchingToggle.IsOn = settings.EnableFolderWatching;
         ScriptingToggle.IsOn = settings.EnableScripting;
+        FolderListingCacheToggle.IsOn = settings.EnableFolderListingCache;
         _loadingPreferences = false;
     }
 
@@ -375,6 +376,7 @@ public sealed partial class ControlCentreDialog : UserControl
             EnableSyncTasks = SyncTasksToggle.IsOn,
             EnableFolderWatching = FolderWatchingToggle.IsOn,
             EnableScripting = ScriptingToggle.IsOn,
+            EnableFolderListingCache = FolderListingCacheToggle.IsOn,
         };
 
         if (updated != current)
