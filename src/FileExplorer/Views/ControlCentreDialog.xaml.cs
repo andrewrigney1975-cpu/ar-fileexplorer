@@ -125,6 +125,15 @@ public sealed partial class ControlCentreDialog : UserControl
         }
     }
 
+    private void ReindexSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path })
+        {
+            _ = SearchIndexService.RebuildRootAsync(path, CancellationToken.None);
+            RefreshSearchIndex();
+        }
+    }
+
     private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e)
     {
         _ = SearchIndexService.RebuildAsync(CancellationToken.None);

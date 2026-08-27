@@ -30,6 +30,20 @@ public static class SearchIndexService
     private const int WatcherFlushDelayMs = 1000;
     private const int SqlCandidateLimit = 2000;
 
+    // Commits every BatchCommitSize upserts instead of holding one transaction open for an entire
+    // (potentially multi-hour, multi-million-row) root scan, so a stall or interruption doesn't lose
+    // everything scanned since the walk started.
+    private const int BatchCommitSize = 2000;
+
+    // Directory/File APIs are plain blocking Win32 calls with no cancellation support - a genuinely
+    // unresponsive drive (spun down, a failing USB/SATA bridge, a bad sector causing driver-level
+    // retries) can block the calling thread forever with no way to interrupt it, which is exactly
+    // what happened during testing on a large multi-drive DAS array: disk activity stopped, the
+    // entry count froze, and IsScanning never cleared because the scan thread was permanently stuck
+    // inside one blocking call. These timeouts bound that - see TryRunWithTimeout.
+    private const int DirectoryEnumerationTimeoutSeconds = 60;
+    private const int PerEntryStatTimeoutSeconds = 15;
+
     private static readonly JsonFileStore<List<string>> RootsStore = new("search-index-roots.json", () => new List<string>());
 
     private static readonly object WatcherLock = new();
@@ -126,9 +140,15 @@ public static class SearchIndexService
     /// Full rescan of every configured root, replacing anything that's changed and dropping rows for
     /// anything no longer on disk. Supersedes (cancels) any rescan already in flight - AddRoot and a
     /// manual "Rebuild now" both call this, so a rapid sequence of either only pays for one full walk.
-    public static async Task RebuildAsync(CancellationToken cancellationToken)
+    public static Task RebuildAsync(CancellationToken cancellationToken) => RebuildRootsAsync(RootsStore.Load(), cancellationToken);
+
+    /// Rescans just one configured root, leaving every other root's index untouched - lets a single
+    /// location be refreshed/re-tested without paying for a full multi-root rebuild. Still supersedes
+    /// (cancels) any other rescan in flight, full or single-root, since only one scan runs at a time.
+    public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, cancellationToken);
+
+    private static async Task RebuildRootsAsync(List<string> roots, CancellationToken cancellationToken)
     {
-        var roots = RootsStore.Load();
         if (roots.Count == 0)
         {
             return;
@@ -158,13 +178,17 @@ public static class SearchIndexService
                         continue;
                     }
 
-                    using (var transaction = connection.BeginTransaction())
+                    if (!TryRunWithTimeout(() => Directory.GetLastWriteTimeUtc(root), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var rootModified))
                     {
-                        using var upsertCmd = CreateUpsertCommand(connection, transaction);
-                        UpsertEntry(upsertCmd, root, root, Path.GetDirectoryName(root) ?? root, true, 0, Directory.GetLastWriteTimeUtc(root), root, generation);
+                        LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: {root} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping it this pass", new TimeoutException());
+                        continue;
+                    }
+
+                    using (var batch = new ScanBatchWriter(connection))
+                    {
+                        batch.Upsert(root, root, Path.GetDirectoryName(root) ?? root, true, 0, rootModified, root, generation);
                         NotifyScanProgress();
-                        ScanDirectory(root, root, generation, upsertCmd, cts.Token);
-                        transaction.Commit();
+                        ScanDirectory(root, root, generation, batch, cts.Token);
                     }
 
                     using var cleanupCmd = connection.CreateCommand();
@@ -185,7 +209,7 @@ public static class SearchIndexService
         }
         catch (SqliteException ex)
         {
-            LoggingService.LogWarning("SearchIndexService.RebuildAsync", ex);
+            LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync", ex);
         }
         finally
         {
@@ -260,14 +284,64 @@ public static class SearchIndexService
 
     // ----- Filesystem walk -----
 
-    private static void ScanDirectory(string directory, string rootPath, long generation, SqliteCommand upsertCmd, CancellationToken cancellationToken)
+    /// Commits every BatchCommitSize upserts on its own transaction instead of holding one open for
+    /// an entire (potentially multi-hour, multi-million-row) root scan - see BatchCommitSize.
+    private sealed class ScanBatchWriter : IDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private SqliteTransaction _transaction;
+        private SqliteCommand _upsertCmd;
+        private int _countInBatch;
+
+        public ScanBatchWriter(SqliteConnection connection)
+        {
+            _connection = connection;
+            _transaction = connection.BeginTransaction();
+            _upsertCmd = CreateUpsertCommand(connection, _transaction);
+        }
+
+        public void Upsert(string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string root, long generation)
+        {
+            UpsertEntry(_upsertCmd, path, name, directory, isDirectory, size, modifiedUtc, root, generation);
+
+            if (++_countInBatch >= BatchCommitSize)
+            {
+                Flush();
+            }
+        }
+
+        private void Flush()
+        {
+            _transaction.Commit();
+            _upsertCmd.Dispose();
+            _transaction.Dispose();
+            _transaction = _connection.BeginTransaction();
+            _upsertCmd = CreateUpsertCommand(_connection, _transaction);
+            _countInBatch = 0;
+        }
+
+        public void Dispose()
+        {
+            _transaction.Commit();
+            _upsertCmd.Dispose();
+            _transaction.Dispose();
+        }
+    }
+
+    private static void ScanDirectory(string directory, string rootPath, long generation, ScanBatchWriter batch, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        IEnumerable<string> entries;
+        List<string> entries;
         try
         {
-            entries = Directory.EnumerateFileSystemEntries(directory);
+            if (!TryRunWithTimeout(() => Directory.EnumerateFileSystemEntries(directory).ToList(), TimeSpan.FromSeconds(DirectoryEnumerationTimeoutSeconds), out var result))
+            {
+                LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {directory} took longer than {DirectoryEnumerationTimeoutSeconds}s to enumerate (drive unresponsive?) - skipping", new TimeoutException());
+                return;
+            }
+
+            entries = result!;
         }
         // Caught per-directory (not once for the whole walk) so one access-denied folder deep in a
         // root doesn't abort indexing everything else under it.
@@ -280,51 +354,73 @@ public static class SearchIndexService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            FileAttributes attrs;
+            (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
             try
             {
-                attrs = File.GetAttributes(entry);
+                if (!TryRunWithTimeout(() => StatEntry(entry), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
+                {
+                    LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {entry} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping", new TimeoutException());
+                    continue;
+                }
+
+                stat = result;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 continue;
             }
 
-            if (attrs.HasFlag(FileAttributes.Hidden) || attrs.HasFlag(FileAttributes.System))
+            if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
             {
                 continue;
             }
 
-            var isDirectory = attrs.HasFlag(FileAttributes.Directory);
-            long size = 0;
-            DateTime modified;
-
-            try
-            {
-                if (isDirectory)
-                {
-                    modified = Directory.GetLastWriteTimeUtc(entry);
-                }
-                else
-                {
-                    var info = new FileInfo(entry);
-                    size = info.Length;
-                    modified = info.LastWriteTimeUtc;
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                continue;
-            }
-
-            UpsertEntry(upsertCmd, entry, Path.GetFileName(entry), directory, isDirectory, size, modified, rootPath, generation);
+            batch.Upsert(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, rootPath, generation);
             NotifyScanProgress();
 
-            if (isDirectory)
+            if (stat.IsDirectory)
             {
-                ScanDirectory(entry, rootPath, generation, upsertCmd, cancellationToken);
+                ScanDirectory(entry, rootPath, generation, batch, cancellationToken);
             }
         }
+    }
+
+    private static (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) StatEntry(string entry)
+    {
+        var attrs = File.GetAttributes(entry);
+        var isDirectory = attrs.HasFlag(FileAttributes.Directory);
+
+        if (isDirectory)
+        {
+            return (attrs, true, 0, Directory.GetLastWriteTimeUtc(entry));
+        }
+
+        var info = new FileInfo(entry);
+        return (attrs, false, info.Length, info.LastWriteTimeUtc);
+    }
+
+    /// Runs a synchronous filesystem operation with a watchdog timeout. Directory/File APIs are
+    /// plain blocking Win32 calls with no cancellation support, so a genuinely unresponsive drive can
+    /// block the calling thread forever with no way to interrupt it - see the remark on
+    /// DirectoryEnumerationTimeoutSeconds above for the real-world case this was added for. On
+    /// timeout this abandons the underlying thread-pool thread (it may stay blocked, potentially
+    /// forever - a small leak bounded to genuinely stuck operations, not something that happens in
+    /// normal operation) and lets the scan move on rather than hanging indefinitely. On completion
+    /// within the timeout, GetAwaiter().GetResult() rethrows the operation's original exception type
+    /// unwrapped (no AggregateException), so existing per-item catch blocks around call sites work
+    /// exactly as if the operation had been called inline.
+    private static bool TryRunWithTimeout<T>(Func<T> operation, TimeSpan timeout, out T result)
+    {
+        var task = Task.Run(operation);
+
+        if (!task.Wait(timeout))
+        {
+            result = default!;
+            return false;
+        }
+
+        result = task.GetAwaiter().GetResult();
+        return true;
     }
 
     /// Runs on the background scan thread (Task.Run in RebuildAsync) - EntryCount is read from the
@@ -464,46 +560,41 @@ public static class SearchIndexService
 
     private static void UpsertPathIfExists(SqliteCommand upsertCmd, string path)
     {
+        (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
         try
         {
-            var attrs = File.GetAttributes(path);
-            if (attrs.HasFlag(FileAttributes.Hidden) || attrs.HasFlag(FileAttributes.System))
+            if (!TryRunWithTimeout(() => StatEntry(path), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
             {
+                LoggingService.LogWarning($"SearchIndexService.UpsertPathIfExists: {path} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping", new TimeoutException());
                 return;
             }
 
-            var isDirectory = attrs.HasFlag(FileAttributes.Directory);
-            var directory = Path.GetDirectoryName(path) ?? path;
-            var rootPath = RootsStore.Load().FirstOrDefault(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase));
-            if (rootPath is null)
-            {
-                return;
-            }
-
-            long size = 0;
-            DateTime modified;
-            if (isDirectory)
-            {
-                modified = Directory.GetLastWriteTimeUtc(path);
-            }
-            else
-            {
-                var info = new FileInfo(path);
-                size = info.Length;
-                modified = info.LastWriteTimeUtc;
-            }
-
-            // -1 is a sentinel generation for watcher-driven single-row updates, distinct from any
-            // real RebuildAsync generation (DateTimeOffset ticks) - a full rescan's stale-row cleanup
-            // deletes by "ScanGeneration <> this scan's generation", so a -1 row surviving to the next
-            // rescan just gets naturally re-upserted with a real generation during that walk.
-            UpsertEntry(upsertCmd, path, Path.GetFileName(path), directory, isDirectory, size, modified, rootPath, -1);
+            stat = result;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Gone by the time we got to it (rapid create+delete) - fine, the next full rescan
             // reconciles anything still wrong.
+            return;
         }
+
+        if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(path) ?? path;
+        var rootPath = RootsStore.Load().FirstOrDefault(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase));
+        if (rootPath is null)
+        {
+            return;
+        }
+
+        // -1 is a sentinel generation for watcher-driven single-row updates, distinct from any real
+        // RebuildRootsAsync generation (DateTimeOffset ticks) - a full rescan's stale-row cleanup
+        // deletes by "ScanGeneration <> this scan's generation", so a -1 row surviving to the next
+        // rescan just gets naturally re-upserted with a real generation during that walk.
+        UpsertEntry(upsertCmd, path, Path.GetFileName(path), directory, stat.IsDirectory, stat.Size, stat.Modified, rootPath, -1);
     }
 
     // ----- SQLite plumbing -----
