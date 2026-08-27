@@ -19,6 +19,10 @@ public sealed partial class ControlCentreDialog : UserControl
 
     public Action? RequestClose { get; set; }
 
+    /// Set by MainWindow (it owns the window handle a folder picker needs to initialize against on
+    /// an unpackaged app) - see AddSearchIndexRoot_Click.
+    public Func<Task<string?>>? PickFolder { get; set; }
+
     public ControlCentreDialog()
     {
         InitializeComponent();
@@ -39,9 +43,11 @@ public sealed partial class ControlCentreDialog : UserControl
             AboutVersionText.Text = $"Version {AppVersionInfo.Version}";
             LoadAboutTileImages();
             PopulateKeyboardShortcuts();
+            RefreshSearchIndex();
 
             SyncTaskService.Changed += OnSyncTasksChanged;
             SettingsService.Changed += OnSettingsChanged;
+            SearchIndexService.StatusChanged += OnSearchIndexStatusChanged;
 
             SectionList.SelectedItem = ScriptsNavItem;
             ApplyNavVisibility();
@@ -51,12 +57,55 @@ public sealed partial class ControlCentreDialog : UserControl
         {
             SyncTaskService.Changed -= OnSyncTasksChanged;
             SettingsService.Changed -= OnSettingsChanged;
+            SearchIndexService.StatusChanged -= OnSearchIndexStatusChanged;
         };
     }
 
     private void OnSyncTasksChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSyncTasks);
 
     private void OnSettingsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(ApplyNavVisibility);
+
+    private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
+
+    private void RefreshSearchIndex()
+    {
+        var roots = SearchIndexService.Roots;
+        SearchIndexRootsList.ItemsSource = roots;
+        SearchIndexRootsEmptyText.Visibility = roots.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RebuildSearchIndexButton.IsEnabled = roots.Count > 0 && !SearchIndexService.IsScanning;
+
+        SearchIndexStatusText.Text = SearchIndexService.IsScanning
+            ? $"Scanning... ({SearchIndexService.EntryCount:N0} entries indexed so far)"
+            : SearchIndexService.LastScanUtc is { } lastScan
+                ? $"{SearchIndexService.EntryCount:N0} entries indexed. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
+                : roots.Count == 0
+                    ? "Add a folder or drive below to start indexing."
+                    : "Not scanned yet.";
+    }
+
+    private async void AddSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (PickFolder is null)
+        {
+            return;
+        }
+
+        var path = await PickFolder();
+        if (!string.IsNullOrEmpty(path))
+        {
+            SearchIndexService.AddRoot(path);
+        }
+    }
+
+    private void RemoveSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path })
+        {
+            SearchIndexService.RemoveRoot(path);
+        }
+    }
+
+    private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e) => _ = SearchIndexService.RebuildAsync(CancellationToken.None);
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();
 
@@ -65,6 +114,7 @@ public sealed partial class ControlCentreDialog : UserControl
         var settings = SettingsService.Current;
         ScriptsNavItem.Visibility = settings.EnableScripting ? Visibility.Visible : Visibility.Collapsed;
         SyncTasksNavItem.Visibility = settings.EnableSyncTasks ? Visibility.Visible : Visibility.Collapsed;
+        SearchIndexNavItem.Visibility = settings.EnableSearchIndex ? Visibility.Visible : Visibility.Collapsed;
 
         if (SectionList.SelectedItem is ListViewItem selected && selected.Visibility == Visibility.Collapsed)
         {
@@ -81,6 +131,11 @@ public sealed partial class ControlCentreDialog : UserControl
         if (ReferenceEquals(SectionList.SelectedItem, ThumbnailsNavItem))
         {
             ThumbnailSizeBox.Value = SettingsService.Current.ThumbnailSize;
+        }
+        SearchIndexPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, SearchIndexNavItem) ? Visibility.Visible : Visibility.Collapsed;
+        if (ReferenceEquals(SectionList.SelectedItem, SearchIndexNavItem))
+        {
+            RefreshSearchIndex();
         }
         PreferencesPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, PreferencesNavItem) ? Visibility.Visible : Visibility.Collapsed;
         KeyboardShortcutsPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, KeyboardShortcutsNavItem) ? Visibility.Visible : Visibility.Collapsed;
@@ -189,6 +244,7 @@ public sealed partial class ControlCentreDialog : UserControl
             ("F6", "Toggle preview pane"),
             ("F7", "Toggle terminal"),
             ("F8", "Checksum selection"),
+            ("F9", "Search Everywhere"),
             ("F10", "Control Centre"),
         });
 
@@ -359,6 +415,7 @@ public sealed partial class ControlCentreDialog : UserControl
         FolderWatchingToggle.IsOn = settings.EnableFolderWatching;
         ScriptingToggle.IsOn = settings.EnableScripting;
         FolderListingCacheToggle.IsOn = settings.EnableFolderListingCache;
+        SearchIndexToggle.IsOn = settings.EnableSearchIndex;
         _loadingPreferences = false;
     }
 
@@ -377,6 +434,7 @@ public sealed partial class ControlCentreDialog : UserControl
             EnableFolderWatching = FolderWatchingToggle.IsOn,
             EnableScripting = ScriptingToggle.IsOn,
             EnableFolderListingCache = FolderListingCacheToggle.IsOn,
+            EnableSearchIndex = SearchIndexToggle.IsOn,
         };
 
         if (updated != current)
