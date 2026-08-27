@@ -103,31 +103,32 @@ public sealed partial class ControlCentreDialog : UserControl
 
     private void OnSettingsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(ApplyNavVisibility);
 
-    private void OnSearchIndexStatusChanged(object? sender, EventArgs e)
-    {
-        LoggingService.LogInfo("ControlCentreDialog.OnSearchIndexStatusChanged", "Received, enqueueing RefreshSearchIndex");
-        var enqueued = DispatcherQueue.TryEnqueue(RefreshSearchIndex);
-        LoggingService.LogInfo("ControlCentreDialog.OnSearchIndexStatusChanged", $"TryEnqueue returned {enqueued}");
-    }
+    private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
 
     private sealed record SearchIndexRootRow(string Path, string CountDisplay);
 
+    // Compared against on every refresh (event-driven or the 1s poll while the panel is visible) so
+    // SearchIndexRootsList.ItemsSource is only reassigned when something actually changed - records
+    // give SearchIndexRootRow structural equality for free, so List<T>.SequenceEqual is a real value
+    // comparison here. Without this, polling reassigned an equivalent-but-new list every second,
+    // which made the ListView visibly flash/flicker even though nothing had changed.
+    private List<SearchIndexRootRow> _lastSearchIndexRows = new();
+
     private void RefreshSearchIndex()
     {
-        LoggingService.LogInfo("ControlCentreDialog.RefreshSearchIndex", $"Running - SearchIndexService.IsScanning={SearchIndexService.IsScanning}, EntryCount={SearchIndexService.EntryCount}");
         var roots = SearchIndexService.Roots;
         var counts = SearchIndexService.GetRootEntryCounts();
 
-        // .ToList() here matters, not just style - SearchIndexService.Roots returns the same
-        // JsonFileStore-cached List<string> instance every call, so re-assigning ItemsSource to that
-        // same reference is a no-op in WinUI (reference-equal DP values don't re-raise a change) and
-        // the list would only ever visibly update the next time this ListView is freshly constructed
-        // (i.e. next time Control Centre is reopened) - a fresh projected list every refresh avoids that.
         var rows = roots
             .Select(r => new SearchIndexRootRow(r, counts.TryGetValue(r, out var count) ? $"{count:N0} items indexed" : "0 items indexed"))
             .ToList();
 
-        SearchIndexRootsList.ItemsSource = rows;
+        if (!rows.SequenceEqual(_lastSearchIndexRows))
+        {
+            SearchIndexRootsList.ItemsSource = rows;
+            _lastSearchIndexRows = rows;
+        }
+
         SearchIndexRootsEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RebuildSearchIndexButton.IsEnabled = rows.Count > 0 && !SearchIndexService.IsScanning;
 

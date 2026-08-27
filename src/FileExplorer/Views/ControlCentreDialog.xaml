@@ -111,7 +111,7 @@
                             <TextBlock Text="Powers &quot;Search Everywhere&quot; (F9, or the command palette) - an instant, substring search across every file and folder under whichever folders/drives you add below. Nothing is scanned until you add at least one - there is no index-everything default."
                                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
 
-                            <ListView x:Name="SearchIndexRootsList" MaxHeight="200" SelectionMode="None"
+                            <ListView x:Name="SearchIndexRootsList" MaxHeight="360" SelectionMode="None"
                                       AutomationProperties.Name="Indexed folders list">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
