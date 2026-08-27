@@ -344,9 +344,7 @@ public static class SearchIndexService
 
         private void Flush()
         {
-            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Flush: committing batch");
             _transaction.Commit();
-            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Flush: batch committed");
             _upsertCmd.Dispose();
             _transaction.Dispose();
             _transaction = _connection.BeginTransaction();
@@ -356,9 +354,7 @@ public static class SearchIndexService
 
         public void Dispose()
         {
-            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Dispose: committing final partial batch");
             _transaction.Commit();
-            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Dispose: final batch committed");
             _upsertCmd.Dispose();
             _transaction.Dispose();
         }

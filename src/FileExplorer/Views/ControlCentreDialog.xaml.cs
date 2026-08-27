@@ -58,7 +58,45 @@ public sealed partial class ControlCentreDialog : UserControl
             SyncTaskService.Changed -= OnSyncTasksChanged;
             SettingsService.Changed -= OnSettingsChanged;
             SearchIndexService.StatusChanged -= OnSearchIndexStatusChanged;
+            StopSearchIndexPolling();
         };
+    }
+
+    // Confirmed via logging (app.log): SearchIndexService.StatusChanged fires successfully after a
+    // scan completes, but this dialog's OnSearchIndexStatusChanged subscription isn't reliably still
+    // registered by then - some WinUI Loaded/Unloaded timing gap not yet fully pinned down. Rather
+    // than keep chasing that, poll while this section is actually visible, so the panel self-heals
+    // regardless of whether the event reaches it.
+    private CancellationTokenSource? _searchIndexPollCts;
+
+    private void StartSearchIndexPolling()
+    {
+        StopSearchIndexPolling();
+        var cts = new CancellationTokenSource();
+        _searchIndexPollCts = cts;
+        _ = PollSearchIndexAsync(cts.Token);
+    }
+
+    private void StopSearchIndexPolling()
+    {
+        _searchIndexPollCts?.Cancel();
+        _searchIndexPollCts = null;
+    }
+
+    private async Task PollSearchIndexAsync(CancellationToken token)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(1000, token);
+                RefreshSearchIndex();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped because the section changed or the dialog closed - not an error.
+        }
     }
 
     private void OnSyncTasksChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSyncTasks);
@@ -176,6 +214,11 @@ public sealed partial class ControlCentreDialog : UserControl
         if (ReferenceEquals(SectionList.SelectedItem, SearchIndexNavItem))
         {
             RefreshSearchIndex();
+            StartSearchIndexPolling();
+        }
+        else
+        {
+            StopSearchIndexPolling();
         }
         PreferencesPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, PreferencesNavItem) ? Visibility.Visible : Visibility.Collapsed;
         KeyboardShortcutsPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, KeyboardShortcutsNavItem) ? Visibility.Visible : Visibility.Collapsed;
