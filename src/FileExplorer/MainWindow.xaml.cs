@@ -1693,10 +1693,13 @@ public sealed partial class MainWindow : Window
         var search = new SearchEverywhereDialog
         {
             RequestClose = () => dialog.Hide(),
+            // Opens a brand-new "Search Results" workspace rather than navigating whatever pane was
+            // last active, so existing workspaces/tabs are never disturbed by following a result.
             NavigateToResult = (directoryPath, selectPath) =>
             {
                 dialog.Hide();
-                _viewModel.SelectedTab?.ActivePane.NavigateTo(directoryPath, selectPathAfterLoad: selectPath);
+                var tab = _viewModel.AddNamedTab(directoryPath, "Search Results");
+                tab.LeftPane.Refresh(selectPath);
             },
             OpenSearchIndexSettings = () =>
             {

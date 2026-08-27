@@ -94,6 +94,7 @@ public sealed partial class ControlCentreDialog : UserControl
         if (!string.IsNullOrEmpty(path))
         {
             SearchIndexService.AddRoot(path);
+            RefreshSearchIndex();
         }
     }
 
@@ -102,10 +103,15 @@ public sealed partial class ControlCentreDialog : UserControl
         if (sender is Button { Tag: string path })
         {
             SearchIndexService.RemoveRoot(path);
+            RefreshSearchIndex();
         }
     }
 
-    private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e) => _ = SearchIndexService.RebuildAsync(CancellationToken.None);
+    private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e)
+    {
+        _ = SearchIndexService.RebuildAsync(CancellationToken.None);
+        RefreshSearchIndex();
+    }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();
 
@@ -441,5 +447,9 @@ public sealed partial class ControlCentreDialog : UserControl
         {
             SettingsService.Update(updated);
         }
+
+        // Don't rely solely on the SettingsService.Changed round-trip to pick this back up in this
+        // same dialog instance - apply it to this dialog's own nav list immediately too.
+        ApplyNavVisibility();
     }
 }
