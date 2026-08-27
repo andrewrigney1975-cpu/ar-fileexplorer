@@ -107,6 +107,17 @@ public sealed partial class PaneViewModel : ObservableObject
 
     public bool CanNavigateUp => RemotePathService.GetParent(CurrentPath) is not null;
 
+    /// Feeds FolderVisitService, which MainWindow uses on startup to pre-warm the listing cache for
+    /// whichever folders the user actually navigates into most - remote paths are excluded since
+    /// pre-warming those would mean a network round-trip on every app launch for no guaranteed payoff.
+    private static void RecordVisitIfLocal(string path)
+    {
+        if (!RemotePathService.IsRemote(path))
+        {
+            FolderVisitService.RecordVisit(path);
+        }
+    }
+
     public void NavigateTo(string path, bool recordHistory = true)
     {
         // Remote existence isn't checked here (that would block this UI-thread call on a network
@@ -124,6 +135,7 @@ public sealed partial class PaneViewModel : ObservableObject
         }
 
         CurrentPath = path;
+        RecordVisitIfLocal(path);
         ClearSearchSilently();
         _ = LoadAsync();
         RaiseNavCommands();
@@ -148,6 +160,7 @@ public sealed partial class PaneViewModel : ObservableObject
         _back.RemoveAt(_back.Count - 1);
         _forward.Add(CurrentPath);
         CurrentPath = target;
+        RecordVisitIfLocal(target);
         ClearSearchSilently();
         _ = LoadAsync();
         RaiseNavCommands();
@@ -162,6 +175,7 @@ public sealed partial class PaneViewModel : ObservableObject
         _forward.RemoveAt(_forward.Count - 1);
         _back.Add(CurrentPath);
         CurrentPath = target;
+        RecordVisitIfLocal(target);
         ClearSearchSilently();
         _ = LoadAsync();
         RaiseNavCommands();
