@@ -409,11 +409,21 @@ public static class SearchIndexService
     /// within the timeout, GetAwaiter().GetResult() rethrows the operation's original exception type
     /// unwrapped (no AggregateException), so existing per-item catch blocks around call sites work
     /// exactly as if the operation had been called inline.
+    ///
+    /// Deliberately uses Task.WaitAny, not Task.Wait/Task.Result, for the timeout race: unlike
+    /// GetAwaiter().GetResult(), both of those throw an AggregateException the instant the task
+    /// *faults* - including a fault that happens well within the timeout window, not just on a real
+    /// timeout - which would bypass every IOException/UnauthorizedAccessException catch block at the
+    /// call sites below and crash the app outright. This was a real, confirmed bug: an access-denied
+    /// stat during a watcher-triggered update reached Application-level unhandled-exception and
+    /// killed the process a few seconds after launch. WaitAny only reports whether the task reached
+    /// *some* terminal state in time, without touching its result/exception, so the fault is only
+    /// (safely, unwrapped) observed afterward via GetAwaiter().GetResult().
     private static bool TryRunWithTimeout<T>(Func<T> operation, TimeSpan timeout, out T result)
     {
         var task = Task.Run(operation);
 
-        if (!task.Wait(timeout))
+        if (Task.WaitAny(new Task[] { task }, timeout) == -1)
         {
             result = default!;
             return false;
