@@ -144,6 +144,33 @@ public sealed partial class ControlCentreDialog : UserControl
                 : rows.Count == 0
                     ? "Add a folder or drive below to start indexing."
                     : "Not scanned yet.";
+
+        RefreshBrowserIntegrationStatus();
+    }
+
+    private void RefreshBrowserIntegrationStatus()
+    {
+        BrowserIntegrationStatusText.Text = BrowserIntegrationService.IsRegistered
+            ? "Registered for Chrome/Edge."
+            : "Not registered.";
+    }
+
+    private void RegisterBrowserIntegration_Click(object sender, RoutedEventArgs e)
+    {
+        var extensionId = BrowserExtensionIdBox.Text.Trim();
+        if (string.IsNullOrEmpty(extensionId))
+        {
+            return;
+        }
+
+        BrowserIntegrationService.Register(extensionId);
+        RefreshBrowserIntegrationStatus();
+    }
+
+    private void UnregisterBrowserIntegration_Click(object sender, RoutedEventArgs e)
+    {
+        BrowserIntegrationService.Unregister();
+        RefreshBrowserIntegrationStatus();
     }
 
     private async void AddSearchIndexRoot_Click(object sender, RoutedEventArgs e)

@@ -29,6 +29,16 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // A browser launches this same exe as a Native Messaging host (see
+        // BrowserIntegrationService/NativeMessagingHostService) rather than a separate binary - skip
+        // the whole normal app startup (window, background services) and just run the stdio loop.
+        if (NativeMessagingHostService.DetectLaunch(Environment.GetCommandLineArgs()))
+        {
+            NativeMessagingHostService.Run();
+            Environment.Exit(0);
+            return;
+        }
+
         try
         {
             _host = Host.CreateDefaultBuilder()

@@ -150,6 +150,16 @@
                                 <ProgressRing x:Name="SearchIndexProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
                                 <TextBlock x:Name="SearchIndexStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
                             </StackPanel>
+
+                            <TextBlock Text="Browser Integration" FontWeight="SemiBold" FontSize="14" Margin="0,10,0,0" />
+                            <TextBlock Text="Lets a browser extension ask whether a folder with a given name already exists (exact match, folders only), read-only, against this index. Registers as a Chrome/Edge Native Messaging host scoped to one extension ID - no network port is opened, so no other webpage or extension can reach it."
+                                       Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+                            <TextBox x:Name="BrowserExtensionIdBox" Header="Chrome/Edge extension ID" PlaceholderText="32-character ID from chrome://extensions (Developer mode)" Width="420" HorizontalAlignment="Left" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Register" Click="RegisterBrowserIntegration_Click" />
+                                <Button Content="Unregister" Click="UnregisterBrowserIntegration_Click" />
+                            </StackPanel>
+                            <TextBlock x:Name="BrowserIntegrationStatusText" Opacity="0.7" FontSize="12" />
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="PreferencesPanel" Visibility="Collapsed">
