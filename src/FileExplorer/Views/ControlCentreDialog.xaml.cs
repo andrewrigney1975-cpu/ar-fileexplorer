@@ -19,6 +19,10 @@ public sealed partial class ControlCentreDialog : UserControl
 
     public Action? RequestClose { get; set; }
 
+    /// Set by MainWindow (it owns the window handle a folder picker needs to initialize against on
+    /// an unpackaged app) - see AddSearchIndexRoot_Click.
+    public Func<Task<string?>>? PickFolder { get; set; }
+
     public ControlCentreDialog()
     {
         InitializeComponent();
@@ -39,9 +43,11 @@ public sealed partial class ControlCentreDialog : UserControl
             AboutVersionText.Text = $"Version {AppVersionInfo.Version}";
             LoadAboutTileImages();
             PopulateKeyboardShortcuts();
+            RefreshSearchIndex();
 
             SyncTaskService.Changed += OnSyncTasksChanged;
             SettingsService.Changed += OnSettingsChanged;
+            SearchIndexService.StatusChanged += OnSearchIndexStatusChanged;
 
             SectionList.SelectedItem = ScriptsNavItem;
             ApplyNavVisibility();
@@ -51,12 +57,134 @@ public sealed partial class ControlCentreDialog : UserControl
         {
             SyncTaskService.Changed -= OnSyncTasksChanged;
             SettingsService.Changed -= OnSettingsChanged;
+            SearchIndexService.StatusChanged -= OnSearchIndexStatusChanged;
+            StopSearchIndexPolling();
         };
+    }
+
+    // Confirmed via logging (app.log): SearchIndexService.StatusChanged fires successfully after a
+    // scan completes, but this dialog's OnSearchIndexStatusChanged subscription isn't reliably still
+    // registered by then - some WinUI Loaded/Unloaded timing gap not yet fully pinned down. Rather
+    // than keep chasing that, poll while this section is actually visible, so the panel self-heals
+    // regardless of whether the event reaches it.
+    private CancellationTokenSource? _searchIndexPollCts;
+
+    private void StartSearchIndexPolling()
+    {
+        StopSearchIndexPolling();
+        var cts = new CancellationTokenSource();
+        _searchIndexPollCts = cts;
+        _ = PollSearchIndexAsync(cts.Token);
+    }
+
+    private void StopSearchIndexPolling()
+    {
+        _searchIndexPollCts?.Cancel();
+        _searchIndexPollCts = null;
+    }
+
+    private async Task PollSearchIndexAsync(CancellationToken token)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(1000, token);
+                RefreshSearchIndex();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped because the section changed or the dialog closed - not an error.
+        }
     }
 
     private void OnSyncTasksChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSyncTasks);
 
     private void OnSettingsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(ApplyNavVisibility);
+
+    private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
+
+    private sealed record SearchIndexRootRow(string Path, string CountDisplay);
+
+    // Compared against on every refresh (event-driven or the 1s poll while the panel is visible) so
+    // SearchIndexRootsList.ItemsSource is only reassigned when something actually changed - records
+    // give SearchIndexRootRow structural equality for free, so List<T>.SequenceEqual is a real value
+    // comparison here. Without this, polling reassigned an equivalent-but-new list every second,
+    // which made the ListView visibly flash/flicker even though nothing had changed.
+    private List<SearchIndexRootRow> _lastSearchIndexRows = new();
+
+    private void RefreshSearchIndex()
+    {
+        var roots = SearchIndexService.Roots;
+        var counts = SearchIndexService.GetRootEntryCounts();
+
+        var rows = roots
+            .Select(r => new SearchIndexRootRow(r, counts.TryGetValue(r, out var count) ? $"{count:N0} items indexed" : "0 items indexed"))
+            .ToList();
+
+        if (!rows.SequenceEqual(_lastSearchIndexRows))
+        {
+            SearchIndexRootsList.ItemsSource = rows;
+            _lastSearchIndexRows = rows;
+        }
+
+        SearchIndexRootsEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RebuildSearchIndexButton.IsEnabled = rows.Count > 0 && !SearchIndexService.IsScanning;
+
+        SearchIndexProgressRing.IsActive = SearchIndexService.IsScanning;
+        SearchIndexProgressRing.Visibility = SearchIndexService.IsScanning ? Visibility.Visible : Visibility.Collapsed;
+
+        var dbSizeDisplay = FileExplorer.Models.FileSystemItem.FormatSize(SearchIndexService.DatabaseSizeBytes);
+
+        SearchIndexStatusText.Text = SearchIndexService.IsScanning
+            ? $"Scanning... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk."
+            : SearchIndexService.LastScanUtc is { } lastScan
+                ? $"{SearchIndexService.EntryCount:N0} entries indexed, {dbSizeDisplay} on disk. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
+                : rows.Count == 0
+                    ? "Add a folder or drive below to start indexing."
+                    : "Not scanned yet.";
+    }
+
+    private async void AddSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (PickFolder is null)
+        {
+            return;
+        }
+
+        var path = await PickFolder();
+        if (!string.IsNullOrEmpty(path))
+        {
+            SearchIndexService.AddRoot(path);
+            RefreshSearchIndex();
+        }
+    }
+
+    private void RemoveSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path })
+        {
+            SearchIndexService.RemoveRoot(path);
+            RefreshSearchIndex();
+        }
+    }
+
+    private void ReindexSearchIndexRoot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path })
+        {
+            LoggingService.LogInfo("ControlCentreDialog.ReindexSearchIndexRoot_Click", $"Clicked for '{path}'");
+            _ = SearchIndexService.RebuildRootAsync(path, CancellationToken.None);
+            RefreshSearchIndex();
+        }
+    }
+
+    private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e)
+    {
+        _ = SearchIndexService.RebuildAsync(CancellationToken.None);
+        RefreshSearchIndex();
+    }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();
 
@@ -65,6 +193,7 @@ public sealed partial class ControlCentreDialog : UserControl
         var settings = SettingsService.Current;
         ScriptsNavItem.Visibility = settings.EnableScripting ? Visibility.Visible : Visibility.Collapsed;
         SyncTasksNavItem.Visibility = settings.EnableSyncTasks ? Visibility.Visible : Visibility.Collapsed;
+        SearchIndexNavItem.Visibility = settings.EnableSearchIndex ? Visibility.Visible : Visibility.Collapsed;
 
         if (SectionList.SelectedItem is ListViewItem selected && selected.Visibility == Visibility.Collapsed)
         {
@@ -81,6 +210,16 @@ public sealed partial class ControlCentreDialog : UserControl
         if (ReferenceEquals(SectionList.SelectedItem, ThumbnailsNavItem))
         {
             ThumbnailSizeBox.Value = SettingsService.Current.ThumbnailSize;
+        }
+        SearchIndexPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, SearchIndexNavItem) ? Visibility.Visible : Visibility.Collapsed;
+        if (ReferenceEquals(SectionList.SelectedItem, SearchIndexNavItem))
+        {
+            RefreshSearchIndex();
+            StartSearchIndexPolling();
+        }
+        else
+        {
+            StopSearchIndexPolling();
         }
         PreferencesPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, PreferencesNavItem) ? Visibility.Visible : Visibility.Collapsed;
         KeyboardShortcutsPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, KeyboardShortcutsNavItem) ? Visibility.Visible : Visibility.Collapsed;
@@ -189,6 +328,7 @@ public sealed partial class ControlCentreDialog : UserControl
             ("F6", "Toggle preview pane"),
             ("F7", "Toggle terminal"),
             ("F8", "Checksum selection"),
+            ("F9", "Search Everywhere"),
             ("F10", "Control Centre"),
         });
 
@@ -359,6 +499,7 @@ public sealed partial class ControlCentreDialog : UserControl
         FolderWatchingToggle.IsOn = settings.EnableFolderWatching;
         ScriptingToggle.IsOn = settings.EnableScripting;
         FolderListingCacheToggle.IsOn = settings.EnableFolderListingCache;
+        SearchIndexToggle.IsOn = settings.EnableSearchIndex;
         _loadingPreferences = false;
     }
 
@@ -377,11 +518,16 @@ public sealed partial class ControlCentreDialog : UserControl
             EnableFolderWatching = FolderWatchingToggle.IsOn,
             EnableScripting = ScriptingToggle.IsOn,
             EnableFolderListingCache = FolderListingCacheToggle.IsOn,
+            EnableSearchIndex = SearchIndexToggle.IsOn,
         };
 
         if (updated != current)
         {
             SettingsService.Update(updated);
         }
+
+        // Don't rely solely on the SettingsService.Changed round-trip to pick this back up in this
+        // same dialog instance - apply it to this dialog's own nav list immediately too.
+        ApplyNavVisibility();
     }
 }

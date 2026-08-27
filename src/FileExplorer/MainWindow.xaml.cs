@@ -65,6 +65,11 @@ public sealed partial class MainWindow : Window
         {
             ApplyFeatureVisibility();
             _viewModel.RefreshAllPanes();
+
+            if (SettingsService.Current.EnableSearchIndex)
+            {
+                SearchIndexService.Start();
+            }
         });
 
         _ = new ColumnSplitterController(RailSplitter, RailColumn, invert: false, min: 180, max: 480);
@@ -129,6 +134,11 @@ public sealed partial class MainWindow : Window
 
         _ = RailDiskActivityLoopAsync();
         _ = PrewarmFrequentFoldersAsync();
+
+        if (SettingsService.Current.EnableSearchIndex)
+        {
+            SearchIndexService.Start();
+        }
     }
 
     private const int PrewarmFolderCount = 8;
@@ -1579,6 +1589,11 @@ public sealed partial class MainWindow : Window
             new("Control Centre...", "Manage scripts, sync tasks, automation, thumbnails, and preferences", () => _ = OpenControlCentreAsync()),
         };
 
+        if (settings.EnableSearchIndex)
+        {
+            commands.Add(new PaletteCommand("Search Everywhere...", "Instant substring search across every indexed file and folder (F9)", () => _ = OpenSearchEverywhereAsync()));
+        }
+
         if (settings.EnableTerminal)
         {
             commands.Add(new PaletteCommand("Toggle Terminal", "Show or hide the terminal drawer", () => ToggleTerminal()));
@@ -1629,6 +1644,7 @@ public sealed partial class MainWindow : Window
             MainViewModel = _viewModel,
             ActivePane = _viewModel.SelectedTab?.ActivePane,
             RequestClose = () => dialog.Hide(),
+            PickFolder = PickFolderAsync,
         };
         dialog.Content = centre;
 
@@ -1641,6 +1657,68 @@ public sealed partial class MainWindow : Window
         dialog.Resources["ContentDialogMaxHeight"] = 900d;
 
         await dialog.ShowAsync();
+    }
+
+    /// This app is unpackaged, so Windows.Storage.Pickers.FolderPicker needs to be initialized
+    /// against a real HWND (WindowNative/InitializeWithWindow) or it throws instead of the implicit
+    /// association a packaged app gets for free.
+    private async Task<string?> PickFolderAsync()
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+        };
+        picker.FileTypeFilter.Add("*");
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+
+        var folder = await picker.PickSingleFolderAsync();
+        return folder?.Path;
+    }
+
+    private async Task OpenSearchEverywhereAsync()
+    {
+        if (!SettingsService.Current.EnableSearchIndex)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Search Everywhere",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var search = new SearchEverywhereDialog
+        {
+            RequestClose = () => dialog.Hide(),
+            // Opens a brand-new "Search Results" workspace rather than navigating whatever pane was
+            // last active, so existing workspaces/tabs are never disturbed by following a result.
+            NavigateToResult = (directoryPath, selectPath) =>
+            {
+                dialog.Hide();
+                var tab = _viewModel.AddNamedTab(directoryPath, "Search Results");
+                tab.LeftPane.Refresh(selectPath);
+            },
+            OpenSearchIndexSettings = () =>
+            {
+                dialog.Hide();
+                _ = OpenControlCentreAsync();
+            },
+        };
+        dialog.Content = search;
+
+        dialog.Resources["ContentDialogMaxWidth"] = 900d;
+        dialog.Resources["ContentDialogMaxHeight"] = 700d;
+
+        await dialog.ShowAsync();
+    }
+
+    private void SearchEverywhereAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        _ = OpenSearchEverywhereAsync();
     }
 
     private void DiskSpaceAnalyserButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskSpaceAnalyserAsync();

@@ -118,7 +118,7 @@ public sealed partial class PaneViewModel : ObservableObject
         }
     }
 
-    public void NavigateTo(string path, bool recordHistory = true)
+    public void NavigateTo(string path, bool recordHistory = true, string? selectPathAfterLoad = null)
     {
         // Remote existence isn't checked here (that would block this UI-thread call on a network
         // round-trip) - LoadAsync() below is the source of truth instead, surfacing a failure via
@@ -137,7 +137,7 @@ public sealed partial class PaneViewModel : ObservableObject
         CurrentPath = path;
         RecordVisitIfLocal(path);
         ClearSearchSilently();
-        _ = LoadAsync();
+        _ = LoadAsync(selectPathAfterLoad);
         RaiseNavCommands();
         PathChanged?.Invoke(this, EventArgs.Empty);
     }

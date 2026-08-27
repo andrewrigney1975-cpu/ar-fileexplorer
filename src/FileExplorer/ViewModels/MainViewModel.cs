@@ -47,6 +47,17 @@ public sealed partial class MainViewModel : ObservableObject
         return tab;
     }
 
+    /// Like AddTab(startPath), but with an explicit custom header instead of the usual
+    /// derived-from-path one - used by "Search Everywhere" so a result opens in its own "Search
+    /// Results" workspace rather than overwriting whatever the active pane was showing.
+    public TabViewModel AddNamedTab(string startPath, string name)
+    {
+        var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, startPath, name);
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        return tab;
+    }
+
     [RelayCommand]
     public void DuplicateTab(TabViewModel source)
     {

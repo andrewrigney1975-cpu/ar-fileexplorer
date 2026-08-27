@@ -45,6 +45,7 @@
             <KeyboardAccelerator Key="F6" Invoked="TogglePreviewAccelerator_Invoked" />
             <KeyboardAccelerator Key="F7" Invoked="ToggleTerminalAccelerator_Invoked" />
             <KeyboardAccelerator Key="F8" Invoked="ChecksumAccelerator_Invoked" />
+            <KeyboardAccelerator Key="F9" Invoked="SearchEverywhereAccelerator_Invoked" />
             <KeyboardAccelerator Key="F10" Invoked="ControlCentreAccelerator_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="Tab" Invoked="NextTabAccelerator_Invoked" />
             <KeyboardAccelerator Modifiers="Control,Shift" Key="Tab" Invoked="PreviousTabAccelerator_Invoked" />
