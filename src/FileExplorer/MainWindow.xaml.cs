@@ -128,6 +128,39 @@ public sealed partial class MainWindow : Window
         };
 
         _ = RailDiskActivityLoopAsync();
+        _ = PrewarmFrequentFoldersAsync();
+    }
+
+    private const int PrewarmFolderCount = 8;
+
+    /// Best-effort background population of FileSystemService's listing cache for whichever local
+    /// folders FolderVisitService says the user visits most, so the first navigation into one of
+    /// them after launch is instant instead of paying the initial disk-enumeration cost. Never
+    /// touches UI state - if a pane loads one of these folders for real before this reaches it,
+    /// GetItemsAsync just serves/refreshes the same cache entry either way.
+    private async Task PrewarmFrequentFoldersAsync()
+    {
+        if (!SettingsService.Current.EnableFolderListingCache)
+        {
+            return;
+        }
+
+        foreach (var path in FolderVisitService.GetTopFolders(PrewarmFolderCount))
+        {
+            if (!Directory.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                await _fileSystemService.GetItemsAsync(path, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LoggingService.LogWarning($"MainWindow.PrewarmFrequentFoldersAsync: {path}", ex);
+            }
+        }
     }
 
     private readonly FileOperationQueueService _operationQueue;
