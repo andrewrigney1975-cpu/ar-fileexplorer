@@ -1694,12 +1694,17 @@ public sealed partial class MainWindow : Window
         {
             RequestClose = () => dialog.Hide(),
             // Opens a brand-new "Search Results" workspace rather than navigating whatever pane was
-            // last active, so existing workspaces/tabs are never disturbed by following a result.
-            NavigateToResult = (directoryPath, selectPath) =>
+            // last active, so existing workspaces/tabs are never disturbed by following a result. A
+            // folder result opens *into* itself (selectPath null - nothing to select); a file result
+            // opens its containing folder with the file selected.
+            NavigateToResult = (targetPath, selectPath) =>
             {
                 dialog.Hide();
-                var tab = _viewModel.AddNamedTab(directoryPath, "Search Results");
-                tab.LeftPane.Refresh(selectPath);
+                var tab = _viewModel.AddNamedTab(targetPath, "Search Results");
+                if (selectPath is not null)
+                {
+                    tab.LeftPane.Refresh(selectPath);
+                }
             },
             OpenSearchIndexSettings = () =>
             {

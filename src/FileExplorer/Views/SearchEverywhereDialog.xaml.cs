@@ -12,15 +12,18 @@ public sealed partial class SearchEverywhereDialog : UserControl
     private const int DebounceMs = 200;
     private const int MaxResults = 300;
 
-    private sealed record ResultRow(string Path, string Name, string DirectoryPath, string SizeDisplay, string ModifiedDisplay, string Glyph);
+    private sealed record ResultRow(string Path, string Name, string DirectoryPath, bool IsDirectory, string SizeDisplay, string ModifiedDisplay, string Glyph);
 
     private CancellationTokenSource? _searchCts;
 
     public Action? RequestClose { get; set; }
 
-    /// (directoryPath, selectPath) - navigates the active pane to directoryPath and selects
-    /// selectPath once loaded. Set by MainWindow, which owns the active pane.
-    public Action<string, string>? NavigateToResult { get; set; }
+    /// (targetPath, selectPath) - navigates the active pane to targetPath and, if selectPath is
+    /// non-null, selects it once loaded. A folder result navigates *into* itself (targetPath = the
+    /// folder, selectPath = null); a file result navigates to its containing folder and selects the
+    /// file (targetPath = DirectoryPath, selectPath = the file). Set by MainWindow, which owns the
+    /// active pane.
+    public Action<string, string?>? NavigateToResult { get; set; }
 
     public Action? OpenSearchIndexSettings { get; set; }
 
@@ -103,6 +106,7 @@ public sealed partial class SearchEverywhereDialog : UserControl
                 entry.Path,
                 entry.Name,
                 entry.DirectoryPath,
+                entry.IsDirectory,
                 entry.IsDirectory ? string.Empty : FileSystemItem.FormatSize(entry.SizeBytes),
                 FileSystemItem.FormatDate(entry.Modified.ToLocalTime()),
                 entry.IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Path.GetExtension(entry.Name))))
@@ -161,7 +165,14 @@ public sealed partial class SearchEverywhereDialog : UserControl
             return;
         }
 
-        NavigateToResult?.Invoke(row.DirectoryPath, row.Path);
+        if (row.IsDirectory)
+        {
+            NavigateToResult?.Invoke(row.Path, null);
+        }
+        else
+        {
+            NavigateToResult?.Invoke(row.DirectoryPath, row.Path);
+        }
     }
 
     private void ManageIndex_Click(object sender, RoutedEventArgs e) => OpenSearchIndexSettings?.Invoke();
