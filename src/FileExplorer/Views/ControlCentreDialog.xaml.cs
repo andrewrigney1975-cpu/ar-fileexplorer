@@ -65,12 +65,18 @@ public sealed partial class ControlCentreDialog : UserControl
 
     private void OnSettingsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(ApplyNavVisibility);
 
-    private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
+    private void OnSearchIndexStatusChanged(object? sender, EventArgs e)
+    {
+        LoggingService.LogInfo("ControlCentreDialog.OnSearchIndexStatusChanged", "Received, enqueueing RefreshSearchIndex");
+        var enqueued = DispatcherQueue.TryEnqueue(RefreshSearchIndex);
+        LoggingService.LogInfo("ControlCentreDialog.OnSearchIndexStatusChanged", $"TryEnqueue returned {enqueued}");
+    }
 
     private sealed record SearchIndexRootRow(string Path, string CountDisplay);
 
     private void RefreshSearchIndex()
     {
+        LoggingService.LogInfo("ControlCentreDialog.RefreshSearchIndex", $"Running - SearchIndexService.IsScanning={SearchIndexService.IsScanning}, EntryCount={SearchIndexService.EntryCount}");
         var roots = SearchIndexService.Roots;
         var counts = SearchIndexService.GetRootEntryCounts();
 
@@ -129,6 +135,7 @@ public sealed partial class ControlCentreDialog : UserControl
     {
         if (sender is Button { Tag: string path })
         {
+            LoggingService.LogInfo("ControlCentreDialog.ReindexSearchIndexRoot_Click", $"Clicked for '{path}'");
             _ = SearchIndexService.RebuildRootAsync(path, CancellationToken.None);
             RefreshSearchIndex();
         }

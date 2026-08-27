@@ -147,12 +147,16 @@ public static class SearchIndexService
     /// (cancels) any other rescan in flight, full or single-root, since only one scan runs at a time.
     public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, cancellationToken);
 
+    private const string TraceSource = "SearchIndexService.RebuildRootsAsync";
+
     private static async Task RebuildRootsAsync(List<string> roots, CancellationToken cancellationToken)
     {
         if (roots.Count == 0)
         {
             return;
         }
+
+        LoggingService.LogInfo(TraceSource, $"Starting: roots=[{string.Join(", ", roots)}]");
 
         _scanCts?.Cancel();
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -167,14 +171,18 @@ public static class SearchIndexService
         {
             await Task.Run(() =>
             {
+                LoggingService.LogInfo(TraceSource, "Task.Run body entered");
+
                 var generation = DateTimeOffset.UtcNow.Ticks;
                 using var connection = OpenConnection();
 
                 foreach (var root in roots)
                 {
+                    LoggingService.LogInfo(TraceSource, $"Root '{root}': starting");
                     cts.Token.ThrowIfCancellationRequested();
                     if (!Directory.Exists(root))
                     {
+                        LoggingService.LogInfo(TraceSource, $"Root '{root}': Directory.Exists false, skipping");
                         continue;
                     }
 
@@ -190,32 +198,56 @@ public static class SearchIndexService
                         NotifyScanProgress();
                         ScanDirectory(root, root, generation, batch, cts.Token);
                     }
+                    LoggingService.LogInfo(TraceSource, $"Root '{root}': walk + batch writer disposed (final commit done), entries so far={_scanProgressCount}");
 
                     using var cleanupCmd = connection.CreateCommand();
                     cleanupCmd.CommandText = "DELETE FROM Entries WHERE RootPath = @root AND ScanGeneration <> @gen";
                     cleanupCmd.Parameters.AddWithValue("@root", root);
                     cleanupCmd.Parameters.AddWithValue("@gen", generation);
                     cleanupCmd.ExecuteNonQuery();
+                    LoggingService.LogInfo(TraceSource, $"Root '{root}': stale-row cleanup DELETE done");
                 }
 
                 WriteMeta(connection, "LastScanUtc", DateTimeOffset.UtcNow.Ticks.ToString());
+                LoggingService.LogInfo(TraceSource, "Task.Run body: WriteMeta done, about to return (connection will Dispose)");
             }, cts.Token).ConfigureAwait(false);
 
+            LoggingService.LogInfo(TraceSource, "await Task.Run returned successfully");
             LastScanUtc = DateTimeOffset.UtcNow;
         }
         catch (OperationCanceledException)
         {
             // Superseded by a newer rebuild request - not an error.
+            LoggingService.LogInfo(TraceSource, "Cancelled (superseded by a newer rebuild request)");
         }
-        catch (SqliteException ex)
+        catch (Exception ex)
         {
+            // Was `catch (SqliteException ex)` - broadened to catch-all so an unexpected exception
+            // type can never silently escape this method as an unobserved faulted Task (this method
+            // is always called fire-and-forget via `_ = ...`) without IsScanning/StatusChanged below
+            // ever running, which would leave the UI showing "scanning" forever with no error logged.
             LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync", ex);
         }
         finally
         {
+            LoggingService.LogInfo(TraceSource, "Entering finally");
             IsScanning = false;
-            RefreshEntryCount();
+
+            try
+            {
+                RefreshEntryCount();
+            }
+            catch (Exception ex)
+            {
+                // RefreshEntryCount already catches SqliteException internally, but guard against any
+                // other exception type here too - this finally block must reach StatusChanged below
+                // no matter what, or the UI never learns the scan ended.
+                LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync: RefreshEntryCount in finally", ex);
+            }
+
+            LoggingService.LogInfo(TraceSource, $"Finally: IsScanning={IsScanning}, EntryCount={EntryCount} - about to fire StatusChanged");
             StatusChanged?.Invoke(null, EventArgs.Empty);
+            LoggingService.LogInfo(TraceSource, "Finally: StatusChanged fired, returning");
         }
     }
 
@@ -312,7 +344,9 @@ public static class SearchIndexService
 
         private void Flush()
         {
+            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Flush: committing batch");
             _transaction.Commit();
+            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Flush: batch committed");
             _upsertCmd.Dispose();
             _transaction.Dispose();
             _transaction = _connection.BeginTransaction();
@@ -322,7 +356,9 @@ public static class SearchIndexService
 
         public void Dispose()
         {
+            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Dispose: committing final partial batch");
             _transaction.Commit();
+            LoggingService.LogInfo(TraceSource, "ScanBatchWriter.Dispose: final batch committed");
             _upsertCmd.Dispose();
             _transaction.Dispose();
         }
