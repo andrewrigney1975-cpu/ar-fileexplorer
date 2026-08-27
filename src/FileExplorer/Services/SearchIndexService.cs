@@ -616,7 +616,16 @@ public static class SearchIndexService
         connection.Open();
 
         using var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        // busy_timeout matters more than it looks: WAL mode allows concurrent *readers* during a
+        // write, but still only one *writer* at a time - without this, a second connection trying to
+        // write (e.g. the debounced FileSystemWatcher flush landing while a root rescan's own
+        // connection holds the write lock) fails immediately with "database is locked" (SQLITE_BUSY)
+        // instead of waiting a moment for the first writer to finish. Confirmed via app.log: repeated
+        // "database is locked" warnings from FlushPendingChanges while a scan was running, silently
+        // dropping whatever watcher updates arrived during that window. 10s is generous relative to
+        // how long a single batch commit takes, without risking a search query feeling laggy (reads
+        // don't hit this path in WAL mode - only writer-vs-writer contention does).
+        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=10000;";
         pragma.ExecuteNonQuery();
 
         return connection;
