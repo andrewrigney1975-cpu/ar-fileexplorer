@@ -67,18 +67,36 @@ public sealed partial class ControlCentreDialog : UserControl
 
     private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
 
+    private sealed record SearchIndexRootRow(string Path, string CountDisplay);
+
     private void RefreshSearchIndex()
     {
         var roots = SearchIndexService.Roots;
-        SearchIndexRootsList.ItemsSource = roots;
-        SearchIndexRootsEmptyText.Visibility = roots.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RebuildSearchIndexButton.IsEnabled = roots.Count > 0 && !SearchIndexService.IsScanning;
+        var counts = SearchIndexService.GetRootEntryCounts();
+
+        // .ToList() here matters, not just style - SearchIndexService.Roots returns the same
+        // JsonFileStore-cached List<string> instance every call, so re-assigning ItemsSource to that
+        // same reference is a no-op in WinUI (reference-equal DP values don't re-raise a change) and
+        // the list would only ever visibly update the next time this ListView is freshly constructed
+        // (i.e. next time Control Centre is reopened) - a fresh projected list every refresh avoids that.
+        var rows = roots
+            .Select(r => new SearchIndexRootRow(r, counts.TryGetValue(r, out var count) ? $"{count:N0} items indexed" : "0 items indexed"))
+            .ToList();
+
+        SearchIndexRootsList.ItemsSource = rows;
+        SearchIndexRootsEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RebuildSearchIndexButton.IsEnabled = rows.Count > 0 && !SearchIndexService.IsScanning;
+
+        SearchIndexProgressRing.IsActive = SearchIndexService.IsScanning;
+        SearchIndexProgressRing.Visibility = SearchIndexService.IsScanning ? Visibility.Visible : Visibility.Collapsed;
+
+        var dbSizeDisplay = FileExplorer.Models.FileSystemItem.FormatSize(SearchIndexService.DatabaseSizeBytes);
 
         SearchIndexStatusText.Text = SearchIndexService.IsScanning
-            ? $"Scanning... ({SearchIndexService.EntryCount:N0} entries indexed so far)"
+            ? $"Scanning... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk."
             : SearchIndexService.LastScanUtc is { } lastScan
-                ? $"{SearchIndexService.EntryCount:N0} entries indexed. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
-                : roots.Count == 0
+                ? $"{SearchIndexService.EntryCount:N0} entries indexed, {dbSizeDisplay} on disk. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
+                : rows.Count == 0
                     ? "Add a folder or drive below to start indexing."
                     : "Not scanned yet.";
     }

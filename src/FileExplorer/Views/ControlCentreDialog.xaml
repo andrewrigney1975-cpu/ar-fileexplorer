@@ -120,9 +120,12 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding CountDisplay}" Opacity="0.6" FontSize="12" />
+                                            </StackPanel>
                                             <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
-                                                    Click="RemoveSearchIndexRoot_Click" Tag="{Binding}"
+                                                    Click="RemoveSearchIndexRoot_Click" Tag="{Binding Path}"
                                                     AutomationProperties.Name="Stop indexing folder" ToolTipService.ToolTip="Stop indexing this folder">
                                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                                             </Button>
@@ -137,7 +140,10 @@
                                 <Button x:Name="RebuildSearchIndexButton" Content="Rebuild now" Click="RebuildSearchIndex_Click" />
                             </StackPanel>
 
-                            <TextBlock x:Name="SearchIndexStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <ProgressRing x:Name="SearchIndexProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
+                                <TextBlock x:Name="SearchIndexStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="PreferencesPanel" Visibility="Collapsed">

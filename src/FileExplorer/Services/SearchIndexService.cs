@@ -39,6 +39,8 @@ public static class SearchIndexService
     private static Timer? _flushTimer;
     private static CancellationTokenSource? _scanCts;
     private static bool _started;
+    private static int _scanProgressCount;
+    private static DateTime _lastProgressNotifyUtc = DateTime.MinValue;
 
     private sealed record PendingChange(string Path, string? OldPath, WatcherChangeTypes ChangeType);
 
@@ -137,6 +139,8 @@ public static class SearchIndexService
         _scanCts = cts;
 
         IsScanning = true;
+        _scanProgressCount = 0;
+        _lastProgressNotifyUtc = DateTime.MinValue;
         StatusChanged?.Invoke(null, EventArgs.Empty);
 
         try
@@ -158,6 +162,7 @@ public static class SearchIndexService
                     {
                         using var upsertCmd = CreateUpsertCommand(connection, transaction);
                         UpsertEntry(upsertCmd, root, root, Path.GetDirectoryName(root) ?? root, true, 0, Directory.GetLastWriteTimeUtc(root), root, generation);
+                        NotifyScanProgress();
                         ScanDirectory(root, root, generation, upsertCmd, cts.Token);
                         transaction.Commit();
                     }
@@ -313,12 +318,32 @@ public static class SearchIndexService
             }
 
             UpsertEntry(upsertCmd, entry, Path.GetFileName(entry), directory, isDirectory, size, modified, rootPath, generation);
+            NotifyScanProgress();
 
             if (isDirectory)
             {
                 ScanDirectory(entry, rootPath, generation, upsertCmd, cancellationToken);
             }
         }
+    }
+
+    /// Runs on the background scan thread (Task.Run in RebuildAsync) - EntryCount is read from the
+    /// UI thread via StatusChanged subscribers, which is safe here since it's only ever a
+    /// monotonically-increasing int write with no compound state to tear. Throttled to avoid firing
+    /// a UI update per file on a fast local scan.
+    private static void NotifyScanProgress()
+    {
+        var count = Interlocked.Increment(ref _scanProgressCount);
+        EntryCount = count;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastProgressNotifyUtc).TotalMilliseconds < 300)
+        {
+            return;
+        }
+
+        _lastProgressNotifyUtc = now;
+        StatusChanged?.Invoke(null, EventArgs.Empty);
     }
 
     // ----- Live watcher-driven updates -----
@@ -552,6 +577,51 @@ public static class SearchIndexService
         cmd.Parameters["@root"].Value = root;
         cmd.Parameters["@gen"].Value = generation;
         cmd.ExecuteNonQuery();
+    }
+
+    /// Combined size on disk of the SQLite database plus its WAL/shared-memory sidecar files (WAL
+    /// mode keeps recently-written pages there until a checkpoint folds them back into the main
+    /// file, so ignoring them would under-report actual disk usage).
+    public static long DatabaseSizeBytes
+    {
+        get
+        {
+            long size = 0;
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+            {
+                var path = DbPath + suffix;
+                if (File.Exists(path))
+                {
+                    size += new FileInfo(path).Length;
+                }
+            }
+            return size;
+        }
+    }
+
+    /// Entry count per configured root, for Control Centre's Search Index list. One grouped query
+    /// rather than one COUNT per root.
+    public static Dictionary<string, int> GetRootEntryCounts()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT RootPath, COUNT(*) FROM Entries GROUP BY RootPath";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                counts[reader.GetString(0)] = reader.GetInt32(1);
+            }
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.GetRootEntryCounts", ex);
+        }
+
+        return counts;
     }
 
     private static void RefreshEntryCount()
