@@ -119,7 +119,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
-                    <StackPanel Orientation="Vertical" Spacing="3" Padding="4,8" Opacity="0.5">
+                    <StackPanel Orientation="Vertical" Spacing="3" Padding="4,8">
                 <Button x:Name="UndoButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"
                         Click="UndoButton_Click" IsEnabled="False">
@@ -211,7 +211,7 @@
                 </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
-                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="3" Padding="4,8" Opacity="0.5">
+                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="3" Padding="4,8">
                     <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Name="SyncButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Sync tasks"
