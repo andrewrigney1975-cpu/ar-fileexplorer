@@ -78,6 +78,7 @@
                     <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="90" />
+                    <ColumnDefinition Width="86" />
                     <ColumnDefinition Width="70" />
                 </Grid.ColumnDefinitions>
                 <Rectangle Grid.Column="0" Width="4" VerticalAlignment="Stretch" Margin="-4,-6,0,-6" HorizontalAlignment="Left"
@@ -104,7 +105,10 @@
                            Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="3" Text="{x:Bind SizeDisplay}" VerticalAlignment="Center"
                            Opacity="0.7" FontSize="12" HorizontalAlignment="Right" />
-                <TextBlock Grid.Column="4" Text="{x:Bind AttributesDisplay}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="4" Text="{x:Bind RatingStars, Mode=OneWay}" VerticalAlignment="Center"
+                           Opacity="{x:Bind RatingOpacity, Mode=OneWay}" FontSize="12" CharacterSpacing="40"
+                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <TextBlock Grid.Column="5" Text="{x:Bind AttributesDisplay}" VerticalAlignment="Center"
                            Opacity="0.7" FontSize="12" FontFamily="Cascadia Mono, Consolas" />
             </Grid>
         </DataTemplate>
@@ -131,6 +135,13 @@
                             Visibility="{x:Bind IsFolderThumbnail, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <FontIcon Glyph="&#xE8B7;" FontSize="14" FontFamily="Segoe Fluent Icons"
                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    </Border>
+                    <Border Margin="6" Padding="6,2" CornerRadius="10" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                            Opacity="{x:Bind RatingOpacity, Mode=OneWay}"
+                            Visibility="{x:Bind RatingStars, Mode=OneWay, Converter={StaticResource NullToVis}}">
+                        <TextBlock Text="{x:Bind RatingStars, Mode=OneWay}" FontSize="12" CharacterSpacing="40"
+                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                     </Border>
                 </Grid>
                 <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
@@ -233,6 +244,7 @@
                 <ColumnDefinition Width="150" />
                 <ColumnDefinition Width="110" />
                 <ColumnDefinition Width="90" />
+                <ColumnDefinition Width="86" />
                 <ColumnDefinition Width="70" />
             </Grid.ColumnDefinitions>
             <Grid Grid.Column="0" Background="Transparent" Tapped="NameHeader_Tapped">
@@ -259,7 +271,13 @@
                     <TextBlock Text="Size" FontSize="12" Opacity="0.7" />
                 </StackPanel>
             </Grid>
-            <TextBlock Grid.Column="4" Text="Attributes" FontSize="12" Opacity="0.7"
+            <Grid Grid.Column="4" Background="Transparent" Tapped="RatingHeader_Tapped">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="Rating" FontSize="12" Opacity="0.7" />
+                    <FontIcon x:Name="RatingSortIcon" FontSize="10" Opacity="0.7" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Grid.Column="5" Text="Attributes" FontSize="12" Opacity="0.7"
                        ToolTipService.ToolTip="R=Read-only  H=Hidden  S=System  A=Archive  C=Compressed  E=Encrypted  L=Reparse point  T=Temporary  O=Offline  I=Not indexed  P=Sparse" />
         </Grid>
 

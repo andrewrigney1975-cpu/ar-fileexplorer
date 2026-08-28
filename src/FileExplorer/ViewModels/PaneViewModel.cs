@@ -312,6 +312,7 @@ public sealed partial class PaneViewModel : ObservableObject
             SortColumn.Modified => ascending ? byGroup.ThenBy(i => i.Modified) : byGroup.ThenByDescending(i => i.Modified),
             SortColumn.Kind => ascending ? byGroup.ThenBy(i => i.Kind, StringComparer.OrdinalIgnoreCase) : byGroup.ThenByDescending(i => i.Kind, StringComparer.OrdinalIgnoreCase),
             SortColumn.Size => ascending ? byGroup.ThenBy(i => i.SizeBytes) : byGroup.ThenByDescending(i => i.SizeBytes),
+            SortColumn.Rating => ascending ? byGroup.ThenBy(i => i.RatingValue ?? -1) : byGroup.ThenByDescending(i => i.RatingValue ?? -1),
             _ => ascending ? byGroup.ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase) : byGroup.ThenByDescending(i => i.Name, StringComparer.OrdinalIgnoreCase),
         };
     }

@@ -92,9 +92,11 @@ public sealed partial class PaneView : UserControl
 
     private void SizeHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Size);
 
+    private void RatingHeader_Tapped(object sender, TappedRoutedEventArgs e) => ViewModel?.ToggleSort(SortColumn.Rating);
+
     private void UpdateSortIndicators()
     {
-        var icons = new[] { NameSortIcon, ModifiedSortIcon, KindSortIcon, SizeSortIcon };
+        var icons = new[] { NameSortIcon, ModifiedSortIcon, KindSortIcon, SizeSortIcon, RatingSortIcon };
         foreach (var icon in icons)
         {
             icon.Visibility = Visibility.Collapsed;
@@ -111,6 +113,7 @@ public sealed partial class PaneView : UserControl
             SortColumn.Modified => ModifiedSortIcon,
             SortColumn.Kind => KindSortIcon,
             SortColumn.Size => SizeSortIcon,
+            SortColumn.Rating => RatingSortIcon,
             _ => NameSortIcon,
         };
 
@@ -1657,6 +1660,7 @@ public sealed partial class PaneView : UserControl
         if (!isRemote)
         {
             menu.Items.Add(BuildTagSubMenu(selection));
+            menu.Items.Add(BuildRatingSubMenu(selection));
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
@@ -1702,6 +1706,39 @@ public sealed partial class PaneView : UserControl
         foreach (var item in selection)
         {
             TagService.SetColor(item.FullPath, colorName);
+        }
+
+        ViewModel?.Refresh();
+    }
+
+    private MenuFlyoutSubItem BuildRatingSubMenu(IReadOnlyList<FileSystemItem> selection)
+    {
+        var subMenu = new MenuFlyoutSubItem { Text = "Rate" };
+
+        for (var stars = RatingService.MaxStars; stars >= 1; stars--)
+        {
+            var value = stars;
+            var item = new MenuFlyoutItem
+            {
+                Text = new string('★', value) + new string('☆', RatingService.MaxStars - value),
+            };
+            item.Click += (_, _) => SetRatingForSelection(selection, value);
+            subMenu.Items.Add(item);
+        }
+
+        subMenu.Items.Add(new MenuFlyoutSeparator());
+        var clear = new MenuFlyoutItem { Text = "Clear rating" };
+        clear.Click += (_, _) => SetRatingForSelection(selection, null);
+        subMenu.Items.Add(clear);
+
+        return subMenu;
+    }
+
+    private void SetRatingForSelection(IReadOnlyList<FileSystemItem> selection, int? stars)
+    {
+        foreach (var item in selection)
+        {
+            RatingService.SetRating(item.FullPath, stars);
         }
 
         ViewModel?.Refresh();

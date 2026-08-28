@@ -59,6 +59,7 @@ public sealed partial class MainWindow : Window
             RefreshSyncDropdown();
         });
         WatchService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
+        RatingService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
         SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>

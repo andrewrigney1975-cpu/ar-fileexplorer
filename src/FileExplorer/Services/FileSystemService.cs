@@ -204,6 +204,8 @@ public sealed class FileSystemService : IFileSystemService
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
 
+        RatingService.ResolveListing(path, items);
+
         return items;
     }
 

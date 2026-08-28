@@ -59,6 +59,24 @@ public sealed partial class FileSystemItem : ObservableObject
     [ObservableProperty]
     public partial string? TagColor { get; set; }
 
+    /// Effective 0-5 rating (may be fractional when calculated), or null when nothing applies.
+    /// Set by FileSystemService on load; see [[RatingService]] for how it's resolved.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RatingStars))]
+    [NotifyPropertyChangedFor(nameof(RatingOpacity))]
+    public partial double? RatingValue { get; set; }
+
+    /// True when RatingValue is derived (inherited from the parent or averaged from children)
+    /// rather than set directly on this item - the UI shows those at half opacity.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RatingOpacity))]
+    public partial bool RatingIsCalculated { get; set; }
+
+    /// Filled/empty star string for RatingValue, or null when unrated (drives NullToVis).
+    public string? RatingStars => Helpers.RatingFormat.ToStars(RatingValue);
+
+    public double RatingOpacity => RatingValue is null ? 0 : (RatingIsCalculated ? 0.5 : 1.0);
+
     public string Glyph => IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Extension);
 
     /// Whether this folder is a sync task's source or target (or neither). Set by FileSystemService on load.

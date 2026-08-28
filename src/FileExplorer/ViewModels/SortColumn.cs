@@ -6,4 +6,5 @@ public enum SortColumn
     Modified,
     Kind,
     Size,
+    Rating,
 }

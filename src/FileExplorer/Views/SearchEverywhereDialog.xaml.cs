@@ -12,9 +12,10 @@ public sealed partial class SearchEverywhereDialog : UserControl
     private const int DebounceMs = 200;
     private const int MaxResults = 300;
 
-    private sealed record ResultRow(string Path, string Name, string DirectoryPath, bool IsDirectory, string SizeDisplay, string ModifiedDisplay, string Glyph);
+    private sealed record ResultRow(string Path, string Name, string DirectoryPath, bool IsDirectory, string SizeDisplay, string ModifiedDisplay, string Glyph, string? RatingStars, double RatingOpacity);
 
     private CancellationTokenSource? _searchCts;
+    private string _lastQuery = string.Empty;
 
     public Action? RequestClose { get; set; }
 
@@ -80,6 +81,7 @@ public sealed partial class SearchEverywhereDialog : UserControl
         _searchCts = cts;
 
         var query = QueryBox.Text;
+        _lastQuery = query;
         if (string.IsNullOrWhiteSpace(query))
         {
             ResultsList.ItemsSource = null;
@@ -90,13 +92,29 @@ public sealed partial class SearchEverywhereDialog : UserControl
         _ = RunSearchAsync(query, cts.Token);
     }
 
+    private void RatingFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_lastQuery))
+        {
+            return;
+        }
+
+        _searchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        _ = RunSearchAsync(_lastQuery, cts.Token);
+    }
+
+    /// 0 (Any) .. 5, matching RatingFilterCombo's item order.
+    private int MinRating => RatingFilterCombo?.SelectedIndex ?? 0;
+
     private async Task RunSearchAsync(string query, CancellationToken cancellationToken)
     {
         try
         {
             await Task.Delay(DebounceMs, cancellationToken);
 
-            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken);
+            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken, MinRating);
             if (cancellationToken.IsCancellationRequested)
             {
                 return;
@@ -109,7 +127,9 @@ public sealed partial class SearchEverywhereDialog : UserControl
                 entry.IsDirectory,
                 entry.IsDirectory ? string.Empty : FileSystemItem.FormatSize(entry.SizeBytes),
                 FileSystemItem.FormatDate(entry.Modified.ToLocalTime()),
-                entry.IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Path.GetExtension(entry.Name))))
+                entry.IsDirectory ? IconHelper.Folder : IconHelper.GlyphFor(Path.GetExtension(entry.Name)),
+                Helpers.RatingFormat.ToStars(entry.Rating),
+                entry.Rating is null ? 0 : 1.0))
                 .ToList();
 
             ResultsList.ItemsSource = rows;

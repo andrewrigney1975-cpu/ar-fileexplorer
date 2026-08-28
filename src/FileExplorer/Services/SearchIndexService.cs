@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace FileExplorer.Services;
 
-public sealed record SearchIndexEntry(string Path, string Name, string DirectoryPath, bool IsDirectory, long SizeBytes, DateTimeOffset Modified);
+public sealed record SearchIndexEntry(string Path, string Name, string DirectoryPath, bool IsDirectory, long SizeBytes, DateTimeOffset Modified, double? Rating = null);
 
 /// Background, opt-in, persistent filename index powering "Search Everywhere" (command palette
 /// entry + standalone dialog) - a substring search across every file/folder under whichever roots
@@ -254,7 +254,10 @@ public static class SearchIndexService
     /// Substring match on filename (SQL-side, index-backed - the only thing that scales to millions
     /// of rows per keystroke), then ranked with the same typo-tolerant FuzzyMatcher the per-pane
     /// search uses, for a consistent feel between the two search features.
-    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken)
+    /// <param name="minRating">When &gt; 0, only results whose effective rating is at least this
+    /// many stars are returned, and results are re-ordered highest-rating-first (fuzzy score breaks
+    /// ties). 0 leaves ranking purely by name match.</param>
+    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -292,10 +295,24 @@ public static class SearchIndexService
                 }
             }
 
-            return scored
-                .OrderByDescending(s => s.Score)
+            var ranked = scored.OrderByDescending(s => s.Score).Select(s => s.Entry);
+
+            if (minRating > 0)
+            {
+                // A rating filter is active: resolve every candidate's effective rating, keep those
+                // at/above the threshold, and float higher ratings to the top (OrderBy is stable, so
+                // the fuzzy-score order is preserved within each rating band).
+                return ranked
+                    .Select(e => e with { Rating = RatingService.GetEffective(e.Path, e.IsDirectory)?.Value })
+                    .Where(e => e.Rating is { } r && r >= minRating - 0.0001)
+                    .OrderByDescending(e => e.Rating)
+                    .Take(maxResults)
+                    .ToList();
+            }
+
+            return ranked
                 .Take(maxResults)
-                .Select(s => s.Entry)
+                .Select(e => e with { Rating = RatingService.GetEffective(e.Path, e.IsDirectory)?.Value })
                 .ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
