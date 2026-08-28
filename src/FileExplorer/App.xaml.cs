@@ -52,6 +52,7 @@ public partial class App : Application
             FileExplorer.Services.NotificationService.Register();
             FileExplorer.Services.WatchService.Start();
             FileExplorer.Services.ScheduleService.Start();
+            FileExplorer.Services.ScriptService.EnsureBuiltInScripts();
             _window = new MainWindow(
                 Services.GetRequiredService<IFileSystemService>(),
                 Services.GetRequiredService<ISessionService>(),

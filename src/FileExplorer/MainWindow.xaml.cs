@@ -1410,11 +1410,17 @@ public sealed partial class MainWindow : Window
 
         pane.AnalyseFolderRequested -= PaneView_AnalyseFolderRequested;
         pane.AnalyseFolderRequested += PaneView_AnalyseFolderRequested;
+
+        pane.RunScriptRequested -= PaneView_RunScriptRequested;
+        pane.RunScriptRequested += PaneView_RunScriptRequested;
     }
 
     private void PaneView_FindDuplicatesRequested(object? sender, string path) => _ = ShowDuplicateFinderAsync(path);
 
     private void PaneView_AnalyseFolderRequested(object? sender, string path) => _ = OpenDiskSpaceAnalyserAsync(path);
+
+    private void PaneView_RunScriptRequested(object? sender, PaneView.ScriptRunRequest request) =>
+        _ = RunScriptAsync(request.ScriptName, request.Paths);
 
     private void PaneView_Activated(object? sender, EventArgs e)
     {
@@ -2111,7 +2117,7 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private async Task RunScriptAsync(string scriptName)
+    private async Task RunScriptAsync(string scriptName, IReadOnlyList<string>? explicitSelectionPaths = null)
     {
         if (!SettingsService.Current.EnableScripting)
         {
@@ -2129,7 +2135,8 @@ public sealed partial class MainWindow : Window
         try
         {
             result = await ScriptEngineService.RunAsync(
-                code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot);
+                code, _viewModel.SelectedTab?.ActivePane, _viewModel, DispatcherQueue, Content.XamlRoot,
+                explicitSelectionPaths: explicitSelectionPaths);
         }
         finally
         {

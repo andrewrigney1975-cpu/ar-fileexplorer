@@ -8,6 +8,75 @@ public static class ScriptService
     private static readonly string FolderPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp", "Scripts");
 
+    /// Scripts the app ships. Written to the Scripts folder on startup only if a file of that name
+    /// doesn't already exist, so a user's own edits (or deletions, until next launch) are respected.
+    private static readonly Dictionary<string, string> BuiltInScripts = new()
+    {
+        ["DeleteFilesInFolder"] =
+            """
+            // DeleteFilesInFolder
+            // Moves every file and subfolder inside the selected folder(s) to the Recycle Bin,
+            // leaving the folder itself in place (empty). Hidden/system items are left untouched.
+            //
+            // Right-click a folder -> Run Action... -> DeleteFilesInFolder.
+
+            var folders = selection().filter(function (item) { return item.IsDirectory; });
+
+            if (folders.length === 0) {
+                notify("DeleteFilesInFolder", "Right-click a folder to use this action.");
+            } else {
+                var total = 0;
+
+                folders.forEach(function (folder) {
+                    var children = listFiles(folder.FullPath);
+                    if (children.length === 0) {
+                        log("\"" + folder.Name + "\" is already empty.");
+                        return;
+                    }
+
+                    if (!confirm("Move all " + children.length + " item(s) inside \"" + folder.Name +
+                                 "\" to the Recycle Bin?")) {
+                        log("Skipped \"" + folder.Name + "\".");
+                        return;
+                    }
+
+                    children.forEach(function (child) {
+                        deleteItem(child.FullPath, false);
+                        log("Recycled " + child.FullPath);
+                        total++;
+                    });
+                });
+
+                refresh();
+
+                if (total > 0) {
+                    notify("DeleteFilesInFolder", "Moved " + total + " item(s) to the Recycle Bin.");
+                }
+            }
+            """,
+    };
+
+    /// Writes any missing built-in scripts. Called once at startup.
+    public static void EnsureBuiltInScripts()
+    {
+        try
+        {
+            Directory.CreateDirectory(FolderPath);
+            foreach (var (name, content) in BuiltInScripts)
+            {
+                var path = PathFor(name);
+                if (!File.Exists(path))
+                {
+                    File.WriteAllText(path, content.ReplaceLineEndings());
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning("ScriptService.EnsureBuiltInScripts", ex);
+        }
+    }
+
     public static List<string> List()
     {
         try

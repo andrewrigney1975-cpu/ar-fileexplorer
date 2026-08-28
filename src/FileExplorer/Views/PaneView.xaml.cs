@@ -33,6 +33,12 @@ public sealed partial class PaneView : UserControl
     /// Disk Space Analyser rooted at that folder. Same thin-bridge rationale as FindDuplicatesRequested.
     public event EventHandler<string>? AnalyseFolderRequested;
 
+    public sealed record ScriptRunRequest(string ScriptName, IReadOnlyList<string> Paths);
+
+    /// Raised when the user picks a script from the "Run Action..." submenu; MainWindow runs it
+    /// against the given paths (its own script-run plumbing owns the engine + result reporting).
+    public event EventHandler<ScriptRunRequest>? RunScriptRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1657,6 +1663,11 @@ public sealed partial class PaneView : UserControl
         {
             menu.Items.Add(BuildTagSubMenu(selection));
             menu.Items.Add(BuildRatingSubMenu(selection));
+
+            if (BuildRunActionSubMenu(selection.Select(s => s.FullPath).ToList()) is { } runActions)
+            {
+                menu.Items.Add(runActions);
+            }
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
@@ -1740,6 +1751,34 @@ public sealed partial class PaneView : UserControl
         ViewModel?.Refresh();
     }
 
+    /// "Run Action..." - a submenu of the user's saved scripts, run ad-hoc against <paramref name="paths"/>.
+    /// Null when scripting is disabled (the whole submenu is then hidden).
+    private MenuFlyoutSubItem? BuildRunActionSubMenu(IReadOnlyList<string> paths)
+    {
+        if (!SettingsService.Current.EnableScripting)
+        {
+            return null;
+        }
+
+        var subMenu = new MenuFlyoutSubItem { Text = "Run Action..." };
+        var scripts = ScriptService.List();
+
+        if (scripts.Count == 0)
+        {
+            subMenu.Items.Add(new MenuFlyoutItem { Text = "No scripts — create one in Control Centre", IsEnabled = false });
+            return subMenu;
+        }
+
+        foreach (var name in scripts)
+        {
+            var item = new MenuFlyoutItem { Text = name };
+            item.Click += (_, _) => RunScriptRequested?.Invoke(this, new ScriptRunRequest(name, paths));
+            subMenu.Items.Add(item);
+        }
+
+        return subMenu;
+    }
+
     private MenuFlyout BuildEmptySpaceContextMenu()
     {
         var menu = new MenuFlyout();
@@ -1753,6 +1792,11 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(NewMenuItem("Export folder listing (JSON)...", string.Empty, async () => await ExportFolderListingAsync()));
         menu.Items.Add(NewMenuItem("Find Duplicate Files...", string.Empty, () => FindDuplicatesRequested?.Invoke(this, ViewModel.CurrentPath)));
         menu.Items.Add(NewMenuItem("Analyse Folder...", string.Empty, () => AnalyseFolderRequested?.Invoke(this, ViewModel.CurrentPath)));
+
+        if (BuildRunActionSubMenu(new[] { ViewModel.CurrentPath }) is { } runActions)
+        {
+            menu.Items.Add(runActions);
+        }
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));

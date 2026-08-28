@@ -36,7 +36,8 @@ public static class ScriptEngineService
         MainViewModel mainViewModel,
         DispatcherQueue dispatcher,
         XamlRoot xamlRoot,
-        IReadOnlyList<string>? addedFilePaths = null)
+        IReadOnlyList<string>? addedFilePaths = null,
+        IReadOnlyList<string>? explicitSelectionPaths = null)
     {
         var log = new List<string>();
 
@@ -50,7 +51,7 @@ public static class ScriptEngineService
                     options.MaxStatements(MaxStatements);
                 });
 
-                BindApi(engine, activePane, mainViewModel, dispatcher, xamlRoot, log, addedFilePaths);
+                BindApi(engine, activePane, mainViewModel, dispatcher, xamlRoot, log, addedFilePaths, explicitSelectionPaths);
 
                 engine.Execute(code);
             });
@@ -74,7 +75,8 @@ public static class ScriptEngineService
         DispatcherQueue dispatcher,
         XamlRoot xamlRoot,
         List<string> log,
-        IReadOnlyList<string>? addedFilePaths)
+        IReadOnlyList<string>? addedFilePaths,
+        IReadOnlyList<string>? explicitSelectionPaths = null)
     {
         engine.SetValue("currentPath", activePane?.CurrentPath ?? string.Empty);
 
@@ -84,6 +86,12 @@ public static class ScriptEngineService
 
         engine.SetValue("selection", new Func<List<ScriptFileItem>>(() =>
         {
+            // An explicit set (e.g. the "Run Action..." context menu) wins over the live pane selection.
+            if (explicitSelectionPaths is not null)
+            {
+                return explicitSelectionPaths.Select(ToScriptItem).ToList();
+            }
+
             if (activePane is null)
             {
                 return new List<ScriptFileItem>();
