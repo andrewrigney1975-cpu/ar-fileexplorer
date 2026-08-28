@@ -456,6 +456,104 @@ public sealed partial class MainWindow : Window
             };
             DriveTree.RootNodes.Add(node);
         }
+
+        // Deferred a layout pass: on first launch this runs inside the constructor, before the
+        // TreeView has realized any containers, and a same-frame IsExpanded=true doesn't render.
+        DispatcherQueue.TryEnqueue(RestoreTreeExpansion);
+    }
+
+    private bool _restoringTree;
+
+    /// Re-expands the folders that were expanded last session (persisted by TreeExpansionService),
+    /// realizing children along each saved path. Parents are processed before children (sorted by
+    /// path length) so each level's node exists by the time we descend into it.
+    private void RestoreTreeExpansion()
+    {
+        var paths = TreeExpansionService.ExpandedPaths.OrderBy(p => p.Length).ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        _restoringTree = true;
+        try
+        {
+            var stale = new List<string>();
+            foreach (var path in paths)
+            {
+                var node = FindOrRealizeNode(path);
+                if (node is null)
+                {
+                    stale.Add(path);
+                    continue;
+                }
+
+                // Realize this node's own children before expanding it - the walk above only
+                // realizes ancestors, so without this the target expands but renders empty.
+                RealizeChildren(node);
+                node.IsExpanded = true;
+            }
+
+            foreach (var path in stale)
+            {
+                TreeExpansionService.SetExpanded(path, false);
+            }
+        }
+        finally
+        {
+            _restoringTree = false;
+        }
+    }
+
+    private static bool IsSelfOrAncestorPath(string ancestor, string path)
+    {
+        var a = ancestor.TrimEnd(System.IO.Path.DirectorySeparatorChar);
+        var p = path.TrimEnd(System.IO.Path.DirectorySeparatorChar);
+        return string.Equals(a, p, StringComparison.OrdinalIgnoreCase)
+            || p.StartsWith(a + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// Walks from the matching drive root down to <paramref name="path"/>, realizing (and expanding)
+    /// each intermediate node so the target node exists. Returns null if the path is no longer on disk.
+    private TreeViewNode? FindOrRealizeNode(string path)
+    {
+        var current = DriveTree.RootNodes.FirstOrDefault(
+            n => n.Content is FolderNode f && IsSelfOrAncestorPath(f.FullPath, path));
+
+        while (current?.Content is FolderNode folder)
+        {
+            if (string.Equals(folder.FullPath.TrimEnd(System.IO.Path.DirectorySeparatorChar),
+                    path.TrimEnd(System.IO.Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            {
+                return current;
+            }
+
+            RealizeChildren(current);
+            current.IsExpanded = true;
+            current = current.Children.FirstOrDefault(
+                c => c.Content is FolderNode cf && IsSelfOrAncestorPath(cf.FullPath, path));
+        }
+
+        return null;
+    }
+
+    private void RealizeChildren(TreeViewNode node)
+    {
+        if (node.Content is not FolderNode folder || node.Children.Count > 0 || !node.HasUnrealizedChildren)
+        {
+            return;
+        }
+
+        node.HasUnrealizedChildren = false;
+
+        foreach (var child in _fileSystemService.GetSubfolderNodes(folder.FullPath))
+        {
+            node.Children.Add(new TreeViewNode
+            {
+                Content = child,
+                HasUnrealizedChildren = _fileSystemService.HasSubdirectories(child.FullPath),
+            });
+        }
     }
 
     private static string FormatBytes(long bytes)
@@ -473,27 +571,19 @@ public sealed partial class MainWindow : Window
 
     private void DriveTree_Expanding(TreeView sender, TreeViewExpandingEventArgs args)
     {
-        var node = args.Node;
-        if (!node.HasUnrealizedChildren || node.Children.Count > 0)
+        RealizeChildren(args.Node);
+
+        if (!_restoringTree && args.Node.Content is FolderNode folder)
         {
-            return;
+            TreeExpansionService.SetExpanded(folder.FullPath, true);
         }
+    }
 
-        node.HasUnrealizedChildren = false;
-
-        if (node.Content is not FolderNode folder)
+    private void DriveTree_Collapsed(TreeView sender, TreeViewCollapsedEventArgs args)
+    {
+        if (!_restoringTree && args.Node.Content is FolderNode folder)
         {
-            return;
-        }
-
-        foreach (var child in _fileSystemService.GetSubfolderNodes(folder.FullPath))
-        {
-            var childNode = new TreeViewNode
-            {
-                Content = child,
-                HasUnrealizedChildren = _fileSystemService.HasSubdirectories(child.FullPath),
-            };
-            node.Children.Add(childNode);
+            TreeExpansionService.SetExpanded(folder.FullPath, false);
         }
     }
 

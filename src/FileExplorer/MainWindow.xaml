@@ -77,7 +77,7 @@
 
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
              so the window frame reads as one continuous surface instead of a separate white/black strip. -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ControlFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
                 <Image x:Name="TitleBarIcon" Width="16" Height="16" />
                 <TextBlock Text="enfyl Explorer" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
@@ -86,7 +86,7 @@
 
         <!-- Top strip: command palette only; every icon action now lives in the left activity bar -->
         <Grid Grid.Row="1" Padding="12,6"
-              Background="{ThemeResource LayerFillColorDefaultBrush}">
+              Background="{ThemeResource ControlFillColorDefaultBrush}">
 
             <Border x:Name="CommandPaletteBar" Width="360" Height="32" CornerRadius="6"
                     HorizontalAlignment="Center" Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -103,7 +103,7 @@
         <!-- Body: activity bar | left rail | main content | right preview -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="ActivityBarColumn" Width="44" />
+                <ColumnDefinition x:Name="ActivityBarColumn" Width="52" />
                 <ColumnDefinition x:Name="RailColumn" Width="240" MinWidth="180" MaxWidth="480" />
                 <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" MinWidth="300" />
@@ -112,18 +112,18 @@
             </Grid.ColumnDefinitions>
 
             <!-- Left activity bar (VSCode-style): every icon action lives here -->
-            <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+            <Grid Grid.Column="0" Background="{ThemeResource ControlFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
-                    <StackPanel Orientation="Vertical" Spacing="3" Padding="4,8">
+                    <StackPanel Orientation="Vertical" Spacing="3" Padding="4,8" Opacity="0.5">
                 <Button x:Name="UndoButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"
                         Click="UndoButton_Click" IsEnabled="False">
-                    <FontIcon Glyph="&#xE7A7;" FontSize="16" />
+                    <FontIcon Glyph="&#xE7A7;" FontSize="19" />
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="Z" />
                     </Button.KeyboardAccelerators>
@@ -132,7 +132,7 @@
                 <Button x:Name="CutButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut"
                         Click="CutButton_Click">
-                    <FontIcon Glyph="&#xE8C6;" FontSize="16" />
+                    <FontIcon Glyph="&#xE8C6;" FontSize="19" />
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="X" />
                     </Button.KeyboardAccelerators>
@@ -140,7 +140,7 @@
                 <Button x:Name="CopyButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Copy" ToolTipService.ToolTip="Copy"
                         Click="CopyButton_Click">
-                    <FontIcon Glyph="&#xE8C8;" FontSize="16" />
+                    <FontIcon Glyph="&#xE8C8;" FontSize="19" />
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="C" />
                     </Button.KeyboardAccelerators>
@@ -148,7 +148,7 @@
                 <Button x:Name="PasteButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Paste" ToolTipService.ToolTip="Paste"
                         Click="PasteButton_Click">
-                    <FontIcon Glyph="&#xE77F;" FontSize="16" />
+                    <FontIcon Glyph="&#xE77F;" FontSize="19" />
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control" Key="V" />
                     </Button.KeyboardAccelerators>
@@ -157,7 +157,7 @@
                 <Button x:Name="NewFolderButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="New folder" ToolTipService.ToolTip="New folder"
                         Click="NewFolderButton_Click">
-                    <FontIcon Glyph="&#xE8DE;" FontSize="16" />
+                    <FontIcon Glyph="&#xE8DE;" FontSize="19" />
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Modifiers="Control,Shift" Key="N" />
                     </Button.KeyboardAccelerators>
@@ -166,57 +166,57 @@
                 <Button x:Name="DiskSpaceAnalyserButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk space analyser" ToolTipService.ToolTip="Disk space analyser"
                         Click="DiskSpaceAnalyserButton_Click">
-                    <FontIcon Glyph="&#xEB05;" FontSize="16" />
+                    <FontIcon Glyph="&#xEB05;" FontSize="19" />
                 </Button>
                 <Button x:Name="DiskBenchmarkButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk benchmark" ToolTipService.ToolTip="Disk benchmark"
                         Click="DiskBenchmarkButton_Click">
-                    <FontIcon Glyph="&#xE95E;" FontSize="16" />
+                    <FontIcon Glyph="&#xE95E;" FontSize="19" />
                 </Button>
                 <Button x:Name="DiskActivityMonitorButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk activity monitor" ToolTipService.ToolTip="Disk activity monitor"
                         Click="DiskActivityMonitorButton_Click">
-                    <FontIcon Glyph="&#xE9D9;" FontSize="16" />
+                    <FontIcon Glyph="&#xE9D9;" FontSize="19" />
                 </Button>
                         <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Icons view"
                               Click="IconsModeButton_Click" ToolTipService.ToolTip="Icons view">
-                    <FontIcon Glyph="&#xE80A;" FontSize="16" />
+                    <FontIcon Glyph="&#xE80A;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="ListModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="List view"
                               Click="ListModeButton_Click" ToolTipService.ToolTip="List view">
-                    <FontIcon Glyph="&#xE71D;" FontSize="16" />
+                    <FontIcon Glyph="&#xE71D;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="DetailsModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Details view"
                               Click="DetailsModeButton_Click" ToolTipService.ToolTip="Details view">
-                    <FontIcon Glyph="&#xE71D;" FontSize="16" />
+                    <FontIcon Glyph="&#xE71D;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="GalleryModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Gallery view"
                               Click="GalleryModeButton_Click" ToolTipService.ToolTip="Gallery view">
-                    <FontIcon Glyph="&#xE8B9;" FontSize="16" />
+                    <FontIcon Glyph="&#xE8B9;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="PreviewToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Toggle preview pane"
                               IsChecked="True" Click="PreviewToggleButton_Click" ToolTipService.ToolTip="Toggle preview pane">
-                    <FontIcon Glyph="&#xE890;" FontSize="16" />
+                    <FontIcon Glyph="&#xE890;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="TerminalToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Toggle terminal"
                               IsChecked="False" Click="TerminalToggleButton_Click" ToolTipService.ToolTip="Toggle terminal">
-                    <FontIcon Glyph="&#xE756;" FontSize="16" />
+                    <FontIcon Glyph="&#xE756;" FontSize="19" />
                 </ToggleButton>
                     </StackPanel>
                 </ScrollViewer>
-                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="3" Padding="4,8">
+                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="3" Padding="4,8" Opacity="0.5">
                     <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Name="SyncButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Sync tasks"
                         ToolTipService.ToolTip="Sync tasks">
-                    <FontIcon Glyph="&#xE895;" FontSize="16" />
+                    <FontIcon Glyph="&#xE895;" FontSize="19" />
                     <Button.Flyout>
                         <Flyout Placement="RightEdgeAlignedTop">
                             <StackPanel Width="280" Spacing="4">
@@ -251,7 +251,7 @@
                 <Button x:Name="OperationsButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="File operations"
                         ToolTipService.ToolTip="File operations">
-                    <FontIcon x:Name="OperationsGearIcon" Glyph="&#xE713;" FontSize="16" RenderTransformOrigin="0.5,0.5">
+                    <FontIcon x:Name="OperationsGearIcon" Glyph="&#xE713;" FontSize="19" RenderTransformOrigin="0.5,0.5">
                         <FontIcon.RenderTransform>
                             <RotateTransform x:Name="OperationsGearRotation" Angle="0" />
                         </FontIcon.RenderTransform>
@@ -326,7 +326,8 @@
                           SelectionMode="Single"
                           AutomationProperties.Name="Drives and folders"
                           ItemInvoked="DriveTree_ItemInvoked"
-                          Expanding="DriveTree_Expanding">
+                          Expanding="DriveTree_Expanding"
+                          Collapsed="DriveTree_Collapsed">
                     <TreeView.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Vertical" Spacing="2" Padding="0,2">
