@@ -541,6 +541,16 @@ public sealed partial class MainWindow : Window
         _ = OpenDiskBenchmarkAsync(folder.FullPath);
     }
 
+    private void AnalyseFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TreeViewNode { Content: FolderNode { IsDrive: false } folder })
+        {
+            return;
+        }
+
+        _ = OpenDiskSpaceAnalyserAsync(folder.FullPath);
+    }
+
     // ----- Collapsible left-rail sections -----
 
     private static void ToggleSection(FontIcon chevron, UIElement content)
@@ -1191,9 +1201,14 @@ public sealed partial class MainWindow : Window
 
         pane.FindDuplicatesRequested -= PaneView_FindDuplicatesRequested;
         pane.FindDuplicatesRequested += PaneView_FindDuplicatesRequested;
+
+        pane.AnalyseFolderRequested -= PaneView_AnalyseFolderRequested;
+        pane.AnalyseFolderRequested += PaneView_AnalyseFolderRequested;
     }
 
     private void PaneView_FindDuplicatesRequested(object? sender, string path) => _ = ShowDuplicateFinderAsync(path);
+
+    private void PaneView_AnalyseFolderRequested(object? sender, string path) => _ = OpenDiskSpaceAnalyserAsync(path);
 
     private void PaneView_Activated(object? sender, EventArgs e)
     {

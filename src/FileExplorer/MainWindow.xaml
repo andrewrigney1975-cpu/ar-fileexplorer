@@ -316,6 +316,8 @@
                                                          Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
                                         <MenuFlyoutItem Text="Benchmark Disk" Click="BenchmarkDiskMenuItem_Click"
                                                          Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}}" />
+                                        <MenuFlyoutItem Text="Analyse Folder..." Click="AnalyseFolderMenuItem_Click"
+                                                         Visibility="{Binding Content.IsDrive, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
                                     </MenuFlyout>
                                 </StackPanel.ContextFlyout>
                                 <StackPanel Orientation="Horizontal" Spacing="6">

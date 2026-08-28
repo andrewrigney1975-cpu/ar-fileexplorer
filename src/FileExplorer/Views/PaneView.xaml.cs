@@ -29,6 +29,10 @@ public sealed partial class PaneView : UserControl
     /// is a thin request bridge rather than duplicating that ~90-line dialog flow here.
     public event EventHandler<string>? FindDuplicatesRequested;
 
+    /// Raised with a folder path when the user picks "Analyse Folder..." - MainWindow opens the
+    /// Disk Space Analyser rooted at that folder. Same thin-bridge rationale as FindDuplicatesRequested.
+    public event EventHandler<string>? AnalyseFolderRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1646,6 +1650,7 @@ public sealed partial class PaneView : UserControl
             }
 
             menu.Items.Add(NewMenuItem("Find Duplicate Files...", "", () => FindDuplicatesRequested?.Invoke(this, folder.FullPath)));
+            menu.Items.Add(NewMenuItem("Analyse Folder...", "", () => AnalyseFolderRequested?.Invoke(this, folder.FullPath)));
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
@@ -1714,6 +1719,7 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(NewMenuItem("New link...", string.Empty, async () => await CreateNewLinkAsync()));
         menu.Items.Add(NewMenuItem("Export folder listing (JSON)...", string.Empty, async () => await ExportFolderListingAsync()));
         menu.Items.Add(NewMenuItem("Find Duplicate Files...", string.Empty, () => FindDuplicatesRequested?.Invoke(this, ViewModel.CurrentPath)));
+        menu.Items.Add(NewMenuItem("Analyse Folder...", string.Empty, () => AnalyseFolderRequested?.Invoke(this, ViewModel.CurrentPath)));
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));

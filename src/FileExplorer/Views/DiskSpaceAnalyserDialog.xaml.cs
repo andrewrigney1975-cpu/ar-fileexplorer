@@ -37,8 +37,8 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
 
     public Action? RequestClose { get; set; }
 
-    /// Set before showing the dialog to skip the drive grid and jump straight into that drive's
-    /// breakdown - e.g. from the left rail's "Analyse Disk" context menu item.
+    /// Set before showing the dialog to skip the drive grid and jump straight into that path's
+    /// breakdown - a drive root from "Analyse Disk", or any folder from "Analyse Folder...".
     public string? InitialDrivePath { get; set; }
 
     public DiskSpaceAnalyserDialog()
