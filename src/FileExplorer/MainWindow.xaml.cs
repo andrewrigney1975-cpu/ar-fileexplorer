@@ -1085,6 +1085,8 @@ public sealed partial class MainWindow : Window
                 _viewModel.Tabs.Move(_viewModel.Tabs.IndexOf(target), i);
             }
         }
+
+        _viewModel.NormalizeHomePosition();
     }
 
     private void DuplicateTabMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1092,6 +1094,43 @@ public sealed partial class MainWindow : Window
         if (sender is FrameworkElement { DataContext: TabViewModel tab })
         {
             _viewModel.DuplicateTabCommand.Execute(tab);
+        }
+    }
+
+    private EventHandler<string>? _homeDriveInvokedHandler;
+
+    private void HomeDrivePicker_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not DrivePickerView picker || picker.DataContext is not TabViewModel tab)
+        {
+            return;
+        }
+
+        // TabView can virtualize the Home content away and rebuild the DrivePickerView when the tab
+        // is reselected; unhook the previous subscription before adding one for the live instance.
+        if (_homeDriveInvokedHandler is not null)
+        {
+            picker.DriveInvoked -= _homeDriveInvokedHandler;
+        }
+
+        _homeDriveInvokedHandler = (_, rootPath) => tab.RightPane.NavigateTo(rootPath);
+        picker.DriveInvoked += _homeDriveInvokedHandler;
+        picker.Refresh();
+    }
+
+    private async void SetTabIconMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TabViewModel tab } && !tab.IsHome)
+        {
+            await PickTabIconAsync(tab);
+        }
+    }
+
+    private void ResetTabIconMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TabViewModel tab })
+        {
+            tab.SetIcon(null);
         }
     }
 
@@ -1131,6 +1170,57 @@ public sealed partial class MainWindow : Window
         }
 
         tab.Rename(nameBox.Text);
+    }
+
+    private async Task PickTabIconAsync(TabViewModel tab)
+    {
+        var all = Helpers.SegoeIconCatalog.Icons;
+
+        var filterBox = new TextBox { PlaceholderText = "Search icons...", Margin = new Thickness(0, 0, 0, 8) };
+        var grid = new GridView
+        {
+            SelectionMode = ListViewSelectionMode.Single,
+            IsItemClickEnabled = true,
+            Height = 320,
+            ItemsSource = all,
+            ItemTemplate = (DataTemplate)RootGrid.Resources["IconCatalogItemTemplate"],
+        };
+        grid.SelectedItem = all.FirstOrDefault(i => i.Glyph == tab.IconGlyph);
+
+        filterBox.TextChanged += (_, _) =>
+        {
+            var q = filterBox.Text.Trim();
+            grid.ItemsSource = string.IsNullOrEmpty(q)
+                ? all
+                : all.Where(i => i.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                                 || i.Keywords.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = "Set Workspace Icon",
+            Content = new StackPanel { Children = { filterBox, grid }, Width = 420 },
+            PrimaryButtonText = "Set",
+            SecondaryButtonText = "Reset to Default",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        grid.ItemClick += (_, e) =>
+        {
+            grid.SelectedItem = e.ClickedItem;
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Secondary)
+        {
+            tab.SetIcon(null);
+        }
+        else if (result == ContentDialogResult.Primary && grid.SelectedItem is Helpers.SegoeIconCatalog.Entry entry)
+        {
+            tab.SetIcon(entry.Glyph);
+        }
     }
 
     // Same custom drag marker PaneView uses to recognize its own item drags (kept as a

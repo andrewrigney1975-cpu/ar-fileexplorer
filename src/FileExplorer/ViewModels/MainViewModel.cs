@@ -71,6 +71,11 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     public void DuplicateTab(TabViewModel source)
     {
+        if (source.IsHome)
+        {
+            return;
+        }
+
         var name = source.HasCustomHeader ? source.Header : null;
         var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, source.LeftPane.CurrentPath, source.RightPane.CurrentPath, name);
         var index = Tabs.IndexOf(source);
@@ -80,30 +85,54 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void RestoreSessionOrDefault()
     {
-        var saved = _sessionService.Load();
-        if (saved.Count == 0)
-        {
-            AddTab();
-            return;
-        }
+        Tabs.Add(CreateHomeTab());
 
-        foreach (var state in saved)
+        foreach (var state in _sessionService.Load())
         {
-            Tabs.Add(new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, state.LeftPath, state.RightPath, state.Name));
+            var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, state.LeftPath, state.RightPath, state.Name);
+            tab.SetIcon(state.Icon);
+            Tabs.Add(tab);
         }
 
         SelectedTab = Tabs[0];
     }
 
+    /// The fixed "Home" workspace: drive picker on the left, the system drive's root on the right.
+    /// Always rebuilt fresh - its locations are never persisted.
+    private TabViewModel CreateHomeTab()
+    {
+        var systemRoot = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+        return new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, systemRoot, systemRoot, name: null, isHome: true);
+    }
+
     public void SaveSession()
     {
-        _sessionService.Save(Tabs.Select(t => new TabState(
-            t.LeftPane.CurrentPath, t.RightPane.CurrentPath, t.HasCustomHeader ? t.Header : null)));
+        _sessionService.Save(Tabs.Where(t => !t.IsHome).Select(t => new TabState(
+            t.LeftPane.CurrentPath,
+            t.RightPane.CurrentPath,
+            t.HasCustomHeader ? t.Header : null,
+            t.HasCustomIcon ? t.IconGlyph : null)));
+    }
+
+    /// Home is pinned to the first slot; a drag that displaces it (or drops another tab ahead of
+    /// it) is snapped back. Called by MainWindow after the TabView reorders its items.
+    public void NormalizeHomePosition()
+    {
+        var home = Tabs.FirstOrDefault(t => t.IsHome);
+        if (home is not null && Tabs.IndexOf(home) > 0)
+        {
+            Tabs.Move(Tabs.IndexOf(home), 0);
+        }
     }
 
     [RelayCommand]
     public void CloseTab(TabViewModel tab)
     {
+        if (tab.IsHome)
+        {
+            return;
+        }
+
         var index = Tabs.IndexOf(tab);
         if (index < 0)
         {

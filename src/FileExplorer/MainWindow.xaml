@@ -17,6 +17,21 @@
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
             <conv:UsedPercentToBrushConverter x:Key="UsedPercentToBrush" />
 
+            <!-- One glyph tile in the "Set Workspace Icon" picker. -->
+            <DataTemplate x:Key="IconCatalogItemTemplate">
+                <Grid Width="76" Height="76" Padding="4" ToolTipService.ToolTip="{Binding Name}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <FontIcon Grid.Row="0" Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                              VerticalAlignment="Center" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock Grid.Row="1" Text="{Binding Name}" FontSize="10" TextAlignment="Center"
+                               TextTrimming="CharacterEllipsis" HorizontalAlignment="Stretch"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+            </DataTemplate>
+
             <!-- Spins the File operations gear icon while at least one job is queued/running. -->
             <Storyboard x:Key="OperationsGearSpin">
                 <DoubleAnimation Storyboard.TargetName="OperationsGearRotation" Storyboard.TargetProperty="Angle"
@@ -587,41 +602,71 @@
                      TabCloseRequested="MainTabView_TabCloseRequested"
                      TabItemsChanged="MainTabView_TabItemsChanged"
                      CanDragTabs="True" CanReorderTabs="True">
-                <TabView.TabItemTemplate>
-                    <DataTemplate x:DataType="vm:TabViewModel">
-                        <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="True"
-                                     AllowDrop="True"
-                                     DragEnter="TabViewItem_DragEnter"
-                                     DragLeave="TabViewItem_DragLeave"
-                                     DoubleTapped="TabViewItem_DoubleTapped">
-                            <TabViewItem.IconSource>
-                                <FontIconSource Glyph="&#xE8B7;" />
-                            </TabViewItem.IconSource>
-                            <TabViewItem.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuFlyoutItem Text="Rename Workspace..." Click="RenameTabMenuItem_Click" />
-                                    <MenuFlyoutItem Text="Duplicate Workspace" Click="DuplicateTabMenuItem_Click" />
-                                </MenuFlyout>
-                            </TabViewItem.ContextFlyout>
-                            <TabViewItem.Content>
-                                <Grid Padding="6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" MinWidth="200" />
-                                        <ColumnDefinition Width="6" />
-                                        <ColumnDefinition Width="*" MinWidth="200" />
-                                    </Grid.ColumnDefinitions>
-                                    <views:PaneView Grid.Column="0" ViewModel="{x:Bind LeftPane, Mode=OneWay}"
-                                                     Loaded="PaneView_Loaded" />
-                                    <Rectangle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                               VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                               Loaded="PaneSplitter_Loaded" />
-                                    <views:PaneView Grid.Column="2" ViewModel="{x:Bind RightPane, Mode=OneWay}"
-                                                     Loaded="PaneView_Loaded" />
-                                </Grid>
-                            </TabViewItem.Content>
-                        </TabViewItem>
-                    </DataTemplate>
-                </TabView.TabItemTemplate>
+                <TabView.TabItemTemplateSelector>
+                    <views:TabItemTemplateSelector>
+                        <views:TabItemTemplateSelector.Normal>
+                            <DataTemplate x:DataType="vm:TabViewModel">
+                                <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="True"
+                                             AllowDrop="True"
+                                             DragEnter="TabViewItem_DragEnter"
+                                             DragLeave="TabViewItem_DragLeave"
+                                             DoubleTapped="TabViewItem_DoubleTapped">
+                                    <TabViewItem.IconSource>
+                                        <FontIconSource Glyph="{x:Bind IconGlyph, Mode=OneWay}" />
+                                    </TabViewItem.IconSource>
+                                    <TabViewItem.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Rename Workspace..." Click="RenameTabMenuItem_Click" />
+                                            <MenuFlyoutItem Text="Set Icon..." Click="SetTabIconMenuItem_Click" />
+                                            <MenuFlyoutItem Text="Reset Icon" Click="ResetTabIconMenuItem_Click" />
+                                            <MenuFlyoutItem Text="Duplicate Workspace" Click="DuplicateTabMenuItem_Click" />
+                                        </MenuFlyout>
+                                    </TabViewItem.ContextFlyout>
+                                    <TabViewItem.Content>
+                                        <Grid Padding="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" MinWidth="200" />
+                                                <ColumnDefinition Width="6" />
+                                                <ColumnDefinition Width="*" MinWidth="200" />
+                                            </Grid.ColumnDefinitions>
+                                            <views:PaneView Grid.Column="0" ViewModel="{x:Bind LeftPane, Mode=OneWay}"
+                                                             Loaded="PaneView_Loaded" />
+                                            <Rectangle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                       Loaded="PaneSplitter_Loaded" />
+                                            <views:PaneView Grid.Column="2" ViewModel="{x:Bind RightPane, Mode=OneWay}"
+                                                             Loaded="PaneView_Loaded" />
+                                        </Grid>
+                                    </TabViewItem.Content>
+                                </TabViewItem>
+                            </DataTemplate>
+                        </views:TabItemTemplateSelector.Normal>
+                        <views:TabItemTemplateSelector.Home>
+                            <DataTemplate x:DataType="vm:TabViewModel">
+                                <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="False">
+                                    <TabViewItem.IconSource>
+                                        <FontIconSource Glyph="{x:Bind IconGlyph, Mode=OneWay}" />
+                                    </TabViewItem.IconSource>
+                                    <TabViewItem.Content>
+                                        <Grid Padding="6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" MinWidth="200" />
+                                                <ColumnDefinition Width="6" />
+                                                <ColumnDefinition Width="*" MinWidth="200" />
+                                            </Grid.ColumnDefinitions>
+                                            <views:DrivePickerView Grid.Column="0" Loaded="HomeDrivePicker_Loaded" />
+                                            <Rectangle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                       Loaded="PaneSplitter_Loaded" />
+                                            <views:PaneView Grid.Column="2" ViewModel="{x:Bind RightPane, Mode=OneWay}"
+                                                             Loaded="PaneView_Loaded" />
+                                        </Grid>
+                                    </TabViewItem.Content>
+                                </TabViewItem>
+                            </DataTemplate>
+                        </views:TabItemTemplateSelector.Home>
+                    </views:TabItemTemplateSelector>
+                </TabView.TabItemTemplateSelector>
             </TabView>
 
             <!-- Preview splitter -->

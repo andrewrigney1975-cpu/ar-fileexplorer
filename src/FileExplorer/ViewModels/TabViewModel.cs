@@ -6,6 +6,10 @@ namespace FileExplorer.ViewModels;
 
 public sealed partial class TabViewModel : ObservableObject
 {
+    /// Segoe Fluent Icons PUA codepoints: the tab strip's default folder glyph and Home's house glyph.
+    public const string DefaultGlyph = "";
+    public const string HomeGlyph = "";
+
     private bool _hasCustomHeader;
     private PaneViewModel _activePane;
     private readonly IRemoteConnectionService _remoteConnectionService;
@@ -15,18 +19,29 @@ public sealed partial class TabViewModel : ObservableObject
     {
     }
 
-    public TabViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, IRemoteConnectionService remoteConnectionService, string leftPath, string rightPath, string? name = null)
+    public TabViewModel(DispatcherQueue dispatcher, IFileSystemService fileSystemService, IRemoteConnectionService remoteConnectionService, string leftPath, string rightPath, string? name = null, bool isHome = false)
     {
         _remoteConnectionService = remoteConnectionService;
+        IsHome = isHome;
         LeftPane = new PaneViewModel(dispatcher, fileSystemService, leftPath);
         RightPane = new PaneViewModel(dispatcher, fileSystemService, rightPath);
-        _activePane = LeftPane;
 
-        LeftPane.IsActive = true;
+        // Home's left pane is the drive picker, not a browsable folder list, so its right pane is
+        // the one global/keyboard actions should target.
+        _activePane = isHome ? RightPane : LeftPane;
+        LeftPane.IsActive = !isHome;
+        RightPane.IsActive = isHome;
+
         LeftPane.PathChanged += (_, _) => UpdateHeader();
         RightPane.PathChanged += (_, _) => UpdateHeader();
 
-        if (string.IsNullOrWhiteSpace(name))
+        IconGlyph = isHome ? HomeGlyph : DefaultGlyph;
+
+        if (isHome)
+        {
+            Header = "Home";
+        }
+        else if (string.IsNullOrWhiteSpace(name))
         {
             UpdateHeader();
         }
@@ -35,6 +50,10 @@ public sealed partial class TabViewModel : ObservableObject
             Rename(name);
         }
     }
+
+    /// The fixed, non-closable "Home" workspace (drive picker + system drive). Its locations are
+    /// not persisted and reset every launch, so it never appears in the saved session.
+    public bool IsHome { get; }
 
     public PaneViewModel LeftPane { get; }
     public PaneViewModel RightPane { get; }
@@ -58,6 +77,25 @@ public sealed partial class TabViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string Header { get; private set; } = "New Workspace";
+
+    /// Segoe Fluent Icons glyph shown on the tab. Fixed to the house glyph for Home; user-settable
+    /// (and session-persisted) for every other workspace via the tab's "Set Icon..." context action.
+    [ObservableProperty]
+    public partial string IconGlyph { get; set; } = DefaultGlyph;
+
+    /// True once the user has picked a non-default icon - only these are written to the session.
+    public bool HasCustomIcon => !IsHome && IconGlyph != DefaultGlyph;
+
+    /// Applies a user-chosen tab glyph (no-op for Home); null/blank reverts to the default folder glyph.
+    public void SetIcon(string? glyph)
+    {
+        if (IsHome)
+        {
+            return;
+        }
+
+        IconGlyph = string.IsNullOrWhiteSpace(glyph) ? DefaultGlyph : glyph;
+    }
 
     /// True once the user has explicitly renamed this workspace, so path changes no longer overwrite the header.
     public bool HasCustomHeader => _hasCustomHeader;
@@ -85,7 +123,7 @@ public sealed partial class TabViewModel : ObservableObject
 
     private void UpdateHeader()
     {
-        if (_hasCustomHeader)
+        if (IsHome || _hasCustomHeader)
         {
             return;
         }

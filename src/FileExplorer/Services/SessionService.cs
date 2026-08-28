@@ -1,6 +1,6 @@
 namespace FileExplorer.Services;
 
-public sealed record TabState(string LeftPath, string RightPath, string? Name = null);
+public sealed record TabState(string LeftPath, string RightPath, string? Name = null, string? Icon = null);
 
 public interface ISessionService
 {
