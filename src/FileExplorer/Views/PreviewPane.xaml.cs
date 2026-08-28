@@ -59,6 +59,7 @@ public sealed partial class PreviewPane : UserControl
         ImagePreview.Visibility = Visibility.Collapsed;
         TextScroller.Visibility = Visibility.Collapsed;
         CodeScroller.Visibility = Visibility.Collapsed;
+        HexPreview.Visibility = Visibility.Collapsed;
         IconPreview.Visibility = Visibility.Collapsed;
         VideoPreview.Visibility = Visibility.Collapsed;
         VideoPreview.MediaPlayer?.Pause();
@@ -125,9 +126,9 @@ public sealed partial class PreviewPane : UserControl
                 _ = ShowImageMetadataAsync(item);
                 return;
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // fall through to icon preview
+                // fall through to hex/icon preview
             }
         }
 
@@ -151,9 +152,9 @@ public sealed partial class PreviewPane : UserControl
                 }
                 return;
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // fall through to icon preview
+                // fall through to hex/icon preview
             }
         }
 
@@ -193,8 +194,50 @@ public sealed partial class PreviewPane : UserControl
             return;
         }
 
+        if (!item.IsDirectory && await TryShowHexPreviewAsync(item))
+        {
+            return;
+        }
+
         IconGlyph.Glyph = item.Glyph;
         IconPreview.Visibility = Visibility.Visible;
+    }
+
+    /// The last-resort previewer: anything no other handler could render (binaries, unknown
+    /// extensions) is shown as a hex dump of its leading bytes rather than just a big file icon.
+    private const int HexPreviewMaxBytes = 8 * 1024;
+
+    private async Task<bool> TryShowHexPreviewAsync(FileSystemItem item)
+    {
+        try
+        {
+            using var stream = File.OpenRead(item.FullPath);
+            var buffer = new byte[HexPreviewMaxBytes];
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length));
+            if (read == 0)
+            {
+                return false; // empty file - fall through to the icon
+            }
+
+            // A slow selection change may have landed on something else while the read was in flight.
+            if (!ReferenceEquals(ViewModel?.SelectedItem, item))
+            {
+                return true;
+            }
+
+            var totalLength = stream.Length;
+            HexText.Text = HexDump.Format(buffer.AsSpan(0, read));
+            HexHeader.Text = read < totalLength
+                ? $"First {read:N0} of {totalLength:N0} bytes"
+                : $"{totalLength:N0} bytes";
+            HexScroller.ScrollToVerticalOffset(0);
+            HexPreview.Visibility = Visibility.Visible;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// Runs after the image bitmap itself is already showing, so the extra WIC/libheif metadata

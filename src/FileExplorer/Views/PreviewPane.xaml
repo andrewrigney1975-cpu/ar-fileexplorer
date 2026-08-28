@@ -50,6 +50,19 @@
                 </Grid>
             </ScrollViewer>
 
+            <Grid x:Name="HexPreview" Visibility="Collapsed" RowSpacing="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" x:Name="HexHeader" FontSize="11" Opacity="0.6" />
+                <ScrollViewer Grid.Row="1" x:Name="HexScroller" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="HexText" FontFamily="Cascadia Mono, Consolas" FontSize="11"
+                               TextWrapping="NoWrap" IsTextSelectionEnabled="True" />
+                </ScrollViewer>
+            </Grid>
+
             <StackPanel x:Name="IconPreview" Visibility="Collapsed" Spacing="8" VerticalAlignment="Top">
                 <FontIcon x:Name="IconGlyph" FontSize="64" FontFamily="Segoe Fluent Icons"
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
