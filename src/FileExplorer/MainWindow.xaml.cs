@@ -246,6 +246,31 @@ public sealed partial class MainWindow : Window
             spin.Stop();
             OperationsGearRotation.Angle = 0;
         }
+
+        // The activity-bar template rests its icon at 50%; while the gear is spinning show it at full.
+        if (FindContentPresenter(OperationsButton) is { } presenter)
+        {
+            presenter.Opacity = inProgress ? 1.0 : 0.5;
+        }
+    }
+
+    private static ContentPresenter? FindContentPresenter(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ContentPresenter presenter)
+            {
+                return presenter;
+            }
+
+            if (FindContentPresenter(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
