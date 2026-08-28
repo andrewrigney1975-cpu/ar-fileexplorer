@@ -84,16 +84,11 @@
             </StackPanel>
         </Grid>
 
-        <!-- Toolbar -->
-        <Grid Grid.Row="1" Padding="12,8" ColumnSpacing="8"
+        <!-- Top strip: command palette only; every icon action now lives in the left activity bar -->
+        <Grid Grid.Row="1" Padding="12,6"
               Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="1" x:Name="CommandPaletteBar" Width="360" Height="32" CornerRadius="6"
+            <Border x:Name="CommandPaletteBar" Width="360" Height="32" CornerRadius="6"
                     HorizontalAlignment="Center" Background="{ThemeResource ControlFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
                     Tapped="CommandPaletteBar_Tapped"
@@ -103,9 +98,29 @@
                     <TextBlock Text="Command Palette (Ctrl+K)" FontSize="12" Opacity="0.6" />
                 </StackPanel>
             </Border>
+        </Grid>
 
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
-                <Button x:Name="UndoButton" Style="{StaticResource ToolbarIconButtonStyle}"
+        <!-- Body: activity bar | left rail | main content | right preview -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ActivityBarColumn" Width="44" />
+                <ColumnDefinition x:Name="RailColumn" Width="240" MinWidth="180" MaxWidth="480" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="300" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition x:Name="PreviewColumn" Width="300" MinWidth="240" MaxWidth="600" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left activity bar (VSCode-style): every icon action lives here -->
+            <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+                    <StackPanel Orientation="Vertical" Spacing="3" Padding="4,8">
+                <Button x:Name="UndoButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Undo" ToolTipService.ToolTip="Undo"
                         Click="UndoButton_Click" IsEnabled="False">
                     <FontIcon Glyph="&#xE7A7;" FontSize="16" />
@@ -113,8 +128,8 @@
                         <KeyboardAccelerator Modifiers="Control" Key="Z" />
                     </Button.KeyboardAccelerators>
                 </Button>
-                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                <Button x:Name="CutButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="CutButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut"
                         Click="CutButton_Click">
                     <FontIcon Glyph="&#xE8C6;" FontSize="16" />
@@ -122,7 +137,7 @@
                         <KeyboardAccelerator Modifiers="Control" Key="X" />
                     </Button.KeyboardAccelerators>
                 </Button>
-                <Button x:Name="CopyButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Button x:Name="CopyButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Copy" ToolTipService.ToolTip="Copy"
                         Click="CopyButton_Click">
                     <FontIcon Glyph="&#xE8C8;" FontSize="16" />
@@ -130,7 +145,7 @@
                         <KeyboardAccelerator Modifiers="Control" Key="C" />
                     </Button.KeyboardAccelerators>
                 </Button>
-                <Button x:Name="PasteButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Button x:Name="PasteButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Paste" ToolTipService.ToolTip="Paste"
                         Click="PasteButton_Click">
                     <FontIcon Glyph="&#xE77F;" FontSize="16" />
@@ -138,8 +153,8 @@
                         <KeyboardAccelerator Modifiers="Control" Key="V" />
                     </Button.KeyboardAccelerators>
                 </Button>
-                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                <Button x:Name="NewFolderButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="NewFolderButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="New folder" ToolTipService.ToolTip="New folder"
                         Click="NewFolderButton_Click">
                     <FontIcon Glyph="&#xE8DE;" FontSize="16" />
@@ -147,61 +162,63 @@
                         <KeyboardAccelerator Modifiers="Control,Shift" Key="N" />
                     </Button.KeyboardAccelerators>
                 </Button>
-                <Rectangle Width="1" Margin="4,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                <Button x:Name="DiskSpaceAnalyserButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="DiskSpaceAnalyserButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk space analyser" ToolTipService.ToolTip="Disk space analyser"
                         Click="DiskSpaceAnalyserButton_Click">
                     <FontIcon Glyph="&#xEB05;" FontSize="16" />
                 </Button>
-                <Button x:Name="DiskBenchmarkButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Button x:Name="DiskBenchmarkButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk benchmark" ToolTipService.ToolTip="Disk benchmark"
                         Click="DiskBenchmarkButton_Click">
                     <FontIcon Glyph="&#xE95E;" FontSize="16" />
                 </Button>
-                <Button x:Name="DiskActivityMonitorButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Button x:Name="DiskActivityMonitorButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Disk activity monitor" ToolTipService.ToolTip="Disk activity monitor"
                         Click="DiskActivityMonitorButton_Click">
                     <FontIcon Glyph="&#xE9D9;" FontSize="16" />
                 </Button>
-            </StackPanel>
-
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                        <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <ToggleButton x:Name="IconsModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Icons view"
                               Click="IconsModeButton_Click" ToolTipService.ToolTip="Icons view">
                     <FontIcon Glyph="&#xE80A;" FontSize="16" />
                 </ToggleButton>
-                <ToggleButton x:Name="ListModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                <ToggleButton x:Name="ListModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="List view"
                               Click="ListModeButton_Click" ToolTipService.ToolTip="List view">
                     <FontIcon Glyph="&#xE71D;" FontSize="16" />
                 </ToggleButton>
-                <ToggleButton x:Name="DetailsModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                <ToggleButton x:Name="DetailsModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Details view"
                               Click="DetailsModeButton_Click" ToolTipService.ToolTip="Details view">
                     <FontIcon Glyph="&#xE71D;" FontSize="16" />
                 </ToggleButton>
-                <ToggleButton x:Name="GalleryModeButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                <ToggleButton x:Name="GalleryModeButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Gallery view"
                               Click="GalleryModeButton_Click" ToolTipService.ToolTip="Gallery view">
                     <FontIcon Glyph="&#xE8B9;" FontSize="16" />
                 </ToggleButton>
-                <ToggleButton x:Name="PreviewToggleButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                <ToggleButton x:Name="PreviewToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Toggle preview pane"
                               IsChecked="True" Click="PreviewToggleButton_Click" ToolTipService.ToolTip="Toggle preview pane">
                     <FontIcon Glyph="&#xE890;" FontSize="16" />
                 </ToggleButton>
-                <ToggleButton x:Name="TerminalToggleButton" Style="{StaticResource ToolbarIconToggleButtonStyle}"
+                <ToggleButton x:Name="TerminalToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Toggle terminal"
                               IsChecked="False" Click="TerminalToggleButton_Click" ToolTipService.ToolTip="Toggle terminal">
                     <FontIcon Glyph="&#xE756;" FontSize="16" />
                 </ToggleButton>
-                <Button x:Name="SyncButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                    </StackPanel>
+                </ScrollViewer>
+                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="3" Padding="4,8">
+                    <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Button x:Name="SyncButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="Sync tasks"
                         ToolTipService.ToolTip="Sync tasks">
                     <FontIcon Glyph="&#xE895;" FontSize="16" />
                     <Button.Flyout>
-                        <Flyout Placement="Bottom">
+                        <Flyout Placement="RightEdgeAlignedTop">
                             <StackPanel Width="280" Spacing="4">
                                 <TextBlock Text="Sync tasks" FontWeight="SemiBold" Margin="0,0,0,4" />
                                 <TextBlock x:Name="SyncTasksEmptyText" Text="No sync tasks" Opacity="0.6" FontSize="12" />
@@ -231,7 +248,7 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-                <Button x:Name="OperationsButton" Style="{StaticResource ToolbarIconButtonStyle}"
+                <Button x:Name="OperationsButton" Style="{StaticResource ActivityBarButtonStyle}"
                         AutomationProperties.Name="File operations"
                         ToolTipService.ToolTip="File operations">
                     <FontIcon x:Name="OperationsGearIcon" Glyph="&#xE713;" FontSize="16" RenderTransformOrigin="0.5,0.5">
@@ -240,7 +257,7 @@
                         </FontIcon.RenderTransform>
                     </FontIcon>
                     <Button.Flyout>
-                        <Flyout Placement="Bottom">
+                        <Flyout Placement="RightEdgeAlignedTop">
                             <StackPanel Width="360" Spacing="4">
                                 <TextBlock Text="File operations" FontWeight="SemiBold" Margin="0,0,0,4" />
                                 <ListView x:Name="OperationsList" MaxHeight="360" SelectionMode="None"
@@ -277,21 +294,11 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-            </StackPanel>
-        </Grid>
-
-        <!-- Body: left rail | main content | right preview -->
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="RailColumn" Width="240" MinWidth="180" MaxWidth="480" />
-                <ColumnDefinition Width="6" />
-                <ColumnDefinition Width="*" MinWidth="300" />
-                <ColumnDefinition Width="6" />
-                <ColumnDefinition x:Name="PreviewColumn" Width="300" MinWidth="240" MaxWidth="600" />
-            </Grid.ColumnDefinitions>
+                </StackPanel>
+            </Grid>
 
             <!-- Left rail: drives + folder tree + saved searches -->
-            <Grid Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <Grid Grid.Column="1" Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="2*" />
@@ -590,11 +597,11 @@
             </Grid>
 
             <!-- Rail splitter -->
-            <Rectangle Grid.Column="1" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
+            <Rectangle Grid.Column="2" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
                        VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Main content: tabs, each hosting a dual pane -->
-            <TabView x:Name="MainTabView" Grid.Column="2"
+            <TabView x:Name="MainTabView" Grid.Column="3"
                      AutomationProperties.Name="Workspaces"
                      TabItemsSource="{Binding Tabs}"
                      SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
@@ -678,11 +685,11 @@
             </TabView>
 
             <!-- Preview splitter -->
-            <Rectangle Grid.Column="3" x:Name="PreviewSplitter" Width="6" HorizontalAlignment="Stretch"
+            <Rectangle Grid.Column="4" x:Name="PreviewSplitter" Width="6" HorizontalAlignment="Stretch"
                        VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Right rail: preview -->
-            <views:PreviewPane x:Name="Preview" Grid.Column="4" />
+            <views:PreviewPane x:Name="Preview" Grid.Column="5" />
         </Grid>
 
         <!-- Bottom drawer: terminal -->
