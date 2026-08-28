@@ -606,14 +606,19 @@
                     <views:TabItemTemplateSelector>
                         <views:TabItemTemplateSelector.Normal>
                             <DataTemplate x:DataType="vm:TabViewModel">
-                                <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="True"
+                                <TabViewItem IsClosable="True"
                                              AllowDrop="True"
                                              DragEnter="TabViewItem_DragEnter"
                                              DragLeave="TabViewItem_DragLeave"
                                              DoubleTapped="TabViewItem_DoubleTapped">
-                                    <TabViewItem.IconSource>
-                                        <FontIconSource Glyph="{x:Bind IconGlyph, Mode=OneWay}" />
-                                    </TabViewItem.IconSource>
+                                    <!-- Icon lives in the Header (a FrameworkElement) rather than IconSource
+                                         so x:Bind OneWay actually re-renders when "Set Icon..." changes it. -->
+                                    <TabViewItem.Header>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="16" />
+                                            <TextBlock Text="{x:Bind Header, Mode=OneWay}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </TabViewItem.Header>
                                     <TabViewItem.ContextFlyout>
                                         <MenuFlyout>
                                             <MenuFlyoutItem Text="Rename Workspace..." Click="RenameTabMenuItem_Click" />
@@ -643,10 +648,13 @@
                         </views:TabItemTemplateSelector.Normal>
                         <views:TabItemTemplateSelector.Home>
                             <DataTemplate x:DataType="vm:TabViewModel">
-                                <TabViewItem Header="{x:Bind Header, Mode=OneWay}" IsClosable="False">
-                                    <TabViewItem.IconSource>
-                                        <FontIconSource Glyph="{x:Bind IconGlyph, Mode=OneWay}" />
-                                    </TabViewItem.IconSource>
+                                <TabViewItem IsClosable="False">
+                                    <TabViewItem.Header>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="{x:Bind IconGlyph, Mode=OneWay}" FontSize="16" />
+                                            <TextBlock Text="{x:Bind Header, Mode=OneWay}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </TabViewItem.Header>
                                     <TabViewItem.Content>
                                         <Grid Padding="6">
                                             <Grid.ColumnDefinitions>
