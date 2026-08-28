@@ -2013,6 +2013,15 @@ public sealed partial class MainWindow : Window
         NotificationService.Show($"Schedule '{schedule.TargetName}'", summary);
     }
 
+    private sealed class DuplicateEntry
+    {
+        public required string Path { get; init; }
+        public required int GroupIndex { get; init; }
+        public bool IsKeep { get; set; }
+        public CheckBox KeepCheckBox { get; set; } = null!;
+        public CheckBox DeleteCheckBox { get; set; } = null!;
+    }
+
     private async Task ShowDuplicateFinderAsync(string rootPath)
     {
         var statusText = new TextBlock { Text = $"Scanning {rootPath} ...", TextWrapping = TextWrapping.Wrap };
@@ -2025,6 +2034,7 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Close,
             Content = statusText,
         };
+        dialog.Resources["ContentDialogMaxWidth"] = 1360d;
 
         var showTask = dialog.ShowAsync().AsTask();
 
@@ -2052,28 +2062,89 @@ public sealed partial class MainWindow : Window
         var summary = new TextBlock
         {
             Text = $"{groups.Count} duplicate group(s), {totalRedundant} redundant file(s). " +
-                   "Delete Selected removes every copy except the first (marked [KEEP]) in each group, to the Recycle Bin.",
+                   "Check Keep or Delete per file to override the default, then Delete Selected sends every " +
+                   "file checked Delete to the Recycle Bin.",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
             Opacity = 0.8,
         };
 
-        var lines = groups.SelectMany((group, gi) =>
-            new[] { $"Group {gi + 1} ({group.Count} copies):" }
-                .Concat(group.Select((f, i) => (i == 0 ? "  [KEEP] " : "  [DUP]  ") + f)));
+        var entries = new List<DuplicateEntry>();
+        var groupPanel = new StackPanel { Spacing = 12 };
+        var monoFont = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas");
 
-        var listBox = new TextBox
+        for (var gi = 0; gi < groups.Count; gi++)
         {
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
-            FontSize = 11,
-            Height = 320,
-            Text = string.Join("\n", lines),
+            var group = groups[gi];
+            groupPanel.Children.Add(new TextBlock
+            {
+                Text = $"Group {gi + 1} ({group.Count} copies):",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            });
+
+            for (var i = 0; i < group.Count; i++)
+            {
+                var entry = new DuplicateEntry { Path = group[i], GroupIndex = gi, IsKeep = i == 0 };
+
+                var keepBox = new CheckBox { Content = "Keep", IsChecked = entry.IsKeep, MinWidth = 66 };
+                var deleteBox = new CheckBox { Content = "Delete", IsChecked = !entry.IsKeep, MinWidth = 70 };
+                entry.KeepCheckBox = keepBox;
+                entry.DeleteCheckBox = deleteBox;
+
+                // Keep/Delete act as a two-way toggle: exactly one is checked per file at all times.
+                keepBox.Checked += (_, _) => { entry.IsKeep = true; deleteBox.IsChecked = false; };
+                keepBox.Unchecked += (_, _) => { if (deleteBox.IsChecked != true) deleteBox.IsChecked = true; };
+                deleteBox.Checked += (_, _) => { entry.IsKeep = false; keepBox.IsChecked = false; };
+                deleteBox.Unchecked += (_, _) => { if (keepBox.IsChecked != true) keepBox.IsChecked = true; };
+
+                entries.Add(entry);
+
+                groupPanel.Children.Add(new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children =
+                    {
+                        keepBox,
+                        deleteBox,
+                        new TextBlock
+                        {
+                            Text = entry.Path,
+                            TextWrapping = TextWrapping.NoWrap,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            FontFamily = monoFont,
+                            FontSize = 11,
+                        },
+                    },
+                });
+            }
+        }
+
+        var swapAllButton = new Button
+        {
+            Content = "Swap All",
+            IsEnabled = groups.Any(g => g.Count == 2),
+        };
+        swapAllButton.Click += (_, _) =>
+        {
+            foreach (var pair in entries.GroupBy(e => e.GroupIndex).Where(g => g.Count() == 2))
+            {
+                foreach (var entry in pair)
+                {
+                    entry.KeepCheckBox.IsChecked = !entry.IsKeep;
+                }
+            }
         };
 
-        dialog.Content = new StackPanel { Spacing = 8, Children = { summary, listBox } };
+        var scrollViewer = new ScrollViewer
+        {
+            Height = 320,
+            Width = 1300,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = groupPanel,
+        };
+
+        dialog.Content = new StackPanel { Spacing = 8, Children = { summary, swapAllButton, scrollViewer } };
         dialog.PrimaryButtonText = "Delete Selected";
 
         var result = await showTask;
@@ -2082,7 +2153,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var toDelete = groups.SelectMany(g => g.Skip(1)).ToList();
+        var toDelete = entries.Where(e => !e.IsKeep).Select(e => e.Path).ToList();
         var progressText = new TextBlock { Text = $"Deleting 0 of {toDelete.Count} ...", TextWrapping = TextWrapping.Wrap };
         var progressDialog = new ContentDialog
         {
