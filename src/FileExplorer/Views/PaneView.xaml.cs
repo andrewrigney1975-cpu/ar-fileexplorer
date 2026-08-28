@@ -862,7 +862,7 @@ public sealed partial class PaneView : UserControl
 
     private async Task BatchRenameAsync(IReadOnlyList<FileSystemItem> selection)
     {
-        if (selection.Count < 2 || ViewModel is null)
+        if (selection.Count < 1 || ViewModel is null)
         {
             return;
         }
@@ -872,7 +872,7 @@ public sealed partial class PaneView : UserControl
         var guidRadio = new RadioButton { Content = "Random GUID", GroupName = "BatchRenameMode" };
 
         // Generated once so the preview and the rename that actually runs agree on the same names.
-        var guidNames = selection.Select(_ => Guid.NewGuid().ToString("N")).ToList();
+        var guidNames = selection.Select(_ => Guid.NewGuid().ToString("D")).ToList();
         var guidPanel = new StackPanel
         {
             Spacing = 8,
@@ -1020,7 +1020,7 @@ public sealed partial class PaneView : UserControl
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = $"Rename {selection.Count} items",
+            Title = selection.Count == 1 ? $"Rename \"{selection[0].Name}\"" : $"Rename {selection.Count} items",
             PrimaryButtonText = "Rename",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
@@ -1605,11 +1605,7 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(NewMenuItem("Cut", "", () => SetClipboardFromSelection(selection, isCut: true)));
         menu.Items.Add(NewMenuItem("Copy", "", () => SetClipboardFromSelection(selection, isCut: false)));
 
-        if (selection.Count == 1)
-        {
-            menu.Items.Add(NewMenuItem("Rename", "", () => BeginRename(selection[0])));
-        }
-        else if (selection.Count > 1)
+        if (selection.Count >= 1)
         {
             menu.Items.Add(NewMenuItem("Rename...", "", async () => await BatchRenameAsync(selection)));
         }
