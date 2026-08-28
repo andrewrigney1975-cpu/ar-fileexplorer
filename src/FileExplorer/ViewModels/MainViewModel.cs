@@ -58,6 +58,16 @@ public sealed partial class MainViewModel : ObservableObject
         return tab;
     }
 
+    /// AddNamedTab with distinct left/right start paths - used by "Search Everywhere" so following a
+    /// folder result lands the folder in the left pane and its parent in the right.
+    public TabViewModel AddNamedTab(string leftPath, string rightPath, string name)
+    {
+        var tab = new TabViewModel(_dispatcher, _fileSystemService, _remoteConnectionService, leftPath, rightPath, name);
+        Tabs.Add(tab);
+        SelectedTab = tab;
+        return tab;
+    }
+
     [RelayCommand]
     public void DuplicateTab(TabViewModel source)
     {
