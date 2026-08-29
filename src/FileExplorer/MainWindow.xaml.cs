@@ -61,6 +61,8 @@ public sealed partial class MainWindow : Window
         WatchService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
         RatingService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
         QuickLookPreview.PreferredSizeChanged += (_, size) => { if (QuickLookPopup.IsOpen) SizeQuickLook(size); };
+        Slideshow.CloseRequested += (_, _) => SlideshowPopup.IsOpen = false;
+        SlideshowPopup.Closed += (_, _) => Slideshow.Release();
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
         SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -1417,6 +1419,42 @@ public sealed partial class MainWindow : Window
 
         pane.QuickLookRequested -= PaneView_QuickLookRequested;
         pane.QuickLookRequested += PaneView_QuickLookRequested;
+
+        pane.SlideshowRequested -= PaneView_SlideshowRequested;
+        pane.SlideshowRequested += PaneView_SlideshowRequested;
+    }
+
+    private void PaneView_SlideshowRequested(object? sender, string folderPath)
+    {
+        List<string> images;
+        try
+        {
+            images = System.IO.Directory.EnumerateFiles(folderPath)
+                .Where(f => IconHelper.IsPreviewableImage(System.IO.Path.GetExtension(f)))
+                .OrderBy(System.IO.Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        if (images.Count == 0)
+        {
+            return;
+        }
+
+        var width = Math.Max(320, RootGrid.ActualWidth - 72);
+        var height = Math.Max(320, RootGrid.ActualHeight - 72);
+        Slideshow.Width = width;
+        Slideshow.Height = height;
+        SlideshowPopup.HorizontalOffset = (RootGrid.ActualWidth - width) / 2;
+        SlideshowPopup.VerticalOffset = (RootGrid.ActualHeight - height) / 2;
+        SlideshowPopup.XamlRoot = Content.XamlRoot;
+
+        Slideshow.Load(images, 0);
+        SlideshowPopup.IsOpen = true;
+        Slideshow.FocusForKeys();
     }
 
     private void PaneView_QuickLookRequested(object? sender, EventArgs e)

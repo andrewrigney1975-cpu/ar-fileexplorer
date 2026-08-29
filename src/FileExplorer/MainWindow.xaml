@@ -740,5 +740,10 @@
                 </Button>
             </Grid>
         </Popup>
+
+        <!-- Slideshow: app-level image viewer with cursor-key navigation and a thumbnail strip. -->
+        <Popup x:Name="SlideshowPopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
+            <views:SlideshowView x:Name="Slideshow" />
+        </Popup>
     </Grid>
 </Window>

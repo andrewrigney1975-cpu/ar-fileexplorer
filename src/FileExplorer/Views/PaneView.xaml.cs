@@ -43,6 +43,9 @@ public sealed partial class PaneView : UserControl
     /// Quick Look popup.
     public event EventHandler? QuickLookRequested;
 
+    /// Raised with a folder path when "Slideshow..." is picked; MainWindow owns the popup.
+    public event EventHandler<string>? SlideshowRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1640,6 +1643,10 @@ public sealed partial class PaneView : UserControl
 
             menu.Items.Add(NewMenuItem("Find Duplicate Files...", "", () => FindDuplicatesRequested?.Invoke(this, folder.FullPath)));
             menu.Items.Add(NewMenuItem("Analyse Folder...", "", () => AnalyseFolderRequested?.Invoke(this, folder.FullPath)));
+            if (FolderHasImages(folder.FullPath))
+            {
+                menu.Items.Add(NewMenuItem("Slideshow...", "", () => SlideshowRequested?.Invoke(this, folder.FullPath)));
+            }
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
@@ -1735,6 +1742,20 @@ public sealed partial class PaneView : UserControl
         ViewModel?.Refresh();
     }
 
+    /// Cheap check for the "Slideshow..." menu item - stops at the first image in the folder.
+    private static bool FolderHasImages(string folderPath)
+    {
+        try
+        {
+            return System.IO.Directory.EnumerateFiles(folderPath)
+                .Any(f => IconHelper.IsPreviewableImage(System.IO.Path.GetExtension(f)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// "Run Action..." - a submenu of the user's saved scripts, run ad-hoc against <paramref name="paths"/>.
     /// Null when scripting is disabled (the whole submenu is then hidden).
     private MenuFlyoutSubItem? BuildRunActionSubMenu(IReadOnlyList<string> paths)
@@ -1776,6 +1797,10 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(NewMenuItem("Export folder listing (JSON)...", string.Empty, async () => await ExportFolderListingAsync()));
         menu.Items.Add(NewMenuItem("Find Duplicate Files...", string.Empty, () => FindDuplicatesRequested?.Invoke(this, ViewModel.CurrentPath)));
         menu.Items.Add(NewMenuItem("Analyse Folder...", string.Empty, () => AnalyseFolderRequested?.Invoke(this, ViewModel.CurrentPath)));
+        if (FolderHasImages(ViewModel.CurrentPath))
+        {
+            menu.Items.Add(NewMenuItem("Slideshow...", string.Empty, () => SlideshowRequested?.Invoke(this, ViewModel.CurrentPath)));
+        }
 
         if (BuildRunActionSubMenu(new[] { ViewModel.CurrentPath }) is { } runActions)
         {
