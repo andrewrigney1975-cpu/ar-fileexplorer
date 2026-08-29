@@ -2338,6 +2338,37 @@ public sealed partial class MainWindow : Window
         public bool IsKeep { get; set; }
         public CheckBox KeepCheckBox { get; set; } = null!;
         public CheckBox DeleteCheckBox { get; set; } = null!;
+        public Image ThumbImage { get; set; } = null!;
+        public FontIcon ThumbIcon { get; set; } = null!;
+    }
+
+    /// Directory depth of a path (separator count), used to pre-select the most deeply-filed copy
+    /// as the one to keep - a file sorted into .../2024/Trips/Italy/ beats a loose copy in Downloads.
+    private static int PathDepth(string path) => path.Count(c => c == System.IO.Path.DirectorySeparatorChar);
+
+    /// Fills in each duplicate row's thumbnail after the dialog is already showing - a null result
+    /// (non-image, or decode failed) just leaves the file-type glyph in place.
+    private async Task LoadDuplicateThumbnailsAsync(IReadOnlyList<DuplicateEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            DateTimeOffset modified;
+            try
+            {
+                modified = System.IO.File.GetLastWriteTimeUtc(entry.Path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            var bitmap = await ThumbnailCacheService.GetOrCreateAsync(entry.Path, modified);
+            if (bitmap is not null)
+            {
+                entry.ThumbImage.Source = bitmap;
+                entry.ThumbIcon.Visibility = Visibility.Collapsed;
+            }
+        }
     }
 
     private async Task ShowDuplicateFinderAsync(string rootPath)
@@ -2394,18 +2425,29 @@ public sealed partial class MainWindow : Window
         for (var gi = 0; gi < groups.Count; gi++)
         {
             var group = groups[gi];
+
+            long groupSize = 0;
+            try { groupSize = new System.IO.FileInfo(group[0]).Length; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+
             groupPanel.Children.Add(new TextBlock
             {
-                Text = $"Group {gi + 1} ({group.Count} copies):",
+                Text = $"Group {gi + 1} ({group.Count} copies, {FileSystemItem.FormatSize(groupSize)} each):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             });
 
+            // Pre-select the most deeply-filed copy as the keeper (separator count, then longer path).
+            var keepIndex = Enumerable.Range(0, group.Count)
+                .OrderByDescending(i => PathDepth(group[i]))
+                .ThenByDescending(i => group[i].Length)
+                .First();
+
             for (var i = 0; i < group.Count; i++)
             {
-                var entry = new DuplicateEntry { Path = group[i], GroupIndex = gi, IsKeep = i == 0 };
+                var entry = new DuplicateEntry { Path = group[i], GroupIndex = gi, IsKeep = i == keepIndex };
 
-                var keepBox = new CheckBox { Content = "Keep", IsChecked = entry.IsKeep, MinWidth = 66 };
-                var deleteBox = new CheckBox { Content = "Delete", IsChecked = !entry.IsKeep, MinWidth = 70 };
+                var keepBox = new CheckBox { Content = "Keep", IsChecked = entry.IsKeep, MinWidth = 66, VerticalAlignment = VerticalAlignment.Center };
+                var deleteBox = new CheckBox { Content = "Delete", IsChecked = !entry.IsKeep, MinWidth = 70, VerticalAlignment = VerticalAlignment.Center };
                 entry.KeepCheckBox = keepBox;
                 entry.DeleteCheckBox = deleteBox;
 
@@ -2415,28 +2457,61 @@ public sealed partial class MainWindow : Window
                 deleteBox.Checked += (_, _) => { entry.IsKeep = false; keepBox.IsChecked = false; };
                 deleteBox.Unchecked += (_, _) => { if (keepBox.IsChecked != true) keepBox.IsChecked = true; };
 
+                var thumbImage = new Image { Width = 44, Height = 44, Stretch = Stretch.UniformToFill };
+                var thumbIcon = new FontIcon
+                {
+                    Glyph = IconHelper.GlyphFor(System.IO.Path.GetExtension(entry.Path)),
+                    FontSize = 24,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                };
+                entry.ThumbImage = thumbImage;
+                entry.ThumbIcon = thumbIcon;
+
                 entries.Add(entry);
 
                 groupPanel.Children.Add(new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 8,
+                    Spacing = 10,
                     Children =
                     {
                         keepBox,
                         deleteBox,
-                        new TextBlock
+                        new Border
                         {
-                            Text = entry.Path,
-                            TextWrapping = TextWrapping.NoWrap,
+                            Width = 44,
+                            Height = 44,
+                            CornerRadius = new CornerRadius(4),
+                            Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["ControlFillColorDefaultBrush"],
                             VerticalAlignment = VerticalAlignment.Center,
-                            FontFamily = monoFont,
-                            FontSize = 11,
+                            Child = new Grid { Children = { thumbIcon, thumbImage } },
+                        },
+                        new StackPanel
+                        {
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = entry.Path,
+                                    TextWrapping = TextWrapping.NoWrap,
+                                    FontFamily = monoFont,
+                                    FontSize = 11,
+                                },
+                                new TextBlock
+                                {
+                                    Text = FileSystemItem.FormatSize(groupSize),
+                                    FontSize = 10,
+                                    Opacity = 0.6,
+                                },
+                            },
                         },
                     },
                 });
             }
         }
+
+        _ = LoadDuplicateThumbnailsAsync(entries);
 
         var swapAllButton = new Button
         {
