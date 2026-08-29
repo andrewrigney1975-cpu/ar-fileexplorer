@@ -320,24 +320,5 @@
                          KeyDown="RenameTextBox_KeyDown" LostFocus="RenameTextBox_LostFocus" />
             </Border>
         </Popup>
-
-        <Popup x:Name="QuickLookPopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
-            <Border Width="440" Height="560" Background="{ThemeResource SolidBackgroundFillColorBase}"
-                    BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="1.5"
-                    CornerRadius="8" Padding="0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <Button Grid.Row="0" HorizontalAlignment="Right" Margin="6"
-                            Style="{StaticResource ToolbarIconButtonStyle}" Click="QuickLookCloseButton_Click"
-                            AutomationProperties.Name="Close Quick Look" ToolTipService.ToolTip="Close Quick Look">
-                        <FontIcon Glyph="&#xE711;" FontSize="14" />
-                    </Button>
-                    <views:PreviewPane x:Name="QuickLookPreview" Grid.Row="1" />
-                </Grid>
-            </Border>
-        </Popup>
     </Grid>
 </UserControl>

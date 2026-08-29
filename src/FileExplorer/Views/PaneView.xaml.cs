@@ -39,6 +39,10 @@ public sealed partial class PaneView : UserControl
     /// against the given paths (its own script-run plumbing owns the engine + result reporting).
     public event EventHandler<ScriptRunRequest>? RunScriptRequested;
 
+    /// Raised when Space is pressed with a list item focused; MainWindow owns the app-level
+    /// Quick Look popup.
+    public event EventHandler? QuickLookRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -355,7 +359,7 @@ public sealed partial class PaneView : UserControl
         }
 
         e.Handled = true;
-        ToggleQuickLook();
+        QuickLookRequested?.Invoke(this, EventArgs.Empty);
     }
 
     // ----- Type-ahead-to-jump (works identically across Icons/List/Details/Gallery - it operates
@@ -467,26 +471,6 @@ public sealed partial class PaneView : UserControl
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
-    private void ToggleQuickLook()
-    {
-        if (QuickLookPopup.IsOpen)
-        {
-            QuickLookPopup.IsOpen = false;
-            return;
-        }
-
-        QuickLookPreview.ViewModel = ViewModel;
-        QuickLookPopup.XamlRoot = XamlRoot;
-
-        var center = RootGrid.TransformToVisual(null).TransformPoint(
-            new Windows.Foundation.Point(RootGrid.ActualWidth / 2, RootGrid.ActualHeight / 2));
-        QuickLookPopup.HorizontalOffset = center.X - 220;
-        QuickLookPopup.VerticalOffset = center.Y - 280;
-
-        QuickLookPopup.IsOpen = true;
-    }
-
-    private void QuickLookCloseButton_Click(object sender, RoutedEventArgs e) => QuickLookPopup.IsOpen = false;
 
     public async Task DeleteItemsAsync(IReadOnlyList<FileSystemItem> items, bool permanent)
     {

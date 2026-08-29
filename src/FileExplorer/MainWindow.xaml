@@ -725,5 +725,20 @@
                 </Grid>
             </Border>
         </Popup>
+
+        <!-- Quick Look: app-level, centred, borderless. Space (from a focused list) toggles it;
+             Space/Esc closes it; the close button and media controls appear only on hover. -->
+        <Popup x:Name="QuickLookPopup" IsLightDismissEnabled="True" LightDismissOverlayMode="On">
+            <Grid x:Name="QuickLookHost" Background="Transparent"
+                  CornerRadius="8" IsTabStop="True" KeyDown="QuickLookHost_KeyDown"
+                  PointerEntered="QuickLookHost_PointerEntered" PointerExited="QuickLookHost_PointerExited">
+                <views:PreviewPane x:Name="QuickLookPreview" Compact="True" />
+                <Button x:Name="QuickLookCloseButton" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10"
+                        Opacity="0" Style="{StaticResource ToolbarIconButtonStyle}" Click="QuickLookCloseButton_Click"
+                        AutomationProperties.Name="Close Quick Look" ToolTipService.ToolTip="Close Quick Look">
+                    <FontIcon Glyph="&#xE711;" FontSize="14" />
+                </Button>
+            </Grid>
+        </Popup>
     </Grid>
 </Window>

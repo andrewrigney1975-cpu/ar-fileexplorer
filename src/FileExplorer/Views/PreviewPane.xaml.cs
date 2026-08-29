@@ -17,6 +17,11 @@ public sealed partial class PreviewPane : UserControl
     public static readonly DependencyProperty ViewModelProperty = DependencyProperty.Register(
         nameof(ViewModel), typeof(PaneViewModel), typeof(PreviewPane), new PropertyMetadata(null, OnViewModelChanged));
 
+    /// Compact = the Quick Look popup: no header, no metadata panel, no padding, media fills the
+    /// area and its transport controls are hidden until the pointer is over the preview.
+    public static readonly DependencyProperty CompactProperty = DependencyProperty.Register(
+        nameof(Compact), typeof(bool), typeof(PreviewPane), new PropertyMetadata(false, OnCompactChanged));
+
     public PreviewPane()
     {
         InitializeComponent();
@@ -27,6 +32,81 @@ public sealed partial class PreviewPane : UserControl
     {
         get => (PaneViewModel?)GetValue(ViewModelProperty);
         set => SetValue(ViewModelProperty, value);
+    }
+
+    public bool Compact
+    {
+        get => (bool)GetValue(CompactProperty);
+        set => SetValue(CompactProperty, value);
+    }
+
+    /// Fired while Compact so the Quick Look popup can size itself to the media's aspect ratio.
+    /// Non-null carries the media's natural pixel dimensions; null means "no intrinsic size, use a default".
+    public event EventHandler<Windows.Foundation.Size?>? PreferredSizeChanged;
+
+    private FileSystemItem? _pendingVideoDimsItem;
+
+    private void ReportPreferredSize(double width, double height) =>
+        PreferredSizeChanged?.Invoke(this, width > 0 && height > 0 ? new Windows.Foundation.Size(width, height) : null);
+
+    private void SetCompactBackground(bool transparent)
+    {
+        if (Compact)
+        {
+            RootPanel.Background = transparent
+                ? null
+                : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"];
+        }
+    }
+
+    private void VideoPreview_MediaOpened(Windows.Media.Playback.MediaPlayer sender, object args)
+    {
+        var width = sender.PlaybackSession.NaturalVideoWidth;
+        var height = sender.PlaybackSession.NaturalVideoHeight;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ReferenceEquals(ViewModel?.SelectedItem, _pendingVideoDimsItem))
+            {
+                ReportPreferredSize(width, height);
+            }
+        });
+    }
+
+    private static void OnCompactChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var pane = (PreviewPane)d;
+        var compact = (bool)e.NewValue;
+
+        pane.TitleText.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        pane.RootPanel.Padding = compact ? new Thickness(0) : new Thickness(12);
+
+        var maxHeight = compact ? double.PositiveInfinity : 360;
+        pane.ImagePreview.MaxHeight = maxHeight;
+        pane.VideoPreview.MaxHeight = maxHeight;
+
+        var align = compact ? VerticalAlignment.Stretch : VerticalAlignment.Top;
+        pane.ImagePreview.VerticalAlignment = align;
+        pane.VideoPreview.VerticalAlignment = align;
+
+        // Compact = Quick Look; the popup drives control visibility on hover. Otherwise keep the
+        // right-rail preview's default auto show/hide.
+        pane.MediaControls.ShowAndHideAutomatically = !compact;
+
+        pane.Refresh(pane.ViewModel?.SelectedItem);
+    }
+
+    /// Called by the Quick Look popup on pointer enter/exit so video/audio transport controls
+    /// only show while the pointer is over the preview.
+    public void SetMediaControlsVisible(bool visible)
+    {
+        if (visible && VideoPreview.Visibility == Visibility.Visible)
+        {
+            MediaControls.Show();
+        }
+        else
+        {
+            MediaControls.Hide();
+        }
     }
 
     private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -61,9 +141,14 @@ public sealed partial class PreviewPane : UserControl
         CodeScroller.Visibility = Visibility.Collapsed;
         HexPreview.Visibility = Visibility.Collapsed;
         IconPreview.Visibility = Visibility.Collapsed;
+        AudioArt.Visibility = Visibility.Collapsed;
         VideoPreview.Visibility = Visibility.Collapsed;
         VideoPreview.MediaPlayer?.Pause();
         VideoPreview.Source = null;
+        if (Compact)
+        {
+            MediaControls.Hide();
+        }
         PdfPreview.Visibility = Visibility.Collapsed;
         if (PdfPreview.CoreWebView2 is not null)
         {
@@ -87,7 +172,12 @@ public sealed partial class PreviewPane : UserControl
 
         EmptyState.Visibility = Visibility.Collapsed;
         ContentState.Visibility = Visibility.Visible;
-        DetailsPanel.Visibility = Visibility.Visible;
+        DetailsPanel.Visibility = Compact ? Visibility.Collapsed : Visibility.Visible;
+
+        // Default: a readable, solid-backed pane at the popup's fallback size. Media branches below
+        // switch to a transparent background and report their real dimensions.
+        SetCompactBackground(transparent: false);
+        ReportPreferredSize(0, 0);
 
         NameText.Text = item.Name;
         KindText.Text = item.Kind;
@@ -122,8 +212,13 @@ public sealed partial class PreviewPane : UserControl
                 await bitmap.SetSourceAsync(bytesStream.AsRandomAccessStream());
                 ImagePreview.Source = bitmap;
                 ImagePreview.Visibility = Visibility.Visible;
+                SetCompactBackground(transparent: true);
+                ReportPreferredSize(bitmap.PixelWidth, bitmap.PixelHeight);
 
-                _ = ShowImageMetadataAsync(item);
+                if (!Compact)
+                {
+                    _ = ShowImageMetadataAsync(item);
+                }
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -164,6 +259,40 @@ public sealed partial class PreviewPane : UserControl
             {
                 VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
                 VideoPreview.Visibility = Visibility.Visible;
+                SetCompactBackground(transparent: true);
+
+                _pendingVideoDimsItem = item;
+                if (VideoPreview.MediaPlayer is { } player)
+                {
+                    player.MediaOpened -= VideoPreview_MediaOpened;
+                    player.MediaOpened += VideoPreview_MediaOpened;
+                }
+
+                if (Compact)
+                {
+                    MediaControls.Hide();
+                }
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UriFormatException)
+            {
+                // fall through to icon preview
+            }
+        }
+
+        if (!item.IsDirectory && IconHelper.IsPreviewableAudio(item.Extension))
+        {
+            try
+            {
+                VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
+                VideoPreview.Visibility = Visibility.Visible;
+                AudioArt.Visibility = Visibility.Visible; // generic music glyph stands in for the (audio-only) media surface
+                SetCompactBackground(transparent: true);
+                ReportPreferredSize(560, 460); // audio has no visual dimensions - a compact card
+                if (Compact)
+                {
+                    MediaControls.Hide();
+                }
                 return;
             }
             catch (Exception ex) when (ex is IOException or UriFormatException)
@@ -246,7 +375,7 @@ public sealed partial class PreviewPane : UserControl
     private async Task ShowImageMetadataAsync(FileSystemItem item)
     {
         var metadata = await ImageMetadataService.ReadAsync(item.FullPath, item.Extension).ConfigureAwait(true);
-        if (metadata is null || !ReferenceEquals(ViewModel?.SelectedItem, item))
+        if (metadata is null || Compact || !ReferenceEquals(ViewModel?.SelectedItem, item))
         {
             return;
         }

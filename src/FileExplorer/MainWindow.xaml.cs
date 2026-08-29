@@ -60,6 +60,7 @@ public sealed partial class MainWindow : Window
         });
         WatchService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
         RatingService.Changed += (_, _) => DispatcherQueue.TryEnqueue(_viewModel.RefreshAllPanes);
+        QuickLookPreview.PreferredSizeChanged += (_, size) => { if (QuickLookPopup.IsOpen) SizeQuickLook(size); };
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
         SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -1413,7 +1414,91 @@ public sealed partial class MainWindow : Window
 
         pane.RunScriptRequested -= PaneView_RunScriptRequested;
         pane.RunScriptRequested += PaneView_RunScriptRequested;
+
+        pane.QuickLookRequested -= PaneView_QuickLookRequested;
+        pane.QuickLookRequested += PaneView_QuickLookRequested;
     }
+
+    private void PaneView_QuickLookRequested(object? sender, EventArgs e)
+    {
+        var vm = (sender as PaneView)?.ViewModel;
+        if (QuickLookPopup.IsOpen)
+        {
+            CloseQuickLook();
+            return;
+        }
+
+        if (vm?.SelectedItem is null)
+        {
+            return;
+        }
+
+        QuickLookPreview.ViewModel = vm;
+        QuickLookPopup.XamlRoot = Content.XamlRoot;
+
+        SizeQuickLook(null); // fallback size; PreviewPane.PreferredSizeChanged re-fits to the media
+
+        QuickLookCloseButton.Opacity = 0;
+        QuickLookPopup.IsOpen = true;
+        QuickLookHost.Focus(FocusState.Programmatic);
+    }
+
+    /// Sizes the Quick Look popup: to <paramref name="natural"/>'s aspect ratio (fitted within the
+    /// window, mild upscale allowed) when the content has intrinsic dimensions, else a tall default.
+    private void SizeQuickLook(Windows.Foundation.Size? natural)
+    {
+        var maxW = Math.Max(320, RootGrid.ActualWidth - 96);
+        var maxH = Math.Max(320, RootGrid.ActualHeight - 96);
+
+        double width, height;
+        if (natural is { } n && n.Width > 0 && n.Height > 0)
+        {
+            var targetW = Math.Min(1100.0, maxW);
+            var targetH = Math.Min(1100.0, maxH);
+            var scale = Math.Min(Math.Min(targetW / n.Width, targetH / n.Height), 3.0);
+            width = n.Width * scale;
+            height = n.Height * scale;
+        }
+        else
+        {
+            width = Math.Min(880, maxW);
+            height = Math.Min(1120, maxH);
+        }
+
+        QuickLookHost.Width = width;
+        QuickLookHost.Height = height;
+        QuickLookPopup.HorizontalOffset = (RootGrid.ActualWidth - width) / 2;
+        QuickLookPopup.VerticalOffset = (RootGrid.ActualHeight - height) / 2;
+    }
+
+    private void CloseQuickLook()
+    {
+        QuickLookPopup.IsOpen = false;
+        QuickLookPreview.ViewModel = null; // release the file / stop any playing media
+    }
+
+    private void QuickLookHost_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key is Windows.System.VirtualKey.Space or Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            CloseQuickLook();
+        }
+    }
+
+    private void QuickLookHost_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        QuickLookCloseButton.Opacity = 1;
+        QuickLookPreview.SetMediaControlsVisible(true);
+    }
+
+    private void QuickLookHost_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        QuickLookCloseButton.Opacity = 0;
+        QuickLookPreview.SetMediaControlsVisible(false);
+    }
+
+    private void QuickLookCloseButton_Click(object sender, RoutedEventArgs e) => CloseQuickLook();
 
     private void PaneView_FindDuplicatesRequested(object? sender, string path) => _ = ShowDuplicateFinderAsync(path);
 
