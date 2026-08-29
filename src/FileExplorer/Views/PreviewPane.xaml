@@ -38,6 +38,16 @@
                 </MediaPlayerElement.TransportControls>
             </MediaPlayerElement>
 
+            <!-- Full-screen toggle for video: WinUI 3's MediaTransportControls has no built-in
+                 full-window button, so this rides alongside the controls (shown on hover). -->
+            <Button x:Name="FullScreenButton" Visibility="Collapsed" Click="FullScreenButton_Click"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,76"
+                    Style="{StaticResource ToolbarIconButtonStyle}"
+                    Background="#66000000" Foreground="White"
+                    AutomationProperties.Name="Toggle full screen" ToolTipService.ToolTip="Full screen">
+                <FontIcon x:Name="FullScreenGlyph" Glyph="&#xE740;" FontSize="16" />
+            </Button>
+
             <WebView2 x:Name="PdfPreview" Visibility="Collapsed" MinHeight="360" />
 
             <ScrollViewer x:Name="TextScroller" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">

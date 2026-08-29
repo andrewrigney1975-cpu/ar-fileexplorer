@@ -45,6 +45,7 @@ public sealed partial class PreviewPane : UserControl
     public event EventHandler<Windows.Foundation.Size?>? PreferredSizeChanged;
 
     private FileSystemItem? _pendingVideoDimsItem;
+    private bool _videoBranch;
 
     private void ReportPreferredSize(double width, double height) =>
         PreferredSizeChanged?.Invoke(this, width > 0 && height > 0 ? new Windows.Foundation.Size(width, height) : null);
@@ -107,6 +108,14 @@ public sealed partial class PreviewPane : UserControl
         {
             MediaControls.Hide();
         }
+
+        FullScreenButton.Visibility = visible && _videoBranch ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void FullScreenButton_Click(object sender, RoutedEventArgs e)
+    {
+        VideoPreview.IsFullWindow = !VideoPreview.IsFullWindow;
+        FullScreenGlyph.Glyph = VideoPreview.IsFullWindow ? "" : "";
     }
 
     private static void OnViewModelChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -142,6 +151,10 @@ public sealed partial class PreviewPane : UserControl
         HexPreview.Visibility = Visibility.Collapsed;
         IconPreview.Visibility = Visibility.Collapsed;
         AudioArt.Visibility = Visibility.Collapsed;
+        _videoBranch = false;
+        FullScreenButton.Visibility = Visibility.Collapsed;
+        VideoPreview.IsFullWindow = false;
+        FullScreenGlyph.Glyph = "";
         VideoPreview.Visibility = Visibility.Collapsed;
         VideoPreview.MediaPlayer?.Pause();
         VideoPreview.Source = null;
@@ -260,6 +273,7 @@ public sealed partial class PreviewPane : UserControl
                 VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
                 VideoPreview.Visibility = Visibility.Visible;
                 SetCompactBackground(transparent: true);
+                _videoBranch = true;
 
                 _pendingVideoDimsItem = item;
                 if (VideoPreview.MediaPlayer is { } player)
