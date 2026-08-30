@@ -255,6 +255,18 @@ public sealed class MediaWebServer
 
         var (path, query) = SplitTarget(target);
 
+        // Static CSS/JS carry no data and are referenced by plain <link>/<script> tags that can't
+        // easily append the token - serve them without the gate. Everything else needs ?k=<token>.
+        switch (path)
+        {
+            case "/assets/app.css":
+                await WriteBytesAsync(stream, 200, "text/css; charset=utf-8", Encoding.UTF8.GetBytes(WebAssets.Css), ct, cache: true);
+                return;
+            case "/assets/app.js":
+                await WriteBytesAsync(stream, 200, "application/javascript; charset=utf-8", Encoding.UTF8.GetBytes(WebAssets.Js), ct, cache: true);
+                return;
+        }
+
         if (!string.Equals(query.GetValueOrDefault("k"), Token, StringComparison.Ordinal))
         {
             await WriteStatusAsync(stream, 403, "Forbidden", ct);
@@ -265,12 +277,6 @@ public sealed class MediaWebServer
         {
             case "/":
                 await WriteRedirectAsync(stream, $"/dir?p=&k={Token}", ct);
-                return;
-            case "/assets/app.css":
-                await WriteBytesAsync(stream, 200, "text/css; charset=utf-8", Encoding.UTF8.GetBytes(WebAssets.Css), ct);
-                return;
-            case "/assets/app.js":
-                await WriteBytesAsync(stream, 200, "application/javascript; charset=utf-8", Encoding.UTF8.GetBytes(WebAssets.Js), ct);
                 return;
             case "/dir":
                 await ServeDirectoryAsync(stream, query.GetValueOrDefault("p", ""), ct);

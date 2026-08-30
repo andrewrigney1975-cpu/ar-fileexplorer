@@ -44,6 +44,16 @@ public sealed class MediaWebServerTests : IDisposable
     }
 
     [Fact]
+    public async Task Static_assets_are_served_without_a_token()
+    {
+        var css = await _http.GetAsync($"{Base}/assets/app.css");
+        var js = await _http.GetAsync($"{Base}/assets/app.js");
+        Assert.Equal(HttpStatusCode.OK, css.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, js.StatusCode);
+        Assert.Contains("window.__DATA", await js.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task File_route_serves_content()
     {
         var res = await _http.GetAsync($"{Base}/file?p=hello.txt&k={_server.Token}");
