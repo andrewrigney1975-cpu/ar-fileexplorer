@@ -46,6 +46,10 @@ public sealed partial class PaneView : UserControl
     /// Raised with a folder path when "Slideshow..." is picked; MainWindow owns the popup.
     public event EventHandler<string>? SlideshowRequested;
 
+    /// Raised with a folder path when "Web Browse From Here..." is picked; MainWindow starts the
+    /// media web server rooted there.
+    public event EventHandler<string>? WebBrowseRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1647,6 +1651,10 @@ public sealed partial class PaneView : UserControl
             {
                 menu.Items.Add(NewMenuItem("Slideshow...", "", () => SlideshowRequested?.Invoke(this, folder.FullPath)));
             }
+            if (SettingsService.Current.EnableWebBrowse)
+            {
+                menu.Items.Add(NewMenuItem("Web Browse From Here...", "", () => WebBrowseRequested?.Invoke(this, folder.FullPath)));
+            }
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
@@ -1800,6 +1808,10 @@ public sealed partial class PaneView : UserControl
         if (FolderHasImages(ViewModel.CurrentPath))
         {
             menu.Items.Add(NewMenuItem("Slideshow...", string.Empty, () => SlideshowRequested?.Invoke(this, ViewModel.CurrentPath)));
+        }
+        if (SettingsService.Current.EnableWebBrowse)
+        {
+            menu.Items.Add(NewMenuItem("Web Browse From Here...", string.Empty, () => WebBrowseRequested?.Invoke(this, ViewModel.CurrentPath)));
         }
 
         if (BuildRunActionSubMenu(new[] { ViewModel.CurrentPath }) is { } runActions)

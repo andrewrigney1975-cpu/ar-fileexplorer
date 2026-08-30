@@ -527,6 +527,7 @@ public sealed partial class ControlCentreDialog : UserControl
         ScriptingToggle.IsOn = settings.EnableScripting;
         FolderListingCacheToggle.IsOn = settings.EnableFolderListingCache;
         SearchIndexToggle.IsOn = settings.EnableSearchIndex;
+        WebBrowseToggle.IsOn = settings.EnableWebBrowse;
         _loadingPreferences = false;
     }
 
@@ -546,6 +547,7 @@ public sealed partial class ControlCentreDialog : UserControl
             EnableScripting = ScriptingToggle.IsOn,
             EnableFolderListingCache = FolderListingCacheToggle.IsOn,
             EnableSearchIndex = SearchIndexToggle.IsOn,
+            EnableWebBrowse = WebBrowseToggle.IsOn,
         };
 
         if (updated != current)
