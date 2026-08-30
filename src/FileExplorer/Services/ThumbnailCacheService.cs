@@ -162,6 +162,49 @@ public static class ThumbnailCacheService
         return bitmap;
     }
 
+    /// The raw PNG bytes of a file's thumbnail (or null - non-image, decode failure). Reuses the
+    /// same per-folder on-disk cache as GetOrCreateAsync but never touches a UI-thread BitmapImage,
+    /// so it's safe to call from the media web server's request threads.
+    public static async Task<byte[]?> GetPngBytesAsync(string fullPath, DateTimeOffset modified, bool isDirectory = false)
+    {
+        var folder = Path.GetDirectoryName(fullPath);
+        var name = Path.GetFileName(fullPath);
+        if (folder is null)
+        {
+            return null;
+        }
+
+        var index = LoadFolderIndex(folder);
+
+        lock (Sync)
+        {
+            if (index.TryGetValue(name, out var entry) && entry.ModifiedTicks == modified.UtcTicks)
+            {
+                return entry.Png;
+            }
+        }
+
+        var sourceImagePath = isDirectory ? await Task.Run(() => FindFirstImage(fullPath)) : fullPath;
+        if (sourceImagePath is null)
+        {
+            return null;
+        }
+
+        var png = await EncodeThumbnailAsync(sourceImagePath);
+        if (png is null)
+        {
+            return null;
+        }
+
+        lock (Sync)
+        {
+            index[name] = new DiskEntry(modified.UtcTicks, png);
+        }
+
+        ScheduleFlush(folder, index);
+        return png;
+    }
+
     /// Marks memoryKey as most-recently-used and, on first insertion, evicts the least-recently-used
     /// entries until the cache is back within MaxMemoryCacheEntries. Caller must hold Sync.
     private static void TouchMemoryCacheLocked(string memoryKey)

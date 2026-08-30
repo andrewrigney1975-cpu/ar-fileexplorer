@@ -63,6 +63,7 @@ public sealed partial class MainWindow : Window
         QuickLookPreview.PreferredSizeChanged += (_, size) => { if (QuickLookPopup.IsOpen) SizeQuickLook(size); };
         Slideshow.CloseRequested += (_, _) => SlideshowPopup.IsOpen = false;
         SlideshowPopup.Closed += (_, _) => Slideshow.Release();
+        MediaWebServer.Instance.ThumbnailProvider = ThumbnailCacheService.GetPngBytesAsync;
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
         SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -73,6 +74,11 @@ public sealed partial class MainWindow : Window
             if (SettingsService.Current.EnableSearchIndex)
             {
                 SearchIndexService.Start();
+            }
+
+            if (!SettingsService.Current.EnableWebBrowse)
+            {
+                MediaWebServer.Instance.Stop();
             }
         });
 
@@ -130,6 +136,7 @@ public sealed partial class MainWindow : Window
 
         Closed += (_, _) =>
         {
+            MediaWebServer.Instance.Stop();
             _viewModel.SaveSession();
             var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
             var railWidth = RailColumn.ActualWidth > 0 ? RailColumn.ActualWidth : (double?)null;
@@ -1422,6 +1429,87 @@ public sealed partial class MainWindow : Window
 
         pane.SlideshowRequested -= PaneView_SlideshowRequested;
         pane.SlideshowRequested += PaneView_SlideshowRequested;
+
+        pane.WebBrowseRequested -= PaneView_WebBrowseRequested;
+        pane.WebBrowseRequested += PaneView_WebBrowseRequested;
+    }
+
+    private void PaneView_WebBrowseRequested(object? sender, string folderPath)
+    {
+        try
+        {
+            MediaWebServer.Instance.Start(folderPath);
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("MainWindow.PaneView_WebBrowseRequested", ex);
+            _ = new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Couldn't start the web server",
+                Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "Close",
+            }.ShowAsync();
+            return;
+        }
+
+        _ = ShowWebServerDialogAsync(folderPath);
+    }
+
+    private async Task ShowWebServerDialogAsync(string folderPath)
+    {
+        var server = MediaWebServer.Instance;
+
+        var lanUrl = new TextBox
+        {
+            Text = server.Url,
+            IsReadOnly = true,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas"),
+        };
+
+        var copyButton = new Button { Content = "Copy link" };
+        copyButton.Click += (_, _) =>
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(server.Url);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        };
+
+        var openButton = new Button { Content = "Open in browser" };
+        openButton.Click += (_, _) => _ = Windows.System.Launcher.LaunchUriAsync(new Uri(server.LocalUrl));
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Web Browse",
+            PrimaryButtonText = "Stop server",
+            CloseButtonText = "Leave running",
+            DefaultButton = ContentDialogButton.Close,
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"Serving {folderPath} to your network. Open this link on another device on the " +
+                               "same network (phone, tablet, other PC). The link contains an access key - anyone " +
+                               "with it can browse and download from this folder over plain HTTP while the server " +
+                               "runs. It stops on exit, after 30 minutes idle, or with Stop server.",
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 12,
+                        Opacity = 0.8,
+                    },
+                    lanUrl,
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { copyButton, openButton } },
+                },
+            },
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            server.Stop();
+        }
     }
 
     private void PaneView_SlideshowRequested(object? sender, string folderPath)

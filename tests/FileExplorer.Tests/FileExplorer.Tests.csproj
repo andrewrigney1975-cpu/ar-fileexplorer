@@ -31,6 +31,9 @@
     <Compile Include="..\..\src\FileExplorer\Helpers\FuzzyMatcher.cs" Link="Sources\FuzzyMatcher.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\MarqueeGeometry.cs" Link="Sources\MarqueeGeometry.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\RemoteProtocol.cs" Link="Sources\RemoteProtocol.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\IconHelper.cs" Link="Sources\IconHelper.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\MediaWebServer.cs" Link="Sources\MediaWebServer.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\WebAssets.cs" Link="Sources\WebAssets.cs" />
   </ItemGroup>
 
 </Project>
