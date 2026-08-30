@@ -270,6 +270,7 @@ public sealed partial class PreviewPane : UserControl
         {
             try
             {
+                VideoPreview.AutoPlay = Compact; // Quick Look plays on open; the right-rail preview stays quiet
                 VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
                 VideoPreview.Visibility = Visibility.Visible;
                 SetCompactBackground(transparent: true);
@@ -298,6 +299,7 @@ public sealed partial class PreviewPane : UserControl
         {
             try
             {
+                VideoPreview.AutoPlay = Compact; // Quick Look plays on open; the right-rail preview stays quiet
                 VideoPreview.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(item.FullPath));
                 VideoPreview.Visibility = Visibility.Visible;
                 AudioArt.Visibility = Visibility.Visible; // generic music glyph stands in for the (audio-only) media surface

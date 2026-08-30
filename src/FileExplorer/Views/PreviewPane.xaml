@@ -31,7 +31,7 @@
                       HorizontalAlignment="Center" VerticalAlignment="Center"
                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
 
-            <MediaPlayerElement x:Name="VideoPreview" Visibility="Collapsed" AreTransportControlsEnabled="True"
+            <MediaPlayerElement x:Name="VideoPreview" Visibility="Collapsed" AreTransportControlsEnabled="True" AutoPlay="False"
                                  VerticalAlignment="Top" MaxHeight="360">
                 <MediaPlayerElement.TransportControls>
                     <MediaTransportControls x:Name="MediaControls" ShowAndHideAutomatically="False" />
