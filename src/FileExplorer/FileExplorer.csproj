@@ -21,9 +21,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <AssemblyName>enfyl-explorer</AssemblyName>
-    <Product>enfyl Explorer</Product>
-    <AssemblyTitle>enfyl Explorer</AssemblyTitle>
+    <AssemblyName>docket</AssemblyName>
+    <Product>Docket</Product>
+    <AssemblyTitle>Docket</AssemblyTitle>
 
     <!-- App version: major.minor.build (e.g. 1.00.000). Bump Major/Minor by hand for a real
          release; Build auto-increments on every build via the SetBuildNumber target below. -->

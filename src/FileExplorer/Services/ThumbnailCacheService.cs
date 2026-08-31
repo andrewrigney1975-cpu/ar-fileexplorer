@@ -8,12 +8,12 @@ using Windows.Storage.Streams;
 namespace FileExplorer.Services;
 
 /// Produces and caches small (96px) thumbnail bitmaps two ways: an in-memory dictionary for the
-/// current session, and a single hidden per-folder file (".arexx-thumbs.cache") so thumbnails
+/// current session, and a single hidden per-folder file (".docket-thumbs.cache") so thumbnails
 /// survive across app restarts instead of every folder visit re-decoding full-size images.
 /// Entries are keyed by filename + last-write-time, so an edited file gets a fresh thumbnail.
 public static class ThumbnailCacheService
 {
-    private const string CacheFileName = ".arexx-thumbs.cache";
+    private const string CacheFileName = ".docket-thumbs.cache";
     private const int FlushDelayMs = 800;
     private const int MaxFolderScanDepth = 3;
     private const int MaxFolderScanEntries = 500;

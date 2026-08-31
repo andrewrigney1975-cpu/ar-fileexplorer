@@ -16,7 +16,7 @@ namespace FileExplorer.Services;
 /// for v1, Chrome/Edge only.
 public static class BrowserIntegrationService
 {
-    private const string HostName = "com.enfylexplorer.searchindex";
+    private const string HostName = "com.docket.searchindex";
 
     private static string ManifestPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -39,7 +39,7 @@ public static class BrowserIntegrationService
         var manifest = new
         {
             name = HostName,
-            description = "enfyl Explorer - folder-exists lookup against the Search Everywhere index",
+            description = "Docket - folder-exists lookup against the Search Everywhere index",
             path = exePath,
             type = "stdio",
             allowed_origins = new[] { $"chrome-extension://{extensionId}/" },

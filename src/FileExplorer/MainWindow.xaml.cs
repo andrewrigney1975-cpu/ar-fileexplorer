@@ -29,7 +29,7 @@ public sealed partial class MainWindow : Window
         _sessionService = sessionService;
         _remoteConnectionService = remoteConnectionService;
 
-        Title = "enfyl Explorer";
+        Title = "Docket";
         var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
         AppWindow.SetIcon(iconPath);
         TitleBarIcon.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
@@ -38,6 +38,8 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         ConfigureTitleBarButtons();
         RootGrid.ActualThemeChanged += (_, _) => ConfigureTitleBarButtons();
+        AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInset();
+        UpdateTitleBarInset();
 
         _viewModel = new MainViewModel(DispatcherQueue, _fileSystemService, _sessionService, _remoteConnectionService);
         RootGrid.DataContext = _viewModel;
@@ -220,6 +222,27 @@ public sealed partial class MainWindow : Window
         titleBar.ButtonHoverForegroundColor = glyphColor;
         titleBar.ButtonPressedBackgroundColor = pressedColor;
         titleBar.ButtonPressedForegroundColor = glyphColor;
+    }
+
+    /// Keeps a spacer column the width of the system caption buttons so the title-bar preview
+    /// toggle sits just left of minimise/maximise/close (same pattern as the mail client).
+    private void UpdateTitleBarInset()
+    {
+        try
+        {
+            var scale = AppTitleBar.XamlRoot?.RasterizationScale ?? 1.0;
+            TitleBarRightInset.Width = new GridLength(Math.Max(0, AppWindow.TitleBar.RightInset / scale));
+
+            var height = AppWindow.TitleBar.Height / scale;
+            if (height > 0)
+            {
+                AppTitleBarRow.Height = new GridLength(height);
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("MainWindow.UpdateTitleBarInset", ex);
+        }
     }
 
     // Tracks running scripts (folder-watch triggers, interval schedules, manual "Run Script")

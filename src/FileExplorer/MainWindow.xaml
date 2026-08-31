@@ -78,10 +78,25 @@
         <!-- Custom title bar: extends app content (and its Mica backdrop) up into the OS caption area
              so the window frame reads as one continuous surface instead of a separate white/black strip. -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource ControlFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="TitleBarRightInset" Width="0" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
                 <Image x:Name="TitleBarIcon" Width="16" Height="16" />
-                <TextBlock Text="enfyl Explorer" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                <TextBlock Text="Docket" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
             </StackPanel>
+
+            <ToggleButton Grid.Column="1" x:Name="PreviewToggleButton" Click="PreviewToggleButton_Click"
+                          IsChecked="True"
+                          ToolTipService.ToolTip="Toggle preview pane" AutomationProperties.Name="Toggle preview pane"
+                          Background="Transparent" BorderThickness="0" CornerRadius="0"
+                          MinWidth="0" MinHeight="0" Padding="0" Width="46" VerticalAlignment="Stretch"
+                          VerticalContentAlignment="Center" HorizontalContentAlignment="Center">
+                <FontIcon Glyph="&#xE8A0;" FontSize="14" VerticalAlignment="Center" />
+            </ToggleButton>
         </Grid>
 
         <!-- Top strip: command palette only; every icon action now lives in the left activity bar -->
@@ -198,11 +213,6 @@
                               AutomationProperties.Name="Gallery view"
                               Click="GalleryModeButton_Click" ToolTipService.ToolTip="Gallery view">
                     <FontIcon Glyph="&#xE8B9;" FontSize="19" />
-                </ToggleButton>
-                <ToggleButton x:Name="PreviewToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
-                              AutomationProperties.Name="Toggle preview pane"
-                              IsChecked="True" Click="PreviewToggleButton_Click" ToolTipService.ToolTip="Toggle preview pane">
-                    <FontIcon Glyph="&#xE890;" FontSize="19" />
                 </ToggleButton>
                 <ToggleButton x:Name="TerminalToggleButton" Style="{StaticResource ActivityBarToggleButtonStyle}"
                               AutomationProperties.Name="Toggle terminal"

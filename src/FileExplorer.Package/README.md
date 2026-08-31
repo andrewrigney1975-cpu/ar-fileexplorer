@@ -3,7 +3,7 @@
 Windows Application Packaging Project (`.wapproj`) that wraps the unpackaged `FileExplorer`
 app as an MSIX, for Microsoft Store submission (and local sideload testing). This does **not**
 change how `FileExplorer.csproj` itself builds or ships — the plain self-contained
-`enfyl-explorer.exe` distribution described in the top-level README is untouched; this is a
+`docket.exe` distribution described in the top-level README is untouched; this is a
 second, additional packaging output that lives entirely in this folder.
 
 ## Current status: placeholder identity

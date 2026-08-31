@@ -1,4 +1,4 @@
-# enfyl Explorer
+# Docket
 
 A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8.
 
@@ -25,7 +25,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Details view has clickable, sortable column headers (Name / Date modified / Type / Size), folders always grouped before files, plus an Attributes column showing Windows Explorer-style letter codes (R/H/S/A/C/E/L/T/O/I/P — see [file attribute constants](https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants))
 - Type-ahead-to-jump, identical across all four view modes: click into a pane's file list and start typing to select and scroll to the first item whose name starts with what you've typed. Typing different characters within a second accumulates a prefix search from the top of the list; repeating the same character instead cycles forward through every match one at a time (mashing "s" steps through each S-item in turn)
 - Drag-rectangle (marquee) multi-select: click-drag over empty space to rubber-band select everything the rectangle touches
-- Real image thumbnails in Icons/Gallery views, rendered at a configurable bitmap size (Control Centre → Thumbnails, default 192px — 2× the Gallery tile size, so they don't look upscaled/blurry at that default) and cached both in memory and to a hidden per-folder file (`.arexx-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time, and changing the configured size invalidates every folder's cache lazily (each regenerates at the new size next time it's opened, rather than an upfront rescan)
+- Real image thumbnails in Icons/Gallery views, rendered at a configurable bitmap size (Control Centre → Thumbnails, default 192px — 2× the Gallery tile size, so they don't look upscaled/blurry at that default) and cached both in memory and to a hidden per-folder file (`.docket-thumbs.cache`) so revisiting a folder — or relaunching the app entirely — shows them instantly instead of re-decoding; an edited image's cache entry is invalidated by its last-write-time, and changing the configured size invalidates every folder's cache lazily (each regenerates at the new size next time it's opened, rather than an upfront rescan)
 - Folders get a thumbnail too: the first image found inside them (recursing into subfolders up to 3 levels deep if the folder has none directly, capped so a huge image-less tree can't stall browsing) is used as a mini-preview instead of the plain folder icon, with a small folder-glyph badge overlaid in the corner so it's still clearly a folder
 - `.avif` thumbnails and preview: Windows' image codec (WIC) can't decode AVIF without a separate OS extension, so AVIF files are decoded via an embedded [libheif](https://github.com/strukturag/libheif) instead (`AvifImageService`), transparently alongside every other image format
 
@@ -187,10 +187,10 @@ Open `FileExplorer.sln` in Visual Studio, select the `x64` platform and `Debug`/
 
 ### Output
 
-The build produces a self-contained `enfyl-explorer.exe` (with the Windows App SDK runtime bundled in) at:
+The build produces a self-contained `docket.exe` (with the Windows App SDK runtime bundled in) at:
 
 ```
-src\FileExplorer\bin\<Configuration>\net8.0-windows10.0.19041.0\win-x64\enfyl-explorer.exe
+src\FileExplorer\bin\<Configuration>\net8.0-windows10.0.19041.0\win-x64\docket.exe
 ```
 
 No installer or MSIX packaging step is required — the exe runs directly.
@@ -252,5 +252,5 @@ Per-user application data (tags, saved searches, network locations, session stat
 layout, sync tasks, folder watches, schedules, preferences) is stored as JSON under
 `%LocalAppData%\FileExplorerApp\`; saved scripts are plain `.js` files under
 `%LocalAppData%\FileExplorerApp\Scripts\`. The one exception is the
-thumbnail cache, which lives as a hidden `.arexx-thumbs.cache` file inside each folder it caches
+thumbnail cache, which lives as a hidden `.docket-thumbs.cache` file inside each folder it caches
 (not centrally), so it travels with that folder if it's moved or copied elsewhere.

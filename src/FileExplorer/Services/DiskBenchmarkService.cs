@@ -30,7 +30,7 @@ public static class DiskBenchmarkService
         foreach (var (label, sizeBytes) in Sizes)
         {
             token.ThrowIfCancellationRequested();
-            var testFile = Path.Combine(testFolder, $".arexx-benchmark-{Guid.NewGuid():N}.tmp");
+            var testFile = Path.Combine(testFolder, $".docket-benchmark-{Guid.NewGuid():N}.tmp");
 
             try
             {

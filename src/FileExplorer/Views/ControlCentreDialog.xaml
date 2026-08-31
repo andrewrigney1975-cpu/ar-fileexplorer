@@ -209,7 +209,7 @@
                              dialog minus its 180 nav column minus 16+16 content padding. -->
                         <StackPanel Spacing="12" Width="1088" HorizontalAlignment="Left">
                             <StackPanel Spacing="4">
-                                <TextBlock Text="enfyl Explorer" FontWeight="SemiBold" FontSize="22" />
+                                <TextBlock Text="Docket" FontWeight="SemiBold" FontSize="22" />
                                 <TextBlock x:Name="AboutVersionText" Opacity="0.7" FontSize="13" />
                                 <TextBlock Text="A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App SDK and .NET 8."
                                            Opacity="0.85" FontSize="13" TextWrapping="Wrap" />
