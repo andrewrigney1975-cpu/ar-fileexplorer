@@ -39,6 +39,12 @@
     <PackageReference Include="Jint" Version="4.16.0" />
     <PackageReference Include="LibHeifSharp" Version="3.2.0" />
     <PackageReference Include="LibHeif.Native.win-x64" Version="1.15.1" />
+    <!-- Pure-managed image codec (Six Labors Split License, free for individuals / sub-$1M orgs) -
+         powers the "Convert To..." image format converter. Chosen over Magick.NET because the
+         latter's ImageMagick natives carry a long list of memory-safety CVEs and this app parses
+         arbitrary user images. AVIF/HEIC source decode still routes through the existing
+         AvifImageService/libheif path. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     <PackageReference Include="SharpCompress" Version="0.50.4" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="FluentFTP" Version="54.2.0" />

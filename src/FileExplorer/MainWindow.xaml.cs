@@ -66,6 +66,10 @@ public sealed partial class MainWindow : Window
         Slideshow.CloseRequested += (_, _) => SlideshowPopup.IsOpen = false;
         SlideshowPopup.Closed += (_, _) => Slideshow.Release();
         MediaWebServer.Instance.ThumbnailProvider = ThumbnailCacheService.GetPngBytesAsync;
+        ImageConversionService.HeifDecoder = path => AvifImageService.DecodeToPngAsync(path, maxDimension: null);
+        ImageConversionService.RecycleFile = path => Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+            path, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+            Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         WatchService.Triggered += (_, e) => DispatcherQueue.TryEnqueue(() => _ = RunWatchTriggerAsync(e.Task, e.AddedPaths));
         ScheduleService.Due += (_, schedule) => DispatcherQueue.TryEnqueue(() => _ = RunScheduleAsync(schedule));
         SettingsService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -1455,6 +1459,109 @@ public sealed partial class MainWindow : Window
 
         pane.WebBrowseRequested -= PaneView_WebBrowseRequested;
         pane.WebBrowseRequested += PaneView_WebBrowseRequested;
+
+        pane.ConvertRequested -= PaneView_ConvertRequested;
+        pane.ConvertRequested += PaneView_ConvertRequested;
+    }
+
+    private async void PaneView_ConvertRequested(object? sender, IReadOnlyList<string> selectionPaths)
+    {
+        var dialog = new ConvertToDialog(selectionPaths) { XamlRoot = Content.XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        dialog.Capture();
+        if (dialog.Options is not { } options || dialog.ResolvedSources.Count == 0)
+        {
+            return;
+        }
+
+        await RunConversionAsync(dialog.ResolvedSources, options);
+        _viewModel.RefreshAllPanes();
+    }
+
+    private async Task RunConversionAsync(IReadOnlyList<string> sources, Models.ConversionOptions options)
+    {
+        var progressText = new TextBlock { Text = $"Converting 0 of {sources.Count}...", TextWrapping = TextWrapping.Wrap };
+        var progressBar = new ProgressBar { Minimum = 0, Maximum = sources.Count, Value = 0, Width = 320 };
+        var cts = new CancellationTokenSource();
+
+        var progressDialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Converting images",
+            Content = new StackPanel { Spacing = 12, Children = { progressText, progressBar } },
+            CloseButtonText = "Stop",
+        };
+        progressDialog.CloseButtonClick += (_, _) => cts.Cancel();
+
+        var outcomes = new List<Models.ConversionOutcome>();
+        var showTask = progressDialog.ShowAsync();
+
+        try
+        {
+            for (var i = 0; i < sources.Count; i++)
+            {
+                if (cts.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                var source = sources[i];
+                progressText.Text = $"Converting {i + 1} of {sources.Count}\n{System.IO.Path.GetFileName(source)}";
+
+                try
+                {
+                    outcomes.Add(await ImageConversionService.ConvertAsync(source, options, cts.Token));
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                progressBar.Value = i + 1;
+            }
+        }
+        finally
+        {
+            progressDialog.Hide();
+            try { await showTask; } catch (Exception) { /* dialog already dismissed */ }
+        }
+
+        await ShowConversionSummaryAsync(outcomes, cts.IsCancellationRequested);
+    }
+
+    private async Task ShowConversionSummaryAsync(IReadOnlyList<Models.ConversionOutcome> outcomes, bool cancelled)
+    {
+        var converted = outcomes.Count(o => o.Status == Models.ConversionStatus.Converted);
+        var skipped = outcomes.Count(o => o.Status == Models.ConversionStatus.Skipped);
+        var failed = outcomes.Where(o => o.Status == Models.ConversionStatus.Failed).ToList();
+
+        var lines = new List<string> { $"{converted} converted" + (skipped > 0 ? $", {skipped} skipped" : string.Empty) + (cancelled ? " (stopped early)" : string.Empty) };
+        if (failed.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"{failed.Count} failed:");
+            lines.AddRange(failed.Take(12).Select(f => $"  {System.IO.Path.GetFileName(f.SourcePath)} - {f.Message}"));
+            if (failed.Count > 12)
+            {
+                lines.Add($"  ... and {failed.Count - 12} more");
+            }
+        }
+
+        await new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Conversion finished",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 360,
+                Content = new TextBlock { Text = string.Join("\n", lines), TextWrapping = TextWrapping.Wrap },
+            },
+            CloseButtonText = "Close",
+        }.ShowAsync();
     }
 
     private void PaneView_WebBrowseRequested(object? sender, string folderPath)
