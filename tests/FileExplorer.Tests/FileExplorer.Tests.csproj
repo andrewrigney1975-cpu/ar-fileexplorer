@@ -29,6 +29,7 @@
     <Compile Include="..\..\src\FileExplorer\Services\JsonFileStore.cs" Link="Sources\JsonFileStore.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\LoggingService.cs" Link="Sources\LoggingService.cs" />
     <Compile Include="..\..\src\FileExplorer\Helpers\FuzzyMatcher.cs" Link="Sources\FuzzyMatcher.cs" />
+    <Compile Include="..\..\src\FileExplorer\Helpers\AppInternalFiles.cs" Link="Sources\AppInternalFiles.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\MarqueeGeometry.cs" Link="Sources\MarqueeGeometry.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\RemoteProtocol.cs" Link="Sources\RemoteProtocol.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\IconHelper.cs" Link="Sources\IconHelper.cs" />

@@ -81,6 +81,7 @@ public static class ScriptEngineService
         engine.SetValue("currentPath", activePane?.CurrentPath ?? string.Empty);
 
         engine.SetValue("addedFiles", (addedFilePaths ?? Array.Empty<string>())
+            .Where(p => !Helpers.AppInternalFiles.IsInternal(p))
             .Select(ToScriptItem)
             .ToList());
 
@@ -117,6 +118,12 @@ public static class ScriptEngineService
 
         engine.SetValue("rename", new Action<string, string>((path, newName) =>
         {
+            if (Helpers.AppInternalFiles.IsInternal(path))
+            {
+                log.Add($"Skipped app-internal file: {Path.GetFileName(path)}");
+                return;
+            }
+
             var destination = Path.Combine(Path.GetDirectoryName(path)!, newName);
             if (Directory.Exists(path))
             {
@@ -146,6 +153,12 @@ public static class ScriptEngineService
 
         engine.SetValue("moveTo", new Action<string, string>((path, destFolder) =>
         {
+            if (Helpers.AppInternalFiles.IsInternal(path))
+            {
+                log.Add($"Skipped app-internal file: {Path.GetFileName(path)}");
+                return;
+            }
+
             var destination = FileOperationService.MakeUniqueDestination(
                 Path.Combine(destFolder, Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))));
 

@@ -1046,6 +1046,11 @@ public sealed partial class PaneView : UserControl
         for (int i = 0; i < selection.Count; i++)
         {
             var item = selection[i];
+            if (Helpers.AppInternalFiles.IsInternal(item.FullPath))
+            {
+                continue;
+            }
+
             var newName = ComputeNewName(item, i, out var error);
             if (error is not null || string.IsNullOrEmpty(newName))
             {

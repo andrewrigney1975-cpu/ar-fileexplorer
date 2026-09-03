@@ -197,6 +197,14 @@ public static class WatchService
 
     private static void OnCreated(WatchTaskState task, string fullPath)
     {
+        // The app writes a hidden thumbnail cache (and transient benchmark files) into user folders;
+        // a watch that fires on "any file added" must never see those, or a rename/move action
+        // script bound to it would mangle the cache.
+        if (Helpers.AppInternalFiles.IsInternal(fullPath))
+        {
+            return;
+        }
+
         lock (_lock)
         {
             if (!_pendingPaths.TryGetValue(task.Id, out var paths))
