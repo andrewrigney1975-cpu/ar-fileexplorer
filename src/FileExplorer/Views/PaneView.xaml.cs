@@ -50,6 +50,9 @@ public sealed partial class PaneView : UserControl
     /// media web server rooted there.
     public event EventHandler<string>? WebBrowseRequested;
 
+    /// Raised with the selected paths (files and/or folders) when "Convert To..." is picked.
+    public event EventHandler<IReadOnlyList<string>>? ConvertRequested;
+
     public PaneView()
     {
         InitializeComponent();
@@ -1618,6 +1621,14 @@ public sealed partial class PaneView : UserControl
         if (selection.Count > 0 && selection.All(item => IconHelper.IsExtractableArchive(item.Extension)))
         {
             menu.Items.Add(NewMenuItem("Extract", "", async () => await ExtractZipsAsync(selection)));
+        }
+
+        // Shown when every selected item is either a folder or an image the converter can read.
+        if (selection.Count > 0 && selection.All(item =>
+                item.IsDirectory || ImageConversionService.IsConvertibleImage(item.Extension)))
+        {
+            menu.Items.Add(NewMenuItem("Convert To...", "",
+                () => ConvertRequested?.Invoke(this, selection.Select(s => s.FullPath).ToList())));
         }
         }
         if (selection.Count == 1 && selection[0].IsDirectory && !isRemote)
