@@ -39,6 +39,15 @@ public partial class App : Application
             return;
         }
 
+        // An elevated instance launched by ElevatedBackupLauncher to run one backup job headless -
+        // no window, no background services, just the VSS + robocopy work, then exit.
+        var cmdArgs = Environment.GetCommandLineArgs();
+        if (cmdArgs.Length >= 5 && cmdArgs[1] == ElevatedBackupLauncher.ArgSwitch)
+        {
+            Environment.Exit(BackupHost.Run(cmdArgs[2], cmdArgs[3], cmdArgs[4]));
+            return;
+        }
+
         try
         {
             _host = Host.CreateDefaultBuilder()

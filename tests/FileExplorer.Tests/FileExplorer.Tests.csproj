@@ -38,6 +38,9 @@
     <Compile Include="..\..\src\FileExplorer\Services\WebAssets.cs" Link="Sources\WebAssets.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\ImageConversion.cs" Link="Sources\ImageConversion.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\ImageConversionService.cs" Link="Sources\ImageConversionService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Models\BackupModels.cs" Link="Sources\BackupModels.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\BackupService.cs" Link="Sources\BackupService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\BackupRunner.cs" Link="Sources\BackupRunner.cs" />
   </ItemGroup>
 
 </Project>

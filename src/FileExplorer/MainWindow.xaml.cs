@@ -2155,6 +2155,7 @@ public sealed partial class MainWindow : Window
             new("Go Forward", "Navigate forward", () => pane?.NavigateForward()),
             new("Refresh", "Reload the active pane's folder", () => pane?.Refresh()),
             new("Control Centre...", "Manage scripts, sync tasks, automation, thumbnails, and preferences", () => _ = OpenControlCentreAsync()),
+            new("Backup...", "Create, run, schedule and restore VSS file backups", () => _ = ShowBackupManagerAsync()),
         };
 
         if (settings.EnableSearchIndex)
@@ -2243,6 +2244,198 @@ public sealed partial class MainWindow : Window
 
         var folder = await picker.PickSingleFolderAsync();
         return folder?.Path;
+    }
+
+    // ----- Backup -----
+
+    private async Task ShowBackupManagerAsync()
+    {
+        var dialog = new BackupManagerDialog(PickFolderAsync) { XamlRoot = Content.XamlRoot };
+        await dialog.ShowAsync();
+
+        if (dialog.SelectedJob is not { } job)
+        {
+            return;
+        }
+
+        switch (dialog.Action)
+        {
+            case BackupManagerAction.RunFull:
+                await RunBackupAsync(job, Models.BackupRunMode.Full);
+                break;
+            case BackupManagerAction.RunDifferential:
+                await RunBackupAsync(job, Models.BackupRunMode.Differential);
+                break;
+            case BackupManagerAction.Restore:
+                await RunRestoreAsync(job);
+                break;
+        }
+    }
+
+    private async Task RunBackupAsync(Models.BackupJob job, Models.BackupRunMode mode)
+    {
+        var phaseText = new TextBlock { Text = "Requesting Administrator access...", TextWrapping = TextWrapping.Wrap };
+        var detailText = new TextBlock { FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, MaxLines = 3 };
+        var ring = new ProgressRing { IsActive = true, Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Left };
+        var cts = new CancellationTokenSource();
+
+        var progressDialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = $"Backing up “{job.Name}”",
+            Content = new StackPanel { Spacing = 10, Children = { phaseText, detailText, ring } },
+            CloseButtonText = "Run in background",
+        };
+        progressDialog.CloseButtonClick += (_, _) => cts.Cancel();
+
+        var showTask = progressDialog.ShowAsync();
+
+        var result = await ElevatedBackupLauncher.RunAsync(job, mode, progress => DispatcherQueue.TryEnqueue(() =>
+        {
+            phaseText.Text = $"{progress.Phase}" + (progress.FilesCopied > 0 ? $"  -  {progress.FilesCopied:N0} files" : string.Empty);
+            detailText.Text = progress.Detail;
+        }), cts.Token);
+
+        progressDialog.Hide();
+        try { await showTask; } catch (Exception) { /* dismissed */ }
+
+        if (job.Id is { } id && BackupService.Find(id) is { } fresh)
+        {
+            fresh.LastRunUtc = DateTimeOffset.UtcNow;
+            fresh.LastRunResult = result.Final?.Failed == true ? "Failed" : result.Started ? "OK" : "Not run";
+            fresh.LastFullUtc = BackupService.LatestCompletedFull(fresh)?.Manifest.TimestampUtc;
+            BackupService.AddOrUpdate(fresh);
+        }
+
+        var message = !result.Started
+            ? (result.DeclinedElevation ? "Administrator access was declined - the backup didn't run." : "Couldn't start the elevated backup process.")
+            : result.Final?.Message ?? result.Final?.Detail ?? (result.ExitCode == 0 ? "Backup finished." : "Backup finished with errors - check app.log.");
+
+        await new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = result.Started && result.Final?.Failed != true ? "Backup complete" : "Backup",
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = "Close",
+        }.ShowAsync();
+    }
+
+    private async Task RunRestoreAsync(Models.BackupJob job)
+    {
+        var sets = BackupService.EnumerateSets(job)
+            .Where(s => s.Completed)
+            .OrderByDescending(s => s.Manifest.TimestampUtc)
+            .ToList();
+
+        if (sets.Count == 0)
+        {
+            await new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Nothing to restore",
+                Content = new TextBlock { Text = "This job has no completed backup sets yet." },
+                CloseButtonText = "Close",
+            }.ShowAsync();
+            return;
+        }
+
+        var combo = new ComboBox
+        {
+            Header = "Backup set",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = sets.Select(s => $"{(s.Manifest.Type == Models.BackupSetType.Full ? "Full" : "Diff")}  {s.Manifest.TimestampUtc.LocalDateTime:g}").ToList(),
+            SelectedIndex = 0,
+        };
+
+        var pick = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Restore",
+            Content = new StackPanel
+            {
+                Spacing = 10,
+                Children =
+                {
+                    combo,
+                    new TextBlock
+                    {
+                        Text = "Restoring copies the set's files into a folder you choose (additive - nothing is deleted). " +
+                               "Restoring a whole system volume back over the running Windows install isn't possible from here - " +
+                               "boot offline for that.",
+                        TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75,
+                    },
+                },
+            },
+            PrimaryButtonText = "Choose destination...",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await pick.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var set = sets[combo.SelectedIndex];
+        var target = await PickFolderAsync();
+        if (target is null)
+        {
+            return;
+        }
+
+        var busy = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Restoring",
+            Content = new StackPanel { Spacing = 10, Children = { new TextBlock { Text = $"Copying {set.FolderName} to {target}..." }, new ProgressRing { IsActive = true, Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Left } } },
+        };
+        var busyTask = busy.ShowAsync();
+
+        int exit;
+        try
+        {
+            exit = await Task.Run(() => RunRobocopyRestore(set.FolderPath, target));
+        }
+        finally
+        {
+            busy.Hide();
+            try { await busyTask; } catch (Exception) { }
+        }
+
+        await new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Restore",
+            Content = new TextBlock
+            {
+                Text = exit < 8 ? $"Restored to {target}." : "robocopy reported errors during the restore - check app.log.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            CloseButtonText = "Close",
+        }.ShowAsync();
+    }
+
+    private static int RunRobocopyRestore(string setFolder, string destination)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "robocopy.exe",
+                // /E additive (no /MIR - never delete at the destination during a restore), /XF the set manifest.
+                Arguments = $"\"{setFolder}\" \"{destination}\" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /MT:16 /NP /NDL /NC /XF set.json",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+
+            process!.WaitForExit();
+            return process.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("MainWindow.RunRobocopyRestore", ex);
+            return 16;
+        }
     }
 
     private async Task OpenSearchEverywhereAsync()
@@ -2541,6 +2734,16 @@ public sealed partial class MainWindow : Window
 
     private async Task RunScheduleAsync(ScheduleState schedule)
     {
+        if (schedule.Kind == ScheduleKind.Backup)
+        {
+            if (BackupService.Find(schedule.TargetName) is { } job)
+            {
+                await RunBackupAsync(job, Models.BackupRunMode.Auto);
+            }
+
+            return;
+        }
+
         if (schedule.Kind == ScheduleKind.Sync)
         {
             if (!SettingsService.Current.EnableSyncTasks)

@@ -1,0 +1,106 @@
+<ContentDialog
+    x:Class="FileExplorer.Views.BackupManagerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Backup"
+    CloseButtonText="Close"
+    DefaultButton="Close">
+
+    <Grid Width="720" Height="520" ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="0" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ListView Grid.Row="0" x:Name="JobList" SelectionChanged="JobList_SelectionChanged"
+                      BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                      CornerRadius="4">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Padding="2,6">
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding SourceRoot}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <Button Grid.Row="1" x:Name="NewJobButton" Content="New job" Click="NewJob_Click" HorizontalAlignment="Stretch" />
+        </Grid>
+
+        <ScrollViewer Grid.Column="1" x:Name="DetailScroller" Visibility="Collapsed">
+            <StackPanel Spacing="10">
+                <TextBox x:Name="NameBox" Header="Job name" />
+
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SourceBox" Grid.Column="0" Header="Source (a drive root like C:\ for a whole-volume backup, or any folder)" />
+                    <Button x:Name="SourceBrowse" Grid.Column="1" Content="Browse" VerticalAlignment="Bottom" Click="BrowseSource_Click" />
+                </Grid>
+
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="DestBox" Grid.Column="0" Header="Destination (must be on a different, at least as large disk)" />
+                    <Button x:Name="DestBrowse" Grid.Column="1" Content="Browse" VerticalAlignment="Bottom" Click="BrowseDest_Click" />
+                </Grid>
+
+                <CheckBox x:Name="VssBox" Content="Use Volume Shadow Copy (recommended - copies open/system files cleanly; needs Administrator)" IsChecked="True" />
+
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <NumberBox x:Name="FullDaysBox" Grid.Column="0" Header="Full every (days)" Value="7" Minimum="1" SpinButtonPlacementMode="Compact" />
+                    <NumberBox x:Name="DiffDaysBox" Grid.Column="1" Header="Differential every (days)" Value="1" Minimum="1" SpinButtonPlacementMode="Compact" />
+                    <NumberBox x:Name="KeepBox" Grid.Column="2" Header="Keep full sets" Value="3" Minimum="1" SpinButtonPlacementMode="Compact" />
+                </Grid>
+
+                <CheckBox x:Name="ScheduleBox" Content="Run automatically on this schedule" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="SaveButton" Content="Save" Style="{ThemeResource AccentButtonStyle}" Click="Save_Click" />
+                    <Button x:Name="DeleteButton" Content="Delete job" Click="Delete_Click" />
+                </StackPanel>
+
+                <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="RunFullButton" Content="Full backup now" Click="RunFull_Click" />
+                    <Button x:Name="RunDiffButton" Content="Differential now" Click="RunDiff_Click" />
+                    <Button x:Name="RestoreButton" Content="Restore..." Click="Restore_Click" />
+                </StackPanel>
+
+                <TextBlock Text="Existing sets" FontWeight="SemiBold" FontSize="12" Margin="0,4,0,0" />
+                <ListView x:Name="SetList" MaxHeight="140" BorderThickness="1"
+                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" CornerRadius="4">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="8" Padding="2,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Line}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding Size}" FontSize="12" Opacity="0.7" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <InfoBar x:Name="InfoBar" IsOpen="False" IsClosable="False" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</ContentDialog>

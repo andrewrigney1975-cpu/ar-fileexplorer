@@ -4,6 +4,7 @@ public enum ScheduleKind
 {
     Script,
     Sync,
+    Backup,
 }
 
 /// TargetName holds a script name (ScriptService key) when Kind == Script, or a sync task's Id
