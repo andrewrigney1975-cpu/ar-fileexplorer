@@ -312,7 +312,7 @@ public sealed partial class MainWindow : Window
 
     private void PaneSplitter_Loaded(object sender, RoutedEventArgs e)
     {
-        if (sender is Rectangle splitter && splitter.Parent is Grid grid && grid.ColumnDefinitions.Count >= 3)
+        if (sender is Helpers.SplitterHandle splitter && splitter.Parent is Grid grid && grid.ColumnDefinitions.Count >= 3)
         {
             _ = new ColumnSplitterController(splitter, grid.ColumnDefinitions[0], invert: false, min: 200, max: 4000);
         }

@@ -7,7 +7,7 @@ namespace FileExplorer.Helpers;
 /// Wires pointer drag on a thin splitter element to resize an adjacent Grid ColumnDefinition.
 public sealed class ColumnSplitterController
 {
-    private readonly FrameworkElement _splitter;
+    private readonly SplitterHandle _splitter;
     private readonly ColumnDefinition _column;
     private readonly bool _invert;
     private readonly double _min;
@@ -16,7 +16,7 @@ public sealed class ColumnSplitterController
     private double _startWidth;
     private Windows.Foundation.Point _startPoint;
 
-    public ColumnSplitterController(FrameworkElement splitter, ColumnDefinition column, bool invert, double min, double max)
+    public ColumnSplitterController(SplitterHandle splitter, ColumnDefinition column, bool invert, double min, double max)
     {
         _splitter = splitter;
         _column = column;
@@ -24,6 +24,8 @@ public sealed class ColumnSplitterController
         _min = min;
         _max = max;
 
+        splitter.PointerEntered += (_, _) => splitter.SetResizeCursor(true);
+        splitter.PointerExited += (_, _) => splitter.SetResizeCursor(false);
         splitter.PointerPressed += OnPressed;
         splitter.PointerMoved += OnMoved;
         splitter.PointerReleased += OnReleased;

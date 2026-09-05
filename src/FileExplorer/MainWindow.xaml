@@ -5,7 +5,8 @@
     xmlns:vm="using:FileExplorer.ViewModels"
     xmlns:views="using:FileExplorer.Views"
     xmlns:models="using:FileExplorer.Models"
-    xmlns:conv="using:FileExplorer.Converters">
+    xmlns:conv="using:FileExplorer.Converters"
+    xmlns:helpers="using:FileExplorer.Helpers">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -608,8 +609,8 @@
             </Grid>
 
             <!-- Rail splitter -->
-            <Rectangle Grid.Column="2" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
-                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <helpers:SplitterHandle Grid.Column="2" x:Name="RailSplitter" Width="6" HorizontalAlignment="Stretch"
+                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Main content: tabs, each hosting a dual pane -->
             <TabView x:Name="MainTabView" Grid.Column="3"
@@ -654,8 +655,8 @@
                                             </Grid.ColumnDefinitions>
                                             <views:PaneView Grid.Column="0" ViewModel="{x:Bind LeftPane, Mode=OneWay}"
                                                              Loaded="PaneView_Loaded" />
-                                            <Rectangle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                            <helpers:SplitterHandle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                                                        Loaded="PaneSplitter_Loaded" />
                                             <views:PaneView Grid.Column="2" ViewModel="{x:Bind RightPane, Mode=OneWay}"
                                                              Loaded="PaneView_Loaded" />
@@ -681,8 +682,8 @@
                                                 <ColumnDefinition Width="*" MinWidth="200" />
                                             </Grid.ColumnDefinitions>
                                             <views:DrivePickerView Grid.Column="0" Loaded="HomeDrivePicker_Loaded" />
-                                            <Rectangle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
-                                                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                            <helpers:SplitterHandle Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                                                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                                                        Loaded="PaneSplitter_Loaded" />
                                             <views:PaneView Grid.Column="2" ViewModel="{x:Bind RightPane, Mode=OneWay}"
                                                              Loaded="PaneView_Loaded" />
@@ -696,8 +697,8 @@
             </TabView>
 
             <!-- Preview splitter -->
-            <Rectangle Grid.Column="4" x:Name="PreviewSplitter" Width="6" HorizontalAlignment="Stretch"
-                       VerticalAlignment="Stretch" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <helpers:SplitterHandle Grid.Column="4" x:Name="PreviewSplitter" Width="6" HorizontalAlignment="Stretch"
+                       VerticalAlignment="Stretch" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
             <!-- Right rail: preview -->
             <views:PreviewPane x:Name="Preview" Grid.Column="5" />
