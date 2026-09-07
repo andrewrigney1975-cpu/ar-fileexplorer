@@ -2629,7 +2629,52 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowDuplicateFinderAsync(string rootPath)
     {
-        var statusText = new TextBlock { Text = $"Scanning {rootPath} ...", TextWrapping = TextWrapping.Wrap };
+        // When the location is covered by the search index, offer to identify duplicates from the
+        // index's stored sizes + MD5 hashes (no re-reading the tree), with an escape hatch to force
+        // the old disk-based walk anyway (e.g. if the index is suspected stale).
+        var isIndexed = SearchIndexService.IsPathIndexed(rootPath);
+        var useIndex = isIndexed;
+
+        if (isIndexed)
+        {
+            var forceDiskBox = new CheckBox { Content = "Force disk-based duplicate identification" };
+            var choiceDialog = new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Duplicate Files",
+                PrimaryButtonText = "Find Duplicates",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                Content = new StackPanel
+                {
+                    Spacing = 10,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"“{rootPath}” is covered by the search index. Duplicates will be " +
+                                   "identified from the index's stored file sizes and MD5 hashes, without re-reading " +
+                                   "every file from disk. Files the index has no hash for are still checked on disk.",
+                            TextWrapping = TextWrapping.Wrap,
+                        },
+                        forceDiskBox,
+                    },
+                },
+            };
+
+            if (await choiceDialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            useIndex = forceDiskBox.IsChecked != true;
+        }
+
+        var statusText = new TextBlock
+        {
+            Text = useIndex ? $"Checking the search index for duplicates under {rootPath} ..." : $"Scanning {rootPath} ...",
+            TextWrapping = TextWrapping.Wrap,
+        };
 
         var dialog = new ContentDialog
         {
@@ -2646,7 +2691,9 @@ public sealed partial class MainWindow : Window
         List<List<string>> groups;
         try
         {
-            groups = await DuplicateFinderService.FindDuplicatesAsync(rootPath, CancellationToken.None);
+            groups = useIndex
+                ? await DuplicateFinderService.FindDuplicatesFromIndexAsync(rootPath, CancellationToken.None)
+                : await DuplicateFinderService.FindDuplicatesAsync(rootPath, CancellationToken.None);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
