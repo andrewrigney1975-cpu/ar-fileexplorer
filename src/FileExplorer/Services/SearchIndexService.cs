@@ -124,58 +124,48 @@ public static class SearchIndexService
         await PeriodicRescanLoopAsync().ConfigureAwait(false);
     }
 
-    private const int HashBackfillBatchSize = 250;
+    // Rows scanned per paging query, and hashes written per transaction. The paging query walks the
+    // rowid b-tree from a cursor (cheap seek, no re-scan), so the page size only bounds how much is
+    // held in memory at once.
+    private const int HashBackfillPageSize = 4000;
+    private const int HashBackfillWriteBatch = 200;
 
     // Written into Md5Hash for a file that was picked for hashing but couldn't be read (locked,
     // permission, timed out). Distinguishes "tried, unavailable" from "not tried yet" (NULL) so the
-    // backfill loop doesn't pick the same unreadable file every pass forever. Not a valid 32-char
-    // hex digest, so duplicate detection treats it exactly like a missing hash.
+    // backfill doesn't pick the same unreadable file every pass forever. Not a valid 32-char hex
+    // digest, so duplicate detection treats it exactly like a missing hash.
     private const string HashUnavailable = "";
 
     /// Fills in Md5Hash, after the walk, for indexed files that still have none AND share their exact
     /// byte size with another indexed file - the only files whose hash duplicate detection can ever
-    /// need (a size-unique file can't have a duplicate). Runs forever at low priority: a small batch,
-    /// a short pause, a long sleep when there's nothing to do, and never while a rescan is running
-    /// (they'd fight over the single WAL writer). This is what lets an index-backed duplicate scan
-    /// skip reading files from disk without the walk itself ever having to.
+    /// need (a size-unique file can't have a duplicate). Each pass derives the set of colliding sizes
+    /// ONCE (not per batch), then pages through every unhashed file by rowid. Keeps going during a
+    /// rescan, just with longer pauses, rather than stopping dead and losing 30+ minutes an hour.
     private static async Task HashBackfillLoopAsync()
     {
         while (true)
         {
             try
             {
-                if (IsScanning || RootsStore.Load().Count == 0)
+                if (RootsStore.Load().Count == 0)
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(2)).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromMinutes(5)).ConfigureAwait(false);
                     continue;
                 }
 
-                var candidates = GetHashBackfillCandidates(HashBackfillBatchSize);
-                if (candidates.Count == 0)
+                var start = DateTime.UtcNow;
+                var written = await RunHashBackfillPassAsync().ConfigureAwait(false);
+
+                if (written > 0)
                 {
-                    await Task.Delay(TimeSpan.FromMinutes(10)).ConfigureAwait(false);
-                    continue;
+                    LoggingService.LogInfo("SearchIndexService.HashBackfillLoopAsync", $"Pass wrote {written} hashes in {(DateTime.UtcNow - start).TotalMinutes:F1} min");
+                    StatusChanged?.Invoke(null, EventArgs.Empty);
                 }
 
-                var results = new List<(string Path, string Hash)>();
-                foreach (var path in candidates)
-                {
-                    if (IsScanning)
-                    {
-                        break;
-                    }
-
-                    results.Add(TryRunWithTimeout(() => TryComputeMd5(path), TimeSpan.FromSeconds(PerEntryHashTimeoutSeconds), out var hash) && hash is { Length: 32 }
-                        ? (path, hash)
-                        : (path, HashUnavailable));
-                }
-
-                if (results.Count > 0)
-                {
-                    WriteBackfilledHashes(results);
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                // A pass that hashed nothing means everything reachable is done - wait a good while
+                // before re-deriving the collision set and sweeping again. Otherwise loop straight
+                // back in; there's more to do.
+                await Task.Delay(written == 0 ? TimeSpan.FromMinutes(30) : TimeSpan.FromSeconds(5)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -185,44 +175,114 @@ public static class SearchIndexService
         }
     }
 
-    private static List<string> GetHashBackfillCandidates(int limit)
+    /// One full sweep. Returns how many hashes were written.
+    private static async Task<int> RunHashBackfillPassAsync()
     {
-        var candidates = new List<string>();
-
-        try
+        HashSet<long> collidingSizes;
+        using (var connection = OpenConnection())
         {
-            using var connection = OpenConnection();
-            using var cmd = connection.CreateCommand();
-            // Smallest colliding files first: cheapest to hash and by far the most common source of
-            // real duplicates. The size-collision subquery rides IX_Entries_SizeHash.
-            cmd.CommandText = """
-                SELECT Path FROM Entries
-                WHERE Md5Hash IS NULL AND IsDirectory = 0 AND SizeBytes > 0
-                  AND SizeBytes IN (
-                      SELECT SizeBytes FROM Entries
-                      WHERE IsDirectory = 0 AND SizeBytes > 0
-                      GROUP BY SizeBytes HAVING COUNT(*) > 1
-                  )
-                ORDER BY SizeBytes
-                LIMIT @limit
-                """;
-            cmd.Parameters.AddWithValue("@limit", limit);
+            collidingSizes = LoadCollidingSizes(connection);
+        }
 
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
+        if (collidingSizes.Count == 0)
+        {
+            return 0;
+        }
+
+        var written = 0;
+        long cursor = 0;
+        var pending = new List<(string Path, string Hash)>();
+
+        while (true)
+        {
+            List<(long Rowid, string Path, long Size)> page;
+            using (var connection = OpenConnection())
             {
-                candidates.Add(reader.GetString(0));
+                page = ReadUnhashedPage(connection, cursor, HashBackfillPageSize);
+            }
+
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            cursor = page[^1].Rowid;
+
+            foreach (var (_, path, size) in page)
+            {
+                if (!collidingSizes.Contains(size))
+                {
+                    continue;
+                }
+
+                var hash = TryRunWithTimeout(() => TryComputeMd5(path), TimeSpan.FromSeconds(PerEntryHashTimeoutSeconds), out var h) && h is { Length: 32 }
+                    ? h
+                    : HashUnavailable;
+                pending.Add((path, hash));
+
+                if (pending.Count >= HashBackfillWriteBatch)
+                {
+                    var before = written;
+                    written += WriteBackfilledHashes(pending);
+                    pending.Clear();
+
+                    if (written / 50000 != before / 50000)
+                    {
+                        LoggingService.LogInfo("SearchIndexService.RunHashBackfillPassAsync", $"{written} hashes written so far this pass");
+                        StatusChanged?.Invoke(null, EventArgs.Empty);
+                    }
+
+                    // Back off hard while a rescan is walking the disks; stay light otherwise.
+                    await Task.Delay(IsScanning ? TimeSpan.FromSeconds(5) : TimeSpan.FromMilliseconds(200)).ConfigureAwait(false);
+                }
             }
         }
-        catch (SqliteException ex)
+
+        if (pending.Count > 0)
         {
-            LoggingService.LogWarning("SearchIndexService.GetHashBackfillCandidates", ex);
+            written += WriteBackfilledHashes(pending);
         }
 
-        return candidates;
+        return written;
     }
 
-    private static void WriteBackfilledHashes(List<(string Path, string Hash)> hashes)
+    /// The set of byte sizes shared by two or more files - computed once per backfill pass. Rides
+    /// IX_Entries_SizeHash (SizeBytes leading), so it's one ordered scan of that index.
+    private static HashSet<long> LoadCollidingSizes(SqliteConnection connection)
+    {
+        var sizes = new HashSet<long>();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT SizeBytes FROM Entries WHERE IsDirectory = 0 AND SizeBytes > 0 GROUP BY SizeBytes HAVING COUNT(*) > 1";
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            sizes.Add(reader.GetInt64(0));
+        }
+
+        return sizes;
+    }
+
+    private static List<(long Rowid, string Path, long Size)> ReadUnhashedPage(SqliteConnection connection, long afterRowid, int limit)
+    {
+        var page = new List<(long, string, long)>();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT rowid, Path, SizeBytes FROM Entries WHERE rowid > @cursor AND Md5Hash IS NULL AND IsDirectory = 0 AND SizeBytes > 0 ORDER BY rowid LIMIT @limit";
+        cmd.Parameters.AddWithValue("@cursor", afterRowid);
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            page.Add((reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2)));
+        }
+
+        return page;
+    }
+
+    private static int WriteBackfilledHashes(List<(string Path, string Hash)> hashes)
     {
         try
         {
@@ -234,18 +294,21 @@ public static class SearchIndexService
             var ph = cmd.Parameters.Add("@h", SqliteType.Text);
             var pp = cmd.Parameters.Add("@p", SqliteType.Text);
 
+            var count = 0;
             foreach (var (path, hash) in hashes)
             {
                 ph.Value = hash;
                 pp.Value = path;
-                cmd.ExecuteNonQuery();
+                count += cmd.ExecuteNonQuery();
             }
 
             transaction.Commit();
+            return count;
         }
         catch (Exception ex) when (ex is SqliteException or InvalidOperationException)
         {
             LoggingService.LogWarning("SearchIndexService.WriteBackfilledHashes", ex);
+            return 0;
         }
     }
 
@@ -555,9 +618,14 @@ public static class SearchIndexService
 
         while (true)
         {
+            // Only a genuinely stale (or never-completed) index triggers a full rescan - once a scan
+            // finishes and writes LastScanUtc this stays quiet for RescanIntervalHours, so it does
+            // NOT keep re-walking every hour and starving the hash backfill. The hourly wake is just
+            // the staleness check, not a rescan.
             if (RootsStore.Load().Count > 0 &&
                 (LastScanUtc is null || DateTimeOffset.UtcNow - LastScanUtc > TimeSpan.FromHours(RescanIntervalHours)))
             {
+                LoggingService.LogInfo("SearchIndexService.PeriodicRescanLoopAsync", $"Index is stale (LastScanUtc={LastScanUtc:o}) - starting a full rescan");
                 await RebuildAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
