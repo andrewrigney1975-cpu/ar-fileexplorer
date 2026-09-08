@@ -8,8 +8,8 @@ namespace FileExplorer.Services;
 public sealed record SearchIndexEntry(string Path, string Name, string DirectoryPath, bool IsDirectory, long SizeBytes, DateTimeOffset Modified, double? Rating = null);
 
 /// A file row from the index reduced to what duplicate detection needs: its path, size in bytes and
-/// (when the indexer managed to compute it) MD5 hash. Md5Hash is null when hashing was skipped or
-/// failed during indexing - callers fall back to hashing that file from disk.
+/// (when the backfill has got to it) MD5 hash. A Md5Hash that isn't 32 hex chars - null (not hashed
+/// yet) or "" (hashing was attempted and the file was unreadable) - means "hash it from disk".
 public sealed record IndexedFile(string Path, long SizeBytes, string? Md5Hash);
 
 /// Background, opt-in, persistent filename index powering "Search Everywhere" (command palette
@@ -27,36 +27,57 @@ public sealed record IndexedFile(string Path, long SizeBytes, string? Md5Hash);
 ///
 /// Indexing is opt-in per root (nothing is scanned until the user explicitly adds a folder/drive in
 /// Control Centre > Search Index) - there is no "index everything" default. Freshness comes from a
-/// recursive FileSystemWatcher per root for near-real-time updates, backstopped by a periodic full
-/// rescan (every RescanIntervalHours) for whatever a watcher missed (buffer overflow on a very busy
-/// root, or the app not running when a change happened).
+/// recursive FileSystemWatcher per root, backstopped by a periodic full rescan (every
+/// RescanIntervalHours) for whatever a watcher missed (buffer overflow on a very busy root, or the
+/// app not running when a change happened).
+///
+/// Concurrency model: there is exactly ONE writer. A single dedicated background thread (WriterLoop)
+/// owns the only write connection and drains a queue of WriteJobs; the filesystem walk, the watcher
+/// flush and the hash backfill never touch SQLite directly, they post jobs. File hashing (which can
+/// take minutes for a large file) happens on its own thread and only the finished hashes are posted.
+/// Reads - SearchAsync, the Control Centre status queries - open their own short-lived connections
+/// and run concurrently with the writer (WAL). This replaced an arrangement where three threads
+/// opened write connections independently and permanently starved each other of the single WAL
+/// writer slot.
 public static class SearchIndexService
 {
     private const int RescanIntervalHours = 24;
-    private const int WatcherFlushDelayMs = 1000;
+    private const int WatcherFlushIntervalMs = 5000;
     private const int SqlCandidateLimit = 2000;
 
-    // Commits every BatchCommitSize upserts instead of holding one transaction open for an entire
-    // (potentially multi-hour, multi-million-row) root scan, so a stall or interruption doesn't lose
-    // everything scanned since the walk started.
-    private const int BatchCommitSize = 2000;
+    // Rows accumulated in the walk before a batch is posted to the writer.
+    private const int ScanBatchSize = 2000;
+
+    // If the walk gets this far ahead of the writer, it pauses - bounds the memory a burst of queued
+    // batches can hold.
+    private const int MaxQueuedWriteJobs = 40;
+
+    // Watcher changes coalesced per flush, and a hard cap on the pending queue (a whole system drive
+    // as a root can still produce a burst faster than we apply it - past the cap we drop and let the
+    // next full rescan reconcile).
+    private const int MaxChangesPerFlush = 3000;
+    private const int MaxPendingChanges = 20000;
+
+    // Hash backfill paging, write batching, and how many files to hash at once. The read+open of a
+    // file on a network/removable root is round-trip-latency bound, so several in flight at once is
+    // several times the throughput; it also means one huge file ties up only one of the slots
+    // instead of the whole sweep. Hashing is I/O bound - this is not CPU parallelism.
+    private const int HashBackfillPageSize = 4000;
+    private const int HashBackfillWriteBatch = 200;
+    private const int HashBackfillParallelism = 8;
 
     // Directory/File APIs are plain blocking Win32 calls with no cancellation support - a genuinely
     // unresponsive drive (spun down, a failing USB/SATA bridge, a bad sector causing driver-level
-    // retries) can block the calling thread forever with no way to interrupt it, which is exactly
-    // what happened during testing on a large multi-drive DAS array: disk activity stopped, the
-    // entry count froze, and IsScanning never cleared because the scan thread was permanently stuck
-    // inside one blocking call. These timeouts bound that - see TryRunWithTimeout.
+    // retries) can block the calling thread forever. These bound the filesystem walk - see
+    // TryRunWithTimeout.
     private const int DirectoryEnumerationTimeoutSeconds = 60;
     private const int PerEntryStatTimeoutSeconds = 15;
 
-    // Per-file cap on the background hash backfill. The hash read is genuinely cancellable (async
-    // FileStream + ComputeHashAsync), so a timeout actually stops the read and its CPU instead of
-    // abandoning a thread that keeps grinding the disk - which is what pinned ~1.2 cores and stalled
-    // the pass. A file that can't be hashed inside this window, or is larger than the byte cap, is
-    // marked unavailable and left for duplicate detection to hash on demand if it ever matters.
-    private const int BackfillHashTimeoutSeconds = 45;
-    private const long BackfillMaxHashBytes = 4L * 1024 * 1024 * 1024;
+    // Written into Md5Hash for a file that was picked for hashing but couldn't be read (locked,
+    // permission). Distinguishes "tried, unavailable" from "not tried yet" (NULL) so the backfill
+    // doesn't pick the same unreadable file every sweep. Not a valid 32-char hex digest, so
+    // duplicate detection treats it exactly like a missing hash.
+    private const string HashUnavailable = "";
 
     private static readonly JsonFileStore<List<string>> RootsStore = new("search-index-roots.json", () => new List<string>());
 
@@ -64,18 +85,25 @@ public static class SearchIndexService
     private static readonly Dictionary<string, FileSystemWatcher> Watchers = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly ConcurrentQueue<PendingChange> PendingChanges = new();
+    private static readonly BlockingCollection<WriteJob> WriteQueue = new();
+
     private static Timer? _flushTimer;
+    private static int _resolveInProgress;
     private static CancellationTokenSource? _scanCts;
     private static bool _started;
     private static int _scanProgressCount;
     private static DateTime _lastProgressNotifyUtc = DateTime.MinValue;
 
     // True once the trigram FTS index has been fully populated (a Meta flag persists this across
-    // launches). Until then SearchAsync uses the slower LIKE scan - the FTS table exists and its
-    // triggers keep it current, but a MATCH against a half-built index would miss rows.
+    // launches). Until then SearchAsync uses the slower LIKE scan.
     private static volatile bool _ftsReady;
 
     private sealed record PendingChange(string Path, string? OldPath, WatcherChangeTypes ChangeType);
+
+    /// A resolved row ready to write - the stat has already happened, off the writer thread.
+    private readonly record struct EntryRow(
+        string Path, string Name, string Directory, bool IsDirectory,
+        long Size, DateTime ModifiedUtc, string? Md5, string RootPath, long Generation);
 
     /// Raised whenever scan progress, root list, or entry count changes, so Control Centre's Search
     /// Index section can refresh its status text without polling.
@@ -101,205 +129,192 @@ public static class SearchIndexService
         _started = true;
 
         EnsureSchema();
-        RefreshEntryCount();
         _ftsReady = ReadMeta("FtsBuilt") == "1";
 
         LastScanUtc = ReadMeta("LastScanUtc") is { } raw && long.TryParse(raw, out var ticks)
             ? new DateTimeOffset(ticks, TimeSpan.Zero)
             : null;
 
+        var writerThread = new Thread(WriterLoop) { IsBackground = true, Name = "SearchIndexWriter" };
+        writerThread.Start();
+
+        RefreshEntryCount();
+
         foreach (var root in RootsStore.Load())
         {
             StartWatcher(root);
         }
 
-        _ = StartupBackgroundWorkAsync();
+        _flushTimer = new Timer(_ => ResolveAndEnqueueChanges(), null, WatcherFlushIntervalMs, WatcherFlushIntervalMs);
+
+        if (!_ftsReady)
+        {
+            Enqueue(new RebuildFtsJob());
+        }
+
+        var backfillThread = new Thread(BackfillLoop) { IsBackground = true, Name = "SearchIndexBackfill", Priority = ThreadPriority.BelowNormal };
+        backfillThread.Start();
+
+        _ = PeriodicRescanLoopAsync();
     }
 
-    /// The one-time trigram-FTS population runs before the periodic rescan loop so the big single
-    /// write it does isn't fighting a full filesystem walk for the lone WAL writer slot. Once the
-    /// FtsBuilt flag is set this returns immediately and only the rescan loop keeps running.
-    private static async Task StartupBackgroundWorkAsync()
+    // ================================================================= the single writer
+
+    private static void Enqueue(WriteJob job) => WriteQueue.Add(job);
+
+    private static void EnqueueAndWait(WriteJob job, CancellationToken cancellationToken)
     {
-        await EnsureFtsPopulatedAsync().ConfigureAwait(false);
-        _ = HashBackfillLoopAsync();
-        await PeriodicRescanLoopAsync().ConfigureAwait(false);
+        job.Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        WriteQueue.Add(job);
+        job.Completion.Task.Wait(cancellationToken);
     }
 
-    // Rows scanned per paging query, and hashes written per transaction. The paging query walks the
-    // rowid b-tree from a cursor (cheap seek, no re-scan), so the page size only bounds how much is
-    // held in memory at once.
-    private const int HashBackfillPageSize = 4000;
-    private const int HashBackfillWriteBatch = 200;
-
-    // Written into Md5Hash for a file that was picked for hashing but couldn't be read (locked,
-    // permission, timed out). Distinguishes "tried, unavailable" from "not tried yet" (NULL) so the
-    // backfill doesn't pick the same unreadable file every pass forever. Not a valid 32-char hex
-    // digest, so duplicate detection treats it exactly like a missing hash.
-    private const string HashUnavailable = "";
-
-    /// Fills in Md5Hash, after the walk, for indexed files that still have none AND share their exact
-    /// byte size with another indexed file - the only files whose hash duplicate detection can ever
-    /// need (a size-unique file can't have a duplicate). Each pass derives the set of colliding sizes
-    /// ONCE (not per batch), then pages through every unhashed file by rowid. Keeps going during a
-    /// rescan, just with longer pauses, rather than stopping dead and losing 30+ minutes an hour.
-    private static async Task HashBackfillLoopAsync()
+    private abstract class WriteJob
     {
-        while (true)
-        {
-            try
-            {
-                if (RootsStore.Load().Count == 0)
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(5)).ConfigureAwait(false);
-                    continue;
-                }
-
-                var start = DateTime.UtcNow;
-                var written = await RunHashBackfillPassAsync().ConfigureAwait(false);
-
-                if (written > 0)
-                {
-                    LoggingService.LogInfo("SearchIndexService.HashBackfillLoopAsync", $"Pass wrote {written} hashes in {(DateTime.UtcNow - start).TotalMinutes:F1} min");
-                    StatusChanged?.Invoke(null, EventArgs.Empty);
-                }
-
-                CheckpointWal();
-
-                // A pass that hashed nothing means everything reachable is done - wait a good while
-                // before re-deriving the collision set and sweeping again. Otherwise loop straight
-                // back in; there's more to do.
-                await Task.Delay(written == 0 ? TimeSpan.FromMinutes(30) : TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LoggingService.LogWarning("SearchIndexService.HashBackfillLoopAsync", ex);
-                await Task.Delay(TimeSpan.FromMinutes(5)).ConfigureAwait(false);
-            }
-        }
+        public TaskCompletionSource? Completion { get; set; }
+        public abstract void Run(SqliteConnection connection);
     }
 
-    /// One full sweep. Returns how many hashes were written.
-    private static async Task<int> RunHashBackfillPassAsync()
+    /// The only thread that ever writes to the database. Owns one connection for its whole life,
+    /// blocks (no spin) when the queue is empty, and refreshes the entry count opportunistically
+    /// between jobs while no full scan is running.
+    private static void WriterLoop()
     {
-        HashSet<long> collidingSizes;
-        using (var connection = OpenConnection())
-        {
-            collidingSizes = LoadCollidingSizes(connection);
-        }
-
-        if (collidingSizes.Count == 0)
-        {
-            return 0;
-        }
-
-        var written = 0;
-        long cursor = 0;
-        var pending = new List<(string Path, string Hash)>();
-
-        while (true)
-        {
-            List<(long Rowid, string Path, long Size)> page;
-            using (var connection = OpenConnection())
-            {
-                page = ReadUnhashedPage(connection, cursor, HashBackfillPageSize);
-            }
-
-            if (page.Count == 0)
-            {
-                break;
-            }
-
-            cursor = page[^1].Rowid;
-
-            foreach (var (_, path, size) in page)
-            {
-                if (!collidingSizes.Contains(size))
-                {
-                    continue;
-                }
-
-                string hash;
-                if (size > BackfillMaxHashBytes)
-                {
-                    hash = HashUnavailable;
-                }
-                else
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(BackfillHashTimeoutSeconds));
-                    var h = await ComputeMd5Async(path, cts.Token).ConfigureAwait(false);
-                    hash = h is { Length: 32 } ? h : HashUnavailable;
-                }
-
-                pending.Add((path, hash));
-
-                if (pending.Count >= HashBackfillWriteBatch)
-                {
-                    var before = written;
-                    written += WriteBackfilledHashes(pending);
-                    pending.Clear();
-
-                    if (written / 50000 != before / 50000)
-                    {
-                        LoggingService.LogInfo("SearchIndexService.RunHashBackfillPassAsync", $"{written} hashes written so far this pass");
-                        StatusChanged?.Invoke(null, EventArgs.Empty);
-                    }
-
-                    // Back off hard while a rescan is walking the disks; stay light otherwise.
-                    await Task.Delay(IsScanning ? TimeSpan.FromSeconds(5) : TimeSpan.FromMilliseconds(200)).ConfigureAwait(false);
-                }
-            }
-        }
-
-        if (pending.Count > 0)
-        {
-            written += WriteBackfilledHashes(pending);
-        }
-
-        return written;
-    }
-
-    /// The set of byte sizes shared by two or more files - computed once per backfill pass. Rides
-    /// IX_Entries_SizeHash (SizeBytes leading), so it's one ordered scan of that index.
-    private static HashSet<long> LoadCollidingSizes(SqliteConnection connection)
-    {
-        var sizes = new HashSet<long>();
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT SizeBytes FROM Entries WHERE IsDirectory = 0 AND SizeBytes > 0 GROUP BY SizeBytes HAVING COUNT(*) > 1";
-
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            sizes.Add(reader.GetInt64(0));
-        }
-
-        return sizes;
-    }
-
-    private static List<(long Rowid, string Path, long Size)> ReadUnhashedPage(SqliteConnection connection, long afterRowid, int limit)
-    {
-        var page = new List<(long, string, long)>();
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT rowid, Path, SizeBytes FROM Entries WHERE rowid > @cursor AND Md5Hash IS NULL AND IsDirectory = 0 AND SizeBytes > 0 ORDER BY rowid LIMIT @limit";
-        cmd.Parameters.AddWithValue("@cursor", afterRowid);
-        cmd.Parameters.AddWithValue("@limit", limit);
-
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            page.Add((reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2)));
-        }
-
-        return page;
-    }
-
-    private static int WriteBackfilledHashes(List<(string Path, string Hash)> hashes)
-    {
+        SqliteConnection connection;
         try
         {
-            using var connection = OpenConnection();
+            connection = OpenConnection();
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.WriterLoop: could not open the write connection", ex);
+            return;
+        }
+
+        using (connection)
+        {
+            var jobsSinceCount = 0;
+            var lastCountUtc = DateTime.MinValue;
+
+            foreach (var job in WriteQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    job.Run(connection);
+                }
+                catch (Exception ex)
+                {
+                    LoggingService.LogWarning($"SearchIndexService.WriterLoop: {job.GetType().Name} failed", ex);
+                }
+                finally
+                {
+                    job.Completion?.TrySetResult();
+                }
+
+                if (!IsScanning && ++jobsSinceCount >= 25 && (DateTime.UtcNow - lastCountUtc).TotalSeconds >= 15)
+                {
+                    jobsSinceCount = 0;
+                    lastCountUtc = DateTime.UtcNow;
+                    try
+                    {
+                        using var cmd = connection.CreateCommand();
+                        cmd.CommandText = "SELECT COUNT(*) FROM Entries";
+                        EntryCount = Convert.ToInt32(cmd.ExecuteScalar());
+                        StatusChanged?.Invoke(null, EventArgs.Empty);
+                    }
+                    catch (SqliteException)
+                    {
+                    }
+                }
+            }
+        }
+    }
+
+    private sealed class UpsertBatchJob(IReadOnlyList<EntryRow> rows) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var transaction = connection.BeginTransaction();
+            using var cmd = CreateUpsertCommand(connection, transaction);
+            foreach (var r in rows)
+            {
+                UpsertEntry(cmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, r.Md5, r.RootPath, r.Generation);
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    private sealed class ApplyWatcherJob(IReadOnlyList<string> deletes, IReadOnlyList<EntryRow> upserts) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var transaction = connection.BeginTransaction();
+
+            using (var deleteCmd = connection.CreateCommand())
+            {
+                deleteCmd.Transaction = transaction;
+                // Also removes anything under a deleted/renamed-away directory - Windows fires one
+                // Deleted/Renamed event for the top of a removed tree, not one per descendant.
+                deleteCmd.CommandText = "DELETE FROM Entries WHERE Path = @p OR Path LIKE @prefix ESCAPE '\\'";
+                deleteCmd.Parameters.Add("@p", SqliteType.Text);
+                deleteCmd.Parameters.Add("@prefix", SqliteType.Text);
+
+                foreach (var path in deletes)
+                {
+                    deleteCmd.Parameters["@p"].Value = path;
+                    deleteCmd.Parameters["@prefix"].Value = EscapeLike(path) + "\\%";
+                    deleteCmd.ExecuteNonQuery();
+                }
+            }
+
+            using (var upsertCmd = CreateUpsertCommand(connection, transaction))
+            {
+                foreach (var r in upserts)
+                {
+                    // Generation -1 is the sentinel for watcher-driven single-row updates - a full
+                    // rescan's stale-row cleanup deletes by generation, so a -1 row just gets
+                    // re-upserted with a real generation on the next walk.
+                    UpsertEntry(upsertCmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, null, r.RootPath, -1);
+                }
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    private sealed class CleanupRootJob(string root, long generation) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            // "< @gen", not "<> @gen": generations are monotonic (DateTimeOffset.UtcNow.Ticks), so
+            // this deletes only rows from OLDER scans (and watcher rows, generation -1) and can never
+            // delete rows a newer, superseding scan has just written. Bounded chunks, not one big
+            // DELETE: the per-row FTS delete-trigger makes a multi-thousand-row delete a long
+            // single statement.
+            var removed = 0;
+            while (true)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = "DELETE FROM Entries WHERE rowid IN (SELECT rowid FROM Entries WHERE RootPath = @root AND ScanGeneration < @gen LIMIT 5000)";
+                cmd.Parameters.AddWithValue("@root", root);
+                cmd.Parameters.AddWithValue("@gen", generation);
+                var chunk = cmd.ExecuteNonQuery();
+                removed += chunk;
+                if (chunk < 5000)
+                {
+                    break;
+                }
+            }
+
+            LoggingService.LogInfo("SearchIndexService.CleanupRootJob", $"{root}: removed {removed} stale rows");
+        }
+    }
+
+    private sealed class WriteHashesJob(IReadOnlyList<(string Path, string Hash)> hashes) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
             using var transaction = connection.BeginTransaction();
             using var cmd = connection.CreateCommand();
             cmd.Transaction = transaction;
@@ -307,23 +322,68 @@ public static class SearchIndexService
             var ph = cmd.Parameters.Add("@h", SqliteType.Text);
             var pp = cmd.Parameters.Add("@p", SqliteType.Text);
 
-            var count = 0;
             foreach (var (path, hash) in hashes)
             {
                 ph.Value = hash;
                 pp.Value = path;
-                count += cmd.ExecuteNonQuery();
+                cmd.ExecuteNonQuery();
             }
 
             transaction.Commit();
-            return count;
-        }
-        catch (Exception ex) when (ex is SqliteException or InvalidOperationException)
-        {
-            LoggingService.LogWarning("SearchIndexService.WriteBackfilledHashes", ex);
-            return 0;
         }
     }
+
+    private sealed class SetMetaJob(string key, string value) : WriteJob
+    {
+        public override void Run(SqliteConnection connection) => WriteMeta(connection, key, value);
+    }
+
+    private sealed class RemoveRootJob(string root) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Entries WHERE RootPath = @root";
+            cmd.Parameters.AddWithValue("@root", root);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private sealed class CheckpointJob : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// One-time population of the trigram index from whatever is already in Entries. Runs on the
+    /// writer thread as a single job (~a minute for a few million rows); everything else just queues
+    /// behind it that once. The FtsBuilt flag makes it a no-op on every later launch.
+    private sealed class RebuildFtsJob : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            var start = DateTime.UtcNow;
+            LoggingService.LogInfo("SearchIndexService.RebuildFtsJob", "Building trigram FTS index (one-time)...");
+
+            using (var cmd = connection.CreateCommand())
+            {
+                cmd.CommandText = "INSERT INTO EntriesFts(EntriesFts) VALUES ('rebuild')";
+                cmd.CommandTimeout = 0;
+                cmd.ExecuteNonQuery();
+            }
+
+            WriteMeta(connection, "FtsBuilt", "1");
+            _ftsReady = true;
+            LoggingService.LogInfo("SearchIndexService.RebuildFtsJob", $"Done in {(DateTime.UtcNow - start).TotalSeconds:F0}s");
+            StatusChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    // ================================================================= roots
 
     public static void AddRoot(string path)
     {
@@ -348,32 +408,20 @@ public static class SearchIndexService
         RootsStore.Save(roots);
 
         StopWatcher(path);
-
-        try
-        {
-            using var connection = OpenConnection();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DELETE FROM Entries WHERE RootPath = @root";
-            cmd.Parameters.AddWithValue("@root", path);
-            cmd.ExecuteNonQuery();
-        }
-        catch (SqliteException ex)
-        {
-            LoggingService.LogWarning("SearchIndexService.RemoveRoot", ex);
-        }
+        Enqueue(new RemoveRootJob(path));
+        Enqueue(new CheckpointJob());
 
         RefreshEntryCount();
         StatusChanged?.Invoke(null, EventArgs.Empty);
     }
 
+    // ================================================================= full rescan
+
     /// Full rescan of every configured root, replacing anything that's changed and dropping rows for
-    /// anything no longer on disk. Supersedes (cancels) any rescan already in flight - AddRoot and a
-    /// manual "Rebuild now" both call this, so a rapid sequence of either only pays for one full walk.
+    /// anything no longer on disk. Supersedes (cancels) any rescan already in flight.
     public static Task RebuildAsync(CancellationToken cancellationToken) => RebuildRootsAsync(RootsStore.Load(), cancellationToken);
 
-    /// Rescans just one configured root, leaving every other root's index untouched - lets a single
-    /// location be refreshed/re-tested without paying for a full multi-root rebuild. Still supersedes
-    /// (cancels) any other rescan in flight, full or single-root, since only one scan runs at a time.
+    /// Rescans just one configured root, leaving every other root's index untouched.
     public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, cancellationToken);
 
     private const string TraceSource = "SearchIndexService.RebuildRootsAsync";
@@ -393,8 +441,6 @@ public static class SearchIndexService
 
         IsScanning = true;
         _scanProgressCount = 0;
-        // Reset the visible counter too - while IsScanning it reads as "N entries so far", so it must
-        // count up from this scan's progress, not linger on the previous scan's final total.
         EntryCount = 0;
         _lastProgressNotifyUtc = DateTime.MinValue;
         StatusChanged?.Invoke(null, EventArgs.Empty);
@@ -403,64 +449,35 @@ public static class SearchIndexService
         {
             await Task.Run(() =>
             {
-                LoggingService.LogInfo(TraceSource, "Task.Run body entered");
-
                 var generation = DateTimeOffset.UtcNow.Ticks;
-                using var connection = OpenConnection();
 
                 foreach (var root in roots)
                 {
                     cts.Token.ThrowIfCancellationRequested();
 
-                    // Per-root guard: a single unreadable/disconnected drive, or a "database is
-                    // locked" on this root's stale-row cleanup, must not abort the whole multi-root
-                    // scan and (worse) skip the LastScanUtc write + every other root's cleanup below,
-                    // which is exactly how the index ended up carrying rows from several old scan
-                    // generations at once. OperationCanceledException still propagates - that's a
-                    // deliberate supersede, not a failure.
+                    // Per-root guard: one unreadable/disconnected drive must not abort the whole
+                    // multi-root scan or skip every other root's cleanup and the LastScanUtc write.
                     try
                     {
                         LoggingService.LogInfo(TraceSource, $"Root '{root}': starting");
                         if (!Directory.Exists(root))
                         {
-                            LoggingService.LogInfo(TraceSource, $"Root '{root}': Directory.Exists false, skipping");
                             continue;
                         }
 
                         if (!TryRunWithTimeout(() => Directory.GetLastWriteTimeUtc(root), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var rootModified))
                         {
-                            LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: {root} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping it this pass", new TimeoutException());
+                            LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: {root} took longer than {PerEntryStatTimeoutSeconds}s to stat - skipping it this pass", new TimeoutException());
                             continue;
                         }
 
-                        using (var batch = new ScanBatchWriter(connection))
-                        {
-                            batch.Upsert(root, root, Path.GetDirectoryName(root) ?? root, true, 0, rootModified, null, root, generation);
-                            NotifyScanProgress();
-                            ScanDirectory(root, root, generation, batch, cts.Token);
-                        }
-                        LoggingService.LogInfo(TraceSource, $"Root '{root}': walk + batch writer disposed (final commit done), entries so far={_scanProgressCount}");
+                        var sink = new ScanSink();
+                        sink.Add(new EntryRow(root, root, Path.GetDirectoryName(root) ?? root, true, 0, rootModified, null, root, generation));
+                        ScanDirectory(root, root, generation, sink, cts.Token);
+                        sink.Flush();
 
-                        // Delete stale rows in bounded chunks rather than one big statement: the
-                        // per-row FTS delete-trigger makes a multi-thousand-row delete a long single
-                        // write that loses the busy_timeout race with a watcher flush and throws
-                        // "database is locked", which used to leave old scan generations behind.
-                        var removed = 0;
-                        while (true)
-                        {
-                            cts.Token.ThrowIfCancellationRequested();
-                            using var cleanupCmd = connection.CreateCommand();
-                            cleanupCmd.CommandText = "DELETE FROM Entries WHERE rowid IN (SELECT rowid FROM Entries WHERE RootPath = @root AND ScanGeneration <> @gen LIMIT 5000)";
-                            cleanupCmd.Parameters.AddWithValue("@root", root);
-                            cleanupCmd.Parameters.AddWithValue("@gen", generation);
-                            var chunk = cleanupCmd.ExecuteNonQuery();
-                            removed += chunk;
-                            if (chunk < 5000)
-                            {
-                                break;
-                            }
-                        }
-                        LoggingService.LogInfo(TraceSource, $"Root '{root}': stale-row cleanup DELETE done ({removed} rows)");
+                        EnqueueAndWait(new CleanupRootJob(root, generation), cts.Token);
+                        LoggingService.LogInfo(TraceSource, $"Root '{root}': done, {_scanProgressCount} entries so far");
                     }
                     catch (OperationCanceledException)
                     {
@@ -468,33 +485,25 @@ public static class SearchIndexService
                     }
                     catch (Exception ex)
                     {
-                        LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: root '{root}' failed - continuing with the remaining roots", ex);
+                        LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: root '{root}' failed - continuing with the rest", ex);
                     }
                 }
 
-                WriteMeta(connection, "LastScanUtc", DateTimeOffset.UtcNow.Ticks.ToString());
-                LoggingService.LogInfo(TraceSource, "Task.Run body: WriteMeta done, about to return (connection will Dispose)");
+                EnqueueAndWait(new SetMetaJob("LastScanUtc", DateTimeOffset.UtcNow.Ticks.ToString()), cts.Token);
             }, cts.Token).ConfigureAwait(false);
 
-            LoggingService.LogInfo(TraceSource, "await Task.Run returned successfully");
             LastScanUtc = DateTimeOffset.UtcNow;
         }
         catch (OperationCanceledException)
         {
-            // Superseded by a newer rebuild request - not an error.
             LoggingService.LogInfo(TraceSource, "Cancelled (superseded by a newer rebuild request)");
         }
         catch (Exception ex)
         {
-            // Was `catch (SqliteException ex)` - broadened to catch-all so an unexpected exception
-            // type can never silently escape this method as an unobserved faulted Task (this method
-            // is always called fire-and-forget via `_ = ...`) without IsScanning/StatusChanged below
-            // ever running, which would leave the UI showing "scanning" forever with no error logged.
             LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync", ex);
         }
         finally
         {
-            LoggingService.LogInfo(TraceSource, "Entering finally");
             IsScanning = false;
 
             try
@@ -503,26 +512,572 @@ public static class SearchIndexService
             }
             catch (Exception ex)
             {
-                // RefreshEntryCount already catches SqliteException internally, but guard against any
-                // other exception type here too - this finally block must reach StatusChanged below
-                // no matter what, or the UI never learns the scan ended.
                 LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync: RefreshEntryCount in finally", ex);
             }
 
-            CheckpointWal();
-
-            LoggingService.LogInfo(TraceSource, $"Finally: IsScanning={IsScanning}, EntryCount={EntryCount} - about to fire StatusChanged");
+            Enqueue(new CheckpointJob());
             StatusChanged?.Invoke(null, EventArgs.Empty);
-            LoggingService.LogInfo(TraceSource, "Finally: StatusChanged fired, returning");
         }
     }
 
-    /// Substring match on filename (SQL-side, index-backed - the only thing that scales to millions
-    /// of rows per keystroke), then ranked with the same typo-tolerant FuzzyMatcher the per-pane
-    /// search uses, for a consistent feel between the two search features.
-    /// <param name="minRating">When &gt; 0, only results whose effective rating is at least this
-    /// many stars are returned, and results are re-ordered highest-rating-first (fuzzy score breaks
-    /// ties). 0 leaves ranking purely by name match.</param>
+    // ----- filesystem walk -----
+
+    /// Accumulates rows from the walk and posts a batch to the writer every ScanBatchSize. Applies
+    /// back-pressure if the writer falls far behind, so a fast local walk can't pile the whole tree
+    /// into memory as queued jobs.
+    private sealed class ScanSink
+    {
+        private readonly List<EntryRow> _buffer = new(ScanBatchSize);
+
+        public void Add(EntryRow row)
+        {
+            _buffer.Add(row);
+            NotifyScanProgress();
+
+            if (_buffer.Count >= ScanBatchSize)
+            {
+                Flush();
+            }
+        }
+
+        public void Flush()
+        {
+            if (_buffer.Count == 0)
+            {
+                return;
+            }
+
+            var rows = _buffer.ToArray();
+            _buffer.Clear();
+
+            while (WriteQueue.Count > MaxQueuedWriteJobs)
+            {
+                Thread.Sleep(25);
+            }
+
+            Enqueue(new UpsertBatchJob(rows));
+        }
+    }
+
+    private static void ScanDirectory(string directory, string rootPath, long generation, ScanSink sink, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        List<string> entries;
+        try
+        {
+            if (!TryRunWithTimeout(() => Directory.EnumerateFileSystemEntries(directory).ToList(), TimeSpan.FromSeconds(DirectoryEnumerationTimeoutSeconds), out var result))
+            {
+                LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {directory} took longer than {DirectoryEnumerationTimeoutSeconds}s to enumerate - skipping", new TimeoutException());
+                return;
+            }
+
+            entries = result!;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (IsExcludedFromIndex(entry))
+            {
+                continue;
+            }
+
+            (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
+            try
+            {
+                if (!TryRunWithTimeout(() => StatEntry(entry), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
+                {
+                    LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {entry} took longer than {PerEntryStatTimeoutSeconds}s to stat - skipping", new TimeoutException());
+                    continue;
+                }
+
+                stat = result;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            // System / hidden files are OS bookkeeping, not something a file search wants.
+            if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
+            {
+                continue;
+            }
+
+            // Null hash: the walk never reads file contents. The backfill fills Md5Hash in afterwards
+            // and only for files whose size collides with another file. The upsert keeps any hash a
+            // previous pass computed while the size is unchanged (see CreateUpsertCommand).
+            sink.Add(new EntryRow(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, generation));
+
+            if (stat.IsDirectory)
+            {
+                ScanDirectory(entry, rootPath, generation, sink, cancellationToken);
+            }
+        }
+    }
+
+    private static (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) StatEntry(string entry)
+    {
+        var attrs = File.GetAttributes(entry);
+        var isDirectory = attrs.HasFlag(FileAttributes.Directory);
+
+        if (isDirectory)
+        {
+            return (attrs, true, 0, Directory.GetLastWriteTimeUtc(entry));
+        }
+
+        var info = new FileInfo(entry);
+        return (attrs, false, info.Length, info.LastWriteTimeUtc);
+    }
+
+    /// Runs a synchronous filesystem call with a watchdog timeout, for the walk (Directory/File
+    /// APIs have no cancellation). On timeout the underlying thread-pool thread is abandoned (a
+    /// bounded leak, only for genuinely stuck operations) and the walk moves on. WaitAny, not
+    /// Wait/Result: those throw AggregateException the instant the task *faults* - including a fault
+    /// well within the timeout - which would bypass the IOException/UnauthorizedAccessException
+    /// catch blocks at the call sites and crash the app (a real, confirmed bug).
+    private static bool TryRunWithTimeout<T>(Func<T> operation, TimeSpan timeout, out T result)
+    {
+        var task = Task.Run(operation);
+
+        if (Task.WaitAny(new Task[] { task }, timeout) == -1)
+        {
+            result = default!;
+            return false;
+        }
+
+        result = task.GetAwaiter().GetResult();
+        return true;
+    }
+
+    private static void NotifyScanProgress()
+    {
+        var count = Interlocked.Increment(ref _scanProgressCount);
+        EntryCount = count;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastProgressNotifyUtc).TotalMilliseconds < 300)
+        {
+            return;
+        }
+
+        _lastProgressNotifyUtc = now;
+        StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    private static async Task PeriodicRescanLoopAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
+        while (true)
+        {
+            if (RootsStore.Load().Count > 0 &&
+                (LastScanUtc is null || DateTimeOffset.UtcNow - LastScanUtc > TimeSpan.FromHours(RescanIntervalHours)))
+            {
+                LoggingService.LogInfo("SearchIndexService.PeriodicRescanLoopAsync", $"Index stale (LastScanUtc={LastScanUtc:o}) - full rescan");
+                await RebuildAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            await Task.Delay(TimeSpan.FromHours(1)).ConfigureAwait(false);
+        }
+    }
+
+    // ================================================================= hash backfill
+
+    /// Fills in Md5Hash, after the walk, for files that have none AND share their exact byte size
+    /// with another indexed file - the only files whose hash duplicate detection can ever need (a
+    /// size-unique file can't have a duplicate). Runs on its own orchestrator thread and hashes each
+    /// page's files with a small Parallel.ForEach (file open/read on a network root is round-trip
+    /// bound, so N at once is N times the throughput); only the finished hash batches are posted to
+    /// the single DB writer. No file-size limit. Pauses while a full scan is running.
+    private static void BackfillLoop()
+    {
+        Thread.Sleep(TimeSpan.FromSeconds(15));
+
+        // Keyset cursor over (SizeBytes, rowid): smallest files first, so the millions of small
+        // collision candidates are done quickly and the handful of huge files (still hashed in full)
+        // fall at the end of the sweep instead of stalling early visible progress.
+        long cursorSize = 0;
+        long cursorRowid = 0;
+        HashSet<long>? collidingSizes = null;
+        var writtenThisSweep = 0L;
+
+        while (true)
+        {
+            try
+            {
+                if (RootsStore.Load().Count == 0)
+                {
+                    Thread.Sleep(TimeSpan.FromMinutes(5));
+                    continue;
+                }
+
+                if (IsScanning)
+                {
+                    Thread.Sleep(TimeSpan.FromSeconds(10));
+                    continue;
+                }
+
+                collidingSizes ??= LoadCollidingSizes();
+                if (collidingSizes.Count == 0)
+                {
+                    collidingSizes = null;
+                    Thread.Sleep(TimeSpan.FromMinutes(30));
+                    continue;
+                }
+
+                List<(long Rowid, string Path, long Size)> page;
+                using (var connection = OpenConnection())
+                {
+                    page = ReadUnhashedPage(connection, cursorSize, cursorRowid, HashBackfillPageSize);
+                }
+
+                if (page.Count == 0)
+                {
+                    if (writtenThisSweep > 0)
+                    {
+                        LoggingService.LogInfo("SearchIndexService.BackfillLoop", $"Sweep complete: {writtenThisSweep} hashes");
+                        StatusChanged?.Invoke(null, EventArgs.Empty);
+                    }
+
+                    Enqueue(new CheckpointJob());
+                    cursorSize = 0;
+                    cursorRowid = 0;
+                    collidingSizes = null;
+                    writtenThisSweep = 0;
+                    Thread.Sleep(TimeSpan.FromMinutes(30));
+                    continue;
+                }
+
+                cursorSize = page[^1].Size;
+                cursorRowid = page[^1].Rowid;
+
+                var toHash = page
+                    .Where(p => collidingSizes.Contains(p.Size) && !IsExcludedFromIndex(p.Path))
+                    .Select(p => p.Path)
+                    .ToList();
+
+                if (toHash.Count == 0)
+                {
+                    continue;
+                }
+
+                var hashed = new ConcurrentBag<(string Path, string Hash)>();
+                Parallel.ForEach(
+                    toHash,
+                    new ParallelOptions { MaxDegreeOfParallelism = HashBackfillParallelism },
+                    path =>
+                    {
+                        if (IsScanning)
+                        {
+                            return;
+                        }
+
+                        var hash = TryComputeMd5(path);
+                        hashed.Add((path, hash is { Length: 32 } ? hash : HashUnavailable));
+                    });
+
+                foreach (var chunk in hashed.Chunk(HashBackfillWriteBatch))
+                {
+                    Enqueue(new WriteHashesJob(chunk));
+                    writtenThisSweep += chunk.Length;
+                }
+
+                StatusChanged?.Invoke(null, EventArgs.Empty);
+                Thread.Sleep(50);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogWarning("SearchIndexService.BackfillLoop", ex);
+                Thread.Sleep(TimeSpan.FromMinutes(5));
+            }
+        }
+    }
+
+    /// Synchronous, no timeout, no size cap - called from the backfill's Parallel.ForEach workers,
+    /// which are separate from the single DB writer, so a slow or huge file blocks only a hash
+    /// worker. A truly hung read (a dead network mount) parks that one worker until the next launch;
+    /// the sweep keeps flowing on the other workers.
+    private static string? TryComputeMd5(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                1 << 20, FileOptions.SequentialScan);
+            return Convert.ToHexString(MD5.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// The set of byte sizes shared by 2+ files - derived once per sweep. No "IsDirectory = 0":
+    /// that column isn't indexed and would force a per-row main-table lookup; directory rows always
+    /// have SizeBytes = 0, so "SizeBytes > 0" excludes them and this is a covering-index scan.
+    private static HashSet<long> LoadCollidingSizes()
+    {
+        var sizes = new HashSet<long>();
+
+        try
+        {
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT SizeBytes FROM Entries WHERE SizeBytes > 0 GROUP BY SizeBytes HAVING COUNT(*) > 1";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                sizes.Add(reader.GetInt64(0));
+            }
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.LoadCollidingSizes", ex);
+        }
+
+        return sizes;
+    }
+
+    private static List<(long Rowid, string Path, long Size)> ReadUnhashedPage(SqliteConnection connection, long afterSize, long afterRowid, int limit)
+    {
+        var page = new List<(long, string, long)>();
+
+        using var cmd = connection.CreateCommand();
+        // Keyset pagination over (SizeBytes, rowid) - smallest files first, each row visited once
+        // per sweep. Rides IX_Entries_SizeHash (SizeBytes leading).
+        cmd.CommandText = """
+            SELECT rowid, Path, SizeBytes FROM Entries
+            WHERE Md5Hash IS NULL AND SizeBytes > 0
+              AND (SizeBytes > @sz OR (SizeBytes = @sz AND rowid > @rid))
+            ORDER BY SizeBytes, rowid
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@sz", afterSize);
+        cmd.Parameters.AddWithValue("@rid", afterRowid);
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            page.Add((reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2)));
+        }
+
+        return page;
+    }
+
+    // ================================================================= live watcher updates
+
+    private static void StartWatcher(string root)
+    {
+        lock (WatcherLock)
+        {
+            if (Watchers.ContainsKey(root) || !Directory.Exists(root))
+            {
+                return;
+            }
+
+            try
+            {
+                var watcher = new FileSystemWatcher(root)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    InternalBufferSize = 65536,
+                };
+
+                watcher.Created += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Created));
+                watcher.Changed += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Changed));
+                watcher.Deleted += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Deleted));
+                watcher.Renamed += (_, e) => EnqueueChange(new PendingChange(e.FullPath, e.OldFullPath, WatcherChangeTypes.Renamed));
+                watcher.EnableRaisingEvents = true;
+
+                Watchers[root] = watcher;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                LoggingService.LogWarning($"SearchIndexService.StartWatcher: {root}", ex);
+            }
+        }
+    }
+
+    private static void StopWatcher(string root)
+    {
+        lock (WatcherLock)
+        {
+            if (Watchers.Remove(root, out var watcher))
+            {
+                watcher.Dispose();
+            }
+        }
+    }
+
+    private static void EnqueueChange(PendingChange change)
+    {
+        if (IsExcludedFromIndex(change.Path) && (change.OldPath is null || IsExcludedFromIndex(change.OldPath)))
+        {
+            return;
+        }
+
+        if (PendingChanges.Count >= MaxPendingChanges)
+        {
+            return;
+        }
+
+        PendingChanges.Enqueue(change);
+    }
+
+    /// Runs off a periodic timer. Drains a bounded slice of the pending queue, does the (potentially
+    /// slow) stat work here - NOT on the writer thread - then posts one ApplyWatcherJob. Guarded
+    /// against re-entry so a slow slice doesn't stack up parallel resolvers.
+    private static void ResolveAndEnqueueChanges()
+    {
+        if (Interlocked.Exchange(ref _resolveInProgress, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var changes = new List<PendingChange>();
+            while (changes.Count < MaxChangesPerFlush && PendingChanges.TryDequeue(out var change))
+            {
+                changes.Add(change);
+            }
+
+            if (changes.Count == 0)
+            {
+                return;
+            }
+
+            var deletes = new List<string>();
+            var upserts = new List<EntryRow>();
+
+            foreach (var change in changes)
+            {
+                var removedPath = change.ChangeType == WatcherChangeTypes.Deleted ? change.Path : change.OldPath;
+                if (removedPath is not null)
+                {
+                    deletes.Add(removedPath);
+                }
+
+                if (change.ChangeType != WatcherChangeTypes.Deleted && ResolveWatcherRow(change.Path) is { } row)
+                {
+                    upserts.Add(row);
+                }
+            }
+
+            if (deletes.Count > 0 || upserts.Count > 0)
+            {
+                Enqueue(new ApplyWatcherJob(deletes, upserts));
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.ResolveAndEnqueueChanges", ex);
+        }
+        finally
+        {
+            Volatile.Write(ref _resolveInProgress, 0);
+        }
+    }
+
+    private static EntryRow? ResolveWatcherRow(string path)
+    {
+        if (IsExcludedFromIndex(path))
+        {
+            return null;
+        }
+
+        (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
+        try
+        {
+            if (!TryRunWithTimeout(() => StatEntry(path), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
+            {
+                return null;
+            }
+
+            stat = result;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
+        {
+            return null;
+        }
+
+        var rootPath = RootsStore.Load().FirstOrDefault(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase));
+        if (rootPath is null)
+        {
+            return null;
+        }
+
+        return new EntryRow(path, Path.GetFileName(path), Path.GetDirectoryName(path) ?? path, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, -1);
+    }
+
+    // ================================================================= exclusions
+
+    private static readonly string AppStateDir = TrailingSlash(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp"));
+    private static readonly string AppExeDir = TrailingSlash(AppContext.BaseDirectory);
+
+    private static string TrailingSlash(string path) => path.TrimEnd('\\', '/') + "\\";
+
+    private static bool IsAppOwnedPath(string path)
+    {
+        var normalized = TrailingSlash(path);
+        return normalized.StartsWith(AppStateDir, StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith(AppExeDir, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // OS and tooling folders: pure write churn (a watcher-event firehose that otherwise saturates
+    // the writer) holding nothing worth finding in a search or deduplicating. Excluded from the
+    // walk, from watcher updates, and from the hash backfill. Matched as a whole path segment.
+    private static readonly HashSet<string> ExcludedPathSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Windows", "$Recycle.Bin", "$RECYCLE.BIN", "System Volume Information", "$WinREAgent",
+        "$SysReset", "Recovery", "PerfLogs", "ProgramData", "Temp", "tmp",
+        "Temporary Internet Files", "node_modules", "__pycache__", ".git",
+    };
+
+    private static bool IsExcludedFromIndex(string path)
+    {
+        if (IsAppOwnedPath(path))
+        {
+            return true;
+        }
+
+        if (path.Contains(@"\AppData\Local\Temp\", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains(@"\AppData\Local\Packages\", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains(@"\AppData\Local\Microsoft\Windows\INetCache\", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        foreach (var segment in path.Split('\\', '/'))
+        {
+            if (segment.Length > 0 && ExcludedPathSegments.Contains(segment))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ================================================================= search (reads)
+
+    /// Substring match on filename, then ranked with the same typo-tolerant FuzzyMatcher the per-pane
+    /// search uses. Queries of 3+ characters use the trigram FTS index; shorter ones and any FTS
+    /// error fall back to a LIKE scan.
     public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -558,8 +1113,6 @@ public static class SearchIndexService
                     }
                 }
 
-                // The trigram tokenizer indexes 3-character windows, so a MATCH needs at least 3
-                // characters - shorter queries still go through the LIKE scan.
                 if (_ftsReady && trimmed.Length >= 3)
                 {
                     try
@@ -568,9 +1121,6 @@ public static class SearchIndexService
                         cmd.CommandText = "SELECT e.Path, e.Name, e.DirectoryPath, e.IsDirectory, e.SizeBytes, e.ModifiedTicks " +
                                           "FROM EntriesFts f JOIN Entries e ON e.rowid = f.rowid " +
                                           "WHERE f.Name MATCH @q LIMIT @limit";
-                        // Wrap as an FTS5 phrase literal (doubling any embedded quote) so punctuation
-                        // and spaces in the query are matched verbatim as a contiguous substring
-                        // rather than parsed as FTS query operators.
                         cmd.Parameters.AddWithValue("@q", "\"" + trimmed.Replace("\"", "\"\"") + "\"");
                         cmd.Parameters.AddWithValue("@limit", SqlCandidateLimit);
 
@@ -606,9 +1156,6 @@ public static class SearchIndexService
 
             if (minRating > 0)
             {
-                // A rating filter is active: resolve every candidate's effective rating, keep those
-                // at/above the threshold, and float higher ratings to the top (OrderBy is stable, so
-                // the fuzzy-score order is preserved within each rating band).
                 return ranked
                     .Select(e => e with { Rating = RatingService.GetEffective(e.Path, e.IsDirectory)?.Value })
                     .Where(e => e.Rating is { } r && r >= minRating - 0.0001)
@@ -624,671 +1171,7 @@ public static class SearchIndexService
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task PeriodicRescanLoopAsync()
-    {
-        // Short initial delay rather than a full hour: if the index is stale or was left incomplete
-        // by a previous run (e.g. every scan aborting before its cleanup), this is what heals it, and
-        // waiting an hour to start just leaves the user looking at wrong counts and an old scan date.
-        await Task.Delay(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
-
-        while (true)
-        {
-            // Only a genuinely stale (or never-completed) index triggers a full rescan - once a scan
-            // finishes and writes LastScanUtc this stays quiet for RescanIntervalHours, so it does
-            // NOT keep re-walking every hour and starving the hash backfill. The hourly wake is just
-            // the staleness check, not a rescan.
-            if (RootsStore.Load().Count > 0 &&
-                (LastScanUtc is null || DateTimeOffset.UtcNow - LastScanUtc > TimeSpan.FromHours(RescanIntervalHours)))
-            {
-                LoggingService.LogInfo("SearchIndexService.PeriodicRescanLoopAsync", $"Index is stale (LastScanUtc={LastScanUtc:o}) - starting a full rescan");
-                await RebuildAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-
-            await Task.Delay(TimeSpan.FromHours(1)).ConfigureAwait(false);
-        }
-    }
-
-    // ----- Filesystem walk -----
-
-    /// Buffers up to BatchCommitSize rows in memory, then writes them in one short transaction and
-    /// clears the buffer. Deliberately holds NO transaction between flushes: the walk enumerates
-    /// directories and (since the MD5 column was added) hashes whole files between Upsert calls, which
-    /// can take seconds to minutes per file - an open write transaction spanning that would starve
-    /// the debounced FileSystemWatcher flush (a separate connection) of the single WAL writer slot
-    /// until its busy_timeout expired, silently dropping live updates. It also made the batch
-    /// writer's own state unrecoverable if BeginTransaction/Commit ever hit SQLITE_BUSY mid-scan,
-    /// which aborted the entire scan (and skipped the stale-row cleanup) via an
-    /// InvalidOperationException from Dispose re-committing a rolled-back transaction. A failed flush
-    /// now just drops that one batch and logs it - the next full rescan reconciles whatever was lost.
-    private sealed class ScanBatchWriter : IDisposable
-    {
-        private readonly SqliteConnection _connection;
-
-        private readonly record struct Row(
-            string Path, string Name, string Directory, bool IsDirectory,
-            long Size, DateTime ModifiedUtc, string? Md5, string Root, long Generation);
-
-        private readonly List<Row> _buffer = new();
-
-        public ScanBatchWriter(SqliteConnection connection) => _connection = connection;
-
-        public void Upsert(string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string? md5Hash, string root, long generation)
-        {
-            _buffer.Add(new Row(path, name, directory, isDirectory, size, modifiedUtc, md5Hash, root, generation));
-
-            if (_buffer.Count >= BatchCommitSize)
-            {
-                Flush();
-            }
-        }
-
-        private void Flush()
-        {
-            if (_buffer.Count == 0)
-            {
-                return;
-            }
-
-            try
-            {
-                using var transaction = _connection.BeginTransaction();
-                using var upsertCmd = CreateUpsertCommand(_connection, transaction);
-
-                foreach (var row in _buffer)
-                {
-                    UpsertEntry(upsertCmd, row.Path, row.Name, row.Directory, row.IsDirectory, row.Size, row.ModifiedUtc, row.Md5, row.Root, row.Generation);
-                }
-
-                transaction.Commit();
-            }
-            catch (Exception ex) when (ex is SqliteException or InvalidOperationException)
-            {
-                LoggingService.LogWarning($"SearchIndexService.ScanBatchWriter.Flush: dropping a batch of {_buffer.Count} entries", ex);
-            }
-            finally
-            {
-                _buffer.Clear();
-            }
-        }
-
-        public void Dispose() => Flush();
-    }
-
-    private static void ScanDirectory(string directory, string rootPath, long generation, ScanBatchWriter batch, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        List<string> entries;
-        try
-        {
-            if (!TryRunWithTimeout(() => Directory.EnumerateFileSystemEntries(directory).ToList(), TimeSpan.FromSeconds(DirectoryEnumerationTimeoutSeconds), out var result))
-            {
-                LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {directory} took longer than {DirectoryEnumerationTimeoutSeconds}s to enumerate (drive unresponsive?) - skipping", new TimeoutException());
-                return;
-            }
-
-            entries = result!;
-        }
-        // Caught per-directory (not once for the whole walk) so one access-denied folder deep in a
-        // root doesn't abort indexing everything else under it.
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            return;
-        }
-
-        foreach (var entry in entries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Never index the app's own state directory or the folder it runs from - doing so put
-            // search-index.db / app.log into the index AND, because C:\ is a watched root, made
-            // every write to them fire a watcher change that triggered another write: a feedback
-            // loop that pinned the WAL writer and starved the scan's own flushes.
-            if (IsAppOwnedPath(entry))
-            {
-                continue;
-            }
-
-            (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
-            try
-            {
-                if (!TryRunWithTimeout(() => StatEntry(entry), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
-                {
-                    LoggingService.LogWarning($"SearchIndexService.ScanDirectory: {entry} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping", new TimeoutException());
-                    continue;
-                }
-
-                stat = result;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                continue;
-            }
-
-            if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
-            {
-                continue;
-            }
-
-            // Pass null for the hash on purpose - reading every file end to end during the walk
-            // turned a minutes-long pass into a multi-day one and kept the filename index (what
-            // search needs) perpetually stale. Md5Hash is filled in afterwards by
-            // HashBackfillLoopAsync, and only for files whose size collides with another file (the
-            // only ones duplicate detection could ever care about). The upsert keeps any hash a
-            // previous pass computed as long as the size is unchanged (see CreateUpsertCommand).
-            batch.Upsert(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, generation);
-            NotifyScanProgress();
-
-            if (stat.IsDirectory)
-            {
-                ScanDirectory(entry, rootPath, generation, batch, cancellationToken);
-            }
-        }
-    }
-
-    /// Cancellable MD5. The stream is opened for async I/O and ComputeHashAsync honours the token, so
-    /// cancelling (on timeout) actually aborts the read and frees the CPU - unlike a plain
-    /// File.OpenRead + MD5.HashData on an abandoned thread, which keeps grinding the disk forever.
-    private static async Task<string?> ComputeMd5Async(string path, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var stream = new FileStream(
-                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
-                1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            using var md5 = MD5.Create();
-            var digest = await md5.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
-            return Convert.ToHexString(digest);
-        }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
-
-    private static (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) StatEntry(string entry)
-    {
-        var attrs = File.GetAttributes(entry);
-        var isDirectory = attrs.HasFlag(FileAttributes.Directory);
-
-        if (isDirectory)
-        {
-            return (attrs, true, 0, Directory.GetLastWriteTimeUtc(entry));
-        }
-
-        var info = new FileInfo(entry);
-        return (attrs, false, info.Length, info.LastWriteTimeUtc);
-    }
-
-    /// Runs a synchronous filesystem operation with a watchdog timeout. Directory/File APIs are
-    /// plain blocking Win32 calls with no cancellation support, so a genuinely unresponsive drive can
-    /// block the calling thread forever with no way to interrupt it - see the remark on
-    /// DirectoryEnumerationTimeoutSeconds above for the real-world case this was added for. On
-    /// timeout this abandons the underlying thread-pool thread (it may stay blocked, potentially
-    /// forever - a small leak bounded to genuinely stuck operations, not something that happens in
-    /// normal operation) and lets the scan move on rather than hanging indefinitely. On completion
-    /// within the timeout, GetAwaiter().GetResult() rethrows the operation's original exception type
-    /// unwrapped (no AggregateException), so existing per-item catch blocks around call sites work
-    /// exactly as if the operation had been called inline.
-    ///
-    /// Deliberately uses Task.WaitAny, not Task.Wait/Task.Result, for the timeout race: unlike
-    /// GetAwaiter().GetResult(), both of those throw an AggregateException the instant the task
-    /// *faults* - including a fault that happens well within the timeout window, not just on a real
-    /// timeout - which would bypass every IOException/UnauthorizedAccessException catch block at the
-    /// call sites below and crash the app outright. This was a real, confirmed bug: an access-denied
-    /// stat during a watcher-triggered update reached Application-level unhandled-exception and
-    /// killed the process a few seconds after launch. WaitAny only reports whether the task reached
-    /// *some* terminal state in time, without touching its result/exception, so the fault is only
-    /// (safely, unwrapped) observed afterward via GetAwaiter().GetResult().
-    private static bool TryRunWithTimeout<T>(Func<T> operation, TimeSpan timeout, out T result)
-    {
-        var task = Task.Run(operation);
-
-        if (Task.WaitAny(new Task[] { task }, timeout) == -1)
-        {
-            result = default!;
-            return false;
-        }
-
-        result = task.GetAwaiter().GetResult();
-        return true;
-    }
-
-    /// Runs on the background scan thread (Task.Run in RebuildAsync) - EntryCount is read from the
-    /// UI thread via StatusChanged subscribers, which is safe here since it's only ever a
-    /// monotonically-increasing int write with no compound state to tear. Throttled to avoid firing
-    /// a UI update per file on a fast local scan.
-    private static void NotifyScanProgress()
-    {
-        var count = Interlocked.Increment(ref _scanProgressCount);
-        EntryCount = count;
-
-        var now = DateTime.UtcNow;
-        if ((now - _lastProgressNotifyUtc).TotalMilliseconds < 300)
-        {
-            return;
-        }
-
-        _lastProgressNotifyUtc = now;
-        StatusChanged?.Invoke(null, EventArgs.Empty);
-    }
-
-    // ----- Live watcher-driven updates -----
-
-    private static void StartWatcher(string root)
-    {
-        lock (WatcherLock)
-        {
-            if (Watchers.ContainsKey(root) || !Directory.Exists(root))
-            {
-                return;
-            }
-
-            try
-            {
-                var watcher = new FileSystemWatcher(root)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
-                    // A busy root (e.g. a large batch copy landing all at once) can overflow the
-                    // default 8KB OS notification buffer and silently drop events - the periodic
-                    // rescan is the backstop for whatever this still misses.
-                    InternalBufferSize = 65536,
-                };
-
-                watcher.Created += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Created));
-                watcher.Changed += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Changed));
-                watcher.Deleted += (_, e) => EnqueueChange(new PendingChange(e.FullPath, null, WatcherChangeTypes.Deleted));
-                watcher.Renamed += (_, e) => EnqueueChange(new PendingChange(e.FullPath, e.OldFullPath, WatcherChangeTypes.Renamed));
-                watcher.EnableRaisingEvents = true;
-
-                Watchers[root] = watcher;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-            {
-                LoggingService.LogWarning($"SearchIndexService.StartWatcher: {root}", ex);
-            }
-        }
-    }
-
-    private static void StopWatcher(string root)
-    {
-        lock (WatcherLock)
-        {
-            if (Watchers.Remove(root, out var watcher))
-            {
-                watcher.Dispose();
-            }
-        }
-    }
-
-    private static void EnqueueChange(PendingChange change)
-    {
-        // Drop changes to the app's own files (search-index.db, app.log, config json, ...). Because
-        // C:\ is typically a watched root, indexing writes to that directory would otherwise fire
-        // watcher events that trigger more indexing writes - a self-sustaining loop that floods the
-        // log with "database is locked" and holds the WAL writer against the scan itself.
-        if (IsAppOwnedPath(change.Path) && (change.OldPath is null || IsAppOwnedPath(change.OldPath)))
-        {
-            return;
-        }
-
-        PendingChanges.Enqueue(change);
-
-        lock (WatcherLock)
-        {
-            _flushTimer ??= new Timer(_ => FlushPendingChanges(), null, WatcherFlushDelayMs, Timeout.Infinite);
-            _flushTimer.Change(WatcherFlushDelayMs, Timeout.Infinite);
-        }
-    }
-
-    private static readonly string AppStateDir = TrailingSlash(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp"));
-    private static readonly string AppExeDir = TrailingSlash(AppContext.BaseDirectory);
-
-    private static string TrailingSlash(string path) => path.TrimEnd('\\', '/') + "\\";
-
-    /// True for anything inside the app's state directory (%LOCALAPPDATA%\FileExplorerApp) or the
-    /// directory the executable runs from (which holds app.log / crash.log). Neither belongs in the
-    /// index, and neither should ever drive a watcher-triggered update.
-    private static bool IsAppOwnedPath(string path)
-    {
-        var normalized = TrailingSlash(path);
-        return normalized.StartsWith(AppStateDir, StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith(AppExeDir, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static void FlushPendingChanges()
-    {
-        var changes = new List<PendingChange>();
-        while (PendingChanges.TryDequeue(out var change))
-        {
-            changes.Add(change);
-        }
-
-        if (changes.Count == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            using var connection = OpenConnection();
-            using var transaction = connection.BeginTransaction();
-            using var upsertCmd = CreateUpsertCommand(connection, transaction);
-            using var deleteCmd = connection.CreateCommand();
-            deleteCmd.Transaction = transaction;
-            // Also removes anything under a deleted/renamed-away directory - Windows fires one
-            // Deleted/Renamed event for the top of a removed tree, not one per descendant.
-            deleteCmd.CommandText = "DELETE FROM Entries WHERE Path = @p OR Path LIKE @prefix ESCAPE '\\'";
-            deleteCmd.Parameters.Add("@p", SqliteType.Text);
-            deleteCmd.Parameters.Add("@prefix", SqliteType.Text);
-
-            foreach (var change in changes)
-            {
-                var removedPath = change.ChangeType == WatcherChangeTypes.Deleted
-                    ? change.Path
-                    : change.OldPath;
-
-                if (removedPath is not null)
-                {
-                    deleteCmd.Parameters["@p"].Value = removedPath;
-                    deleteCmd.Parameters["@prefix"].Value = EscapeLike(removedPath) + "\\%";
-                    deleteCmd.ExecuteNonQuery();
-                }
-
-                if (change.ChangeType != WatcherChangeTypes.Deleted)
-                {
-                    UpsertPathIfExists(upsertCmd, change.Path);
-                }
-            }
-
-            transaction.Commit();
-        }
-        catch (Exception ex) when (ex is SqliteException or IOException)
-        {
-            LoggingService.LogWarning("SearchIndexService.FlushPendingChanges", ex);
-            return;
-        }
-
-        // COUNT(*) over the whole table is not cheap at multi-million rows, and a watched drive root
-        // fires these flushes constantly - throttle it rather than running a full scan per event.
-        if ((DateTime.UtcNow - _lastEntryCountRefreshUtc).TotalSeconds >= 30)
-        {
-            _lastEntryCountRefreshUtc = DateTime.UtcNow;
-            RefreshEntryCount();
-        }
-
-        StatusChanged?.Invoke(null, EventArgs.Empty);
-    }
-
-    private static DateTime _lastEntryCountRefreshUtc = DateTime.MinValue;
-
-    /// Folds the WAL back into the main database file and truncates it. WAL grows without bound while
-    /// any checkpoint is blocked (a long reader, or writer contention), and a large WAL slows every
-    /// query - so this is run at quiet moments: after a full rescan and after each backfill pass.
-    private static void CheckpointWal()
-    {
-        try
-        {
-            using var connection = OpenConnection();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
-            cmd.ExecuteNonQuery();
-        }
-        catch (SqliteException ex)
-        {
-            LoggingService.LogWarning("SearchIndexService.CheckpointWal", ex);
-        }
-    }
-
-    private static void UpsertPathIfExists(SqliteCommand upsertCmd, string path)
-    {
-        (FileAttributes Attrs, bool IsDirectory, long Size, DateTime Modified) stat;
-        try
-        {
-            if (!TryRunWithTimeout(() => StatEntry(path), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var result))
-            {
-                LoggingService.LogWarning($"SearchIndexService.UpsertPathIfExists: {path} took longer than {PerEntryStatTimeoutSeconds}s to stat (drive unresponsive?) - skipping", new TimeoutException());
-                return;
-            }
-
-            stat = result;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Gone by the time we got to it (rapid create+delete) - fine, the next full rescan
-            // reconciles anything still wrong.
-            return;
-        }
-
-        if (stat.Attrs.HasFlag(FileAttributes.Hidden) || stat.Attrs.HasFlag(FileAttributes.System))
-        {
-            return;
-        }
-
-        var directory = Path.GetDirectoryName(path) ?? path;
-        var rootPath = RootsStore.Load().FirstOrDefault(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase));
-        if (rootPath is null)
-        {
-            return;
-        }
-
-        // -1 is a sentinel generation for watcher-driven single-row updates, distinct from any real
-        // RebuildRootsAsync generation (DateTimeOffset ticks) - a full rescan's stale-row cleanup
-        // deletes by "ScanGeneration <> this scan's generation", so a -1 row surviving to the next
-        // rescan just gets naturally re-upserted with a real generation during that walk.
-        // Null hash - same rationale as the walk. The upsert keeps a still-valid stored hash and the
-        // backfill loop computes any that are missing.
-        UpsertEntry(upsertCmd, path, Path.GetFileName(path), directory, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, -1);
-    }
-
-    // ----- SQLite plumbing -----
-
-    private static SqliteConnection OpenConnection()
-    {
-        Directory.CreateDirectory(DbDirectory);
-        var connection = new SqliteConnection($"Data Source={DbPath}");
-        connection.Open();
-
-        using var pragma = connection.CreateCommand();
-        // busy_timeout matters more than it looks: WAL mode allows concurrent *readers* during a
-        // write, but still only one *writer* at a time - without this, a second connection trying to
-        // write (e.g. the debounced FileSystemWatcher flush landing while a root rescan's own
-        // connection holds the write lock) fails immediately with "database is locked" (SQLITE_BUSY)
-        // instead of waiting a moment for the first writer to finish. Confirmed via app.log: repeated
-        // "database is locked" warnings from FlushPendingChanges while a scan was running, silently
-        // dropping whatever watcher updates arrived during that window. 10s is generous relative to
-        // how long a single batch commit takes, without risking a search query feeling laggy (reads
-        // don't hit this path in WAL mode - only writer-vs-writer contention does). Raised from 10s
-        // to 30s: a full rescan now streams many small buffered-batch commits back to back, so the
-        // debounced watcher flush needs to be willing to wait longer for a gap rather than give up
-        // and drop updates (which then wait for the next full rescan to be reconciled).
-        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=30000;";
-        pragma.ExecuteNonQuery();
-
-        return connection;
-    }
-
-    private static void EnsureSchema()
-    {
-        using var connection = OpenConnection();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS Entries (
-                Path TEXT PRIMARY KEY,
-                Name TEXT NOT NULL,
-                DirectoryPath TEXT NOT NULL,
-                IsDirectory INTEGER NOT NULL,
-                SizeBytes INTEGER NOT NULL,
-                ModifiedTicks INTEGER NOT NULL,
-                RootPath TEXT NOT NULL,
-                ScanGeneration INTEGER NOT NULL,
-                Md5Hash TEXT
-            );
-            CREATE INDEX IF NOT EXISTS IX_Entries_Name ON Entries(Name);
-            CREATE INDEX IF NOT EXISTS IX_Entries_RootPath ON Entries(RootPath);
-            CREATE TABLE IF NOT EXISTS Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
-            """;
-        cmd.ExecuteNonQuery();
-
-        // Migration for databases created before the Md5Hash column existed. SQLite has no
-        // "ADD COLUMN IF NOT EXISTS", so this just runs and swallows the "duplicate column name"
-        // error on an already-migrated database. MUST run before the IX_Entries_SizeHash index below,
-        // which references Md5Hash and would otherwise throw "no such column" on a pre-migration DB.
-        try
-        {
-            using var alter = connection.CreateCommand();
-            alter.CommandText = "ALTER TABLE Entries ADD COLUMN Md5Hash TEXT";
-            alter.ExecuteNonQuery();
-        }
-        catch (SqliteException)
-        {
-            // Column already present - expected on every launch after the first migrated one.
-        }
-
-        using var indexCmd = connection.CreateCommand();
-        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_Entries_SizeHash ON Entries(SizeBytes, Md5Hash);";
-        indexCmd.ExecuteNonQuery();
-
-        EnsureFtsSchema(connection);
-    }
-
-    /// Creates the external-content FTS5 table over Entries.Name with the trigram tokenizer (turns a
-    /// substring search from a full O(rows) `LIKE '%x%'` scan into an index probe) plus the three
-    /// triggers that keep it in sync with every INSERT/UPDATE/DELETE on Entries. DDL only - fast, and
-    /// safe to run every launch. The one-time population of existing rows is EnsureFtsPopulatedAsync.
-    /// Wrapped so a SQLite build without FTS5/trigram can't take down app launch: on failure the
-    /// table just won't exist, _ftsReady stays false, and SearchAsync keeps using the LIKE scan.
-    private static void EnsureFtsSchema(SqliteConnection connection)
-    {
-        try
-        {
-            using var cmd = connection.CreateCommand();
-            // Triggers are dropped and recreated every launch (cheap, DDL only) so a change to their
-            // bodies actually takes effect - CREATE TRIGGER IF NOT EXISTS would silently keep an old
-            // definition. The UPDATE trigger only touches the FTS index when the name actually
-            // changed, so a rescan re-upserting millions of unchanged rows costs nothing here.
-            cmd.CommandText = """
-                CREATE VIRTUAL TABLE IF NOT EXISTS EntriesFts USING fts5(
-                    Name,
-                    content='Entries',
-                    content_rowid='rowid',
-                    tokenize='trigram'
-                );
-                DROP TRIGGER IF EXISTS Entries_fts_ai;
-                DROP TRIGGER IF EXISTS Entries_fts_ad;
-                DROP TRIGGER IF EXISTS Entries_fts_au;
-                CREATE TRIGGER Entries_fts_ai AFTER INSERT ON Entries BEGIN
-                    INSERT INTO EntriesFts(rowid, Name) VALUES (new.rowid, new.Name);
-                END;
-                CREATE TRIGGER Entries_fts_ad AFTER DELETE ON Entries BEGIN
-                    INSERT INTO EntriesFts(EntriesFts, rowid, Name) VALUES ('delete', old.rowid, old.Name);
-                END;
-                CREATE TRIGGER Entries_fts_au AFTER UPDATE ON Entries WHEN old.Name IS NOT new.Name BEGIN
-                    INSERT INTO EntriesFts(EntriesFts, rowid, Name) VALUES ('delete', old.rowid, old.Name);
-                    INSERT INTO EntriesFts(rowid, Name) VALUES (new.rowid, new.Name);
-                END;
-                """;
-            cmd.ExecuteNonQuery();
-        }
-        catch (SqliteException ex)
-        {
-            LoggingService.LogWarning("SearchIndexService.EnsureFtsSchema", ex);
-        }
-    }
-
-    /// One-time backfill of the trigram index from whatever is already in Entries. Runs on a
-    /// background thread before the periodic rescan loop starts (so its single large write isn't
-    /// contending with a filesystem walk), sets the persistent FtsBuilt flag, and flips _ftsReady so
-    /// SearchAsync switches from the LIKE scan to MATCH. If it fails (locked, interrupted) the flag
-    /// stays unset and it retries on the next launch.
-    private static async Task EnsureFtsPopulatedAsync()
-    {
-        if (_ftsReady || ReadMeta("FtsBuilt") == "1")
-        {
-            _ftsReady = true;
-            return;
-        }
-
-        await Task.Yield();
-
-        try
-        {
-            var start = DateTime.UtcNow;
-            LoggingService.LogInfo("SearchIndexService.EnsureFtsPopulatedAsync", "Building trigram FTS index (one-time backfill)...");
-
-            using var connection = OpenConnection();
-            using (var rebuild = connection.CreateCommand())
-            {
-                rebuild.CommandText = "INSERT INTO EntriesFts(EntriesFts) VALUES ('rebuild')";
-                rebuild.CommandTimeout = 0;
-                rebuild.ExecuteNonQuery();
-            }
-
-            WriteMeta(connection, "FtsBuilt", "1");
-            _ftsReady = true;
-            LoggingService.LogInfo("SearchIndexService.EnsureFtsPopulatedAsync", $"Trigram FTS index built in {(DateTime.UtcNow - start).TotalSeconds:F0}s");
-            StatusChanged?.Invoke(null, EventArgs.Empty);
-        }
-        catch (Exception ex) when (ex is SqliteException or InvalidOperationException)
-        {
-            LoggingService.LogWarning("SearchIndexService.EnsureFtsPopulatedAsync", ex);
-        }
-    }
-
-    private static SqliteCommand CreateUpsertCommand(SqliteConnection connection, SqliteTransaction transaction)
-    {
-        var cmd = connection.CreateCommand();
-        cmd.Transaction = transaction;
-        cmd.CommandText = """
-            INSERT INTO Entries (Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks, RootPath, ScanGeneration, Md5Hash)
-            VALUES (@path, @name, @dir, @isDir, @size, @modified, @root, @gen, @md5)
-            ON CONFLICT(Path) DO UPDATE SET
-                Name = excluded.Name, DirectoryPath = excluded.DirectoryPath, IsDirectory = excluded.IsDirectory,
-                SizeBytes = excluded.SizeBytes, ModifiedTicks = excluded.ModifiedTicks, RootPath = excluded.RootPath,
-                ScanGeneration = excluded.ScanGeneration,
-                -- A caller-supplied hash (the backfiller) always wins. Otherwise keep the stored hash
-                -- only while the size is unchanged; a resized file's old hash is stale, so clear it
-                -- and let the backfiller recompute if the new size still collides with something.
-                Md5Hash = CASE
-                    WHEN excluded.Md5Hash IS NOT NULL THEN excluded.Md5Hash
-                    WHEN Entries.SizeBytes = excluded.SizeBytes THEN Entries.Md5Hash
-                    ELSE NULL
-                END;
-            """;
-        cmd.Parameters.Add("@path", SqliteType.Text);
-        cmd.Parameters.Add("@name", SqliteType.Text);
-        cmd.Parameters.Add("@dir", SqliteType.Text);
-        cmd.Parameters.Add("@isDir", SqliteType.Integer);
-        cmd.Parameters.Add("@size", SqliteType.Integer);
-        cmd.Parameters.Add("@modified", SqliteType.Integer);
-        cmd.Parameters.Add("@root", SqliteType.Text);
-        cmd.Parameters.Add("@gen", SqliteType.Integer);
-        cmd.Parameters.Add("@md5", SqliteType.Text);
-        return cmd;
-    }
-
-    private static void UpsertEntry(SqliteCommand cmd, string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string? md5Hash, string root, long generation)
-    {
-        cmd.Parameters["@path"].Value = path;
-        cmd.Parameters["@name"].Value = name;
-        cmd.Parameters["@dir"].Value = directory;
-        cmd.Parameters["@isDir"].Value = isDirectory ? 1 : 0;
-        cmd.Parameters["@size"].Value = size;
-        cmd.Parameters["@modified"].Value = modifiedUtc.Ticks;
-        cmd.Parameters["@root"].Value = root;
-        cmd.Parameters["@gen"].Value = generation;
-        cmd.Parameters["@md5"].Value = (object?)md5Hash ?? DBNull.Value;
-        cmd.ExecuteNonQuery();
-    }
-
-    /// Combined size on disk of the SQLite database plus its WAL/shared-memory sidecar files (WAL
-    /// mode keeps recently-written pages there until a checkpoint folds them back into the main
-    /// file, so ignoring them would under-report actual disk usage).
+    /// Combined size on disk of the SQLite database plus its WAL/shared-memory sidecar files.
     public static long DatabaseSizeBytes
     {
         get
@@ -1302,12 +1185,12 @@ public static class SearchIndexService
                     size += new FileInfo(path).Length;
                 }
             }
+
             return size;
         }
     }
 
-    /// Entry count per configured root, for Control Centre's Search Index list. One grouped query
-    /// rather than one COUNT per root.
+    /// Entry count per configured root, for Control Centre's Search Index list.
     public static Dictionary<string, int> GetRootEntryCounts()
     {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1331,10 +1214,7 @@ public static class SearchIndexService
         return counts;
     }
 
-    /// True when <paramref name="path"/> is one of the configured index roots or sits underneath one,
-    /// i.e. the index already holds (or is in the process of building) rows for everything in it.
-    /// Duplicate detection uses this to decide whether it can lean on the index's stored sizes/hashes
-    /// instead of walking and re-hashing the tree from disk.
+    /// True when <paramref name="path"/> is one of the configured index roots or sits underneath one.
     public static bool IsPathIndexed(string path)
     {
         var normalized = path.TrimEnd('\\');
@@ -1352,9 +1232,8 @@ public static class SearchIndexService
     }
 
     /// Every indexed file at or below <paramref name="path"/>, as (path, size, MD5) rows - the raw
-    /// material for index-backed duplicate detection. Directories are excluded. A null Md5Hash means
-    /// the indexer couldn't hash that file (skipped, too slow, unreadable at the time); the caller
-    /// hashes those from disk.
+    /// material for index-backed duplicate detection. Directories excluded. A Md5Hash that isn't
+    /// 32 hex chars means "hash from disk".
     public static List<IndexedFile> GetIndexedFilesUnder(string path)
     {
         var result = new List<IndexedFile>();
@@ -1397,6 +1276,148 @@ public static class SearchIndexService
         {
             LoggingService.LogWarning("SearchIndexService.RefreshEntryCount", ex);
         }
+    }
+
+    // ================================================================= SQLite plumbing
+
+    private static SqliteConnection OpenConnection()
+    {
+        Directory.CreateDirectory(DbDirectory);
+        var connection = new SqliteConnection($"Data Source={DbPath}");
+        connection.Open();
+
+        using var pragma = connection.CreateCommand();
+        // busy_timeout still matters for the brief windows a reader and the writer overlap, and for
+        // the checkpoint. It no longer has to absorb writer-vs-writer contention - there is only one
+        // writer now.
+        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=15000;";
+        pragma.ExecuteNonQuery();
+
+        return connection;
+    }
+
+    private static void EnsureSchema()
+    {
+        using var connection = OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS Entries (
+                Path TEXT PRIMARY KEY,
+                Name TEXT NOT NULL,
+                DirectoryPath TEXT NOT NULL,
+                IsDirectory INTEGER NOT NULL,
+                SizeBytes INTEGER NOT NULL,
+                ModifiedTicks INTEGER NOT NULL,
+                RootPath TEXT NOT NULL,
+                ScanGeneration INTEGER NOT NULL,
+                Md5Hash TEXT
+            );
+            CREATE INDEX IF NOT EXISTS IX_Entries_Name ON Entries(Name);
+            CREATE INDEX IF NOT EXISTS IX_Entries_RootPath ON Entries(RootPath);
+            CREATE TABLE IF NOT EXISTS Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
+            """;
+        cmd.ExecuteNonQuery();
+
+        // Migration for databases created before the Md5Hash column existed. MUST run before the
+        // IX_Entries_SizeHash index, which references Md5Hash.
+        try
+        {
+            using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE Entries ADD COLUMN Md5Hash TEXT";
+            alter.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
+
+        using var indexCmd = connection.CreateCommand();
+        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_Entries_SizeHash ON Entries(SizeBytes, Md5Hash);";
+        indexCmd.ExecuteNonQuery();
+
+        EnsureFtsSchema(connection);
+    }
+
+    /// External-content FTS5 table over Entries.Name with the trigram tokenizer, plus the triggers
+    /// that keep it in sync. Triggers are dropped and recreated every launch so body changes take
+    /// effect. Wrapped so a SQLite build without FTS5/trigram can't take down app launch.
+    private static void EnsureFtsSchema(SqliteConnection connection)
+    {
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS EntriesFts USING fts5(
+                    Name,
+                    content='Entries',
+                    content_rowid='rowid',
+                    tokenize='trigram'
+                );
+                DROP TRIGGER IF EXISTS Entries_fts_ai;
+                DROP TRIGGER IF EXISTS Entries_fts_ad;
+                DROP TRIGGER IF EXISTS Entries_fts_au;
+                CREATE TRIGGER Entries_fts_ai AFTER INSERT ON Entries BEGIN
+                    INSERT INTO EntriesFts(rowid, Name) VALUES (new.rowid, new.Name);
+                END;
+                CREATE TRIGGER Entries_fts_ad AFTER DELETE ON Entries BEGIN
+                    INSERT INTO EntriesFts(EntriesFts, rowid, Name) VALUES ('delete', old.rowid, old.Name);
+                END;
+                CREATE TRIGGER Entries_fts_au AFTER UPDATE ON Entries WHEN old.Name IS NOT new.Name BEGIN
+                    INSERT INTO EntriesFts(EntriesFts, rowid, Name) VALUES ('delete', old.rowid, old.Name);
+                    INSERT INTO EntriesFts(rowid, Name) VALUES (new.rowid, new.Name);
+                END;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.EnsureFtsSchema", ex);
+        }
+    }
+
+    private static SqliteCommand CreateUpsertCommand(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            INSERT INTO Entries (Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks, RootPath, ScanGeneration, Md5Hash)
+            VALUES (@path, @name, @dir, @isDir, @size, @modified, @root, @gen, @md5)
+            ON CONFLICT(Path) DO UPDATE SET
+                Name = excluded.Name, DirectoryPath = excluded.DirectoryPath, IsDirectory = excluded.IsDirectory,
+                SizeBytes = excluded.SizeBytes, ModifiedTicks = excluded.ModifiedTicks, RootPath = excluded.RootPath,
+                ScanGeneration = excluded.ScanGeneration,
+                -- A caller-supplied hash always wins. Otherwise keep the stored hash while the size
+                -- is unchanged; a resized file's old hash is stale, so clear it and let the backfill
+                -- recompute if the new size still collides with something.
+                Md5Hash = CASE
+                    WHEN excluded.Md5Hash IS NOT NULL THEN excluded.Md5Hash
+                    WHEN Entries.SizeBytes = excluded.SizeBytes THEN Entries.Md5Hash
+                    ELSE NULL
+                END;
+            """;
+        cmd.Parameters.Add("@path", SqliteType.Text);
+        cmd.Parameters.Add("@name", SqliteType.Text);
+        cmd.Parameters.Add("@dir", SqliteType.Text);
+        cmd.Parameters.Add("@isDir", SqliteType.Integer);
+        cmd.Parameters.Add("@size", SqliteType.Integer);
+        cmd.Parameters.Add("@modified", SqliteType.Integer);
+        cmd.Parameters.Add("@root", SqliteType.Text);
+        cmd.Parameters.Add("@gen", SqliteType.Integer);
+        cmd.Parameters.Add("@md5", SqliteType.Text);
+        return cmd;
+    }
+
+    private static void UpsertEntry(SqliteCommand cmd, string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string? md5Hash, string root, long generation)
+    {
+        cmd.Parameters["@path"].Value = path;
+        cmd.Parameters["@name"].Value = name;
+        cmd.Parameters["@dir"].Value = directory;
+        cmd.Parameters["@isDir"].Value = isDirectory ? 1 : 0;
+        cmd.Parameters["@size"].Value = size;
+        cmd.Parameters["@modified"].Value = modifiedUtc.Ticks;
+        cmd.Parameters["@root"].Value = root;
+        cmd.Parameters["@gen"].Value = generation;
+        cmd.Parameters["@md5"].Value = (object?)md5Hash ?? DBNull.Value;
+        cmd.ExecuteNonQuery();
     }
 
     private static void WriteMeta(SqliteConnection connection, string key, string value)
