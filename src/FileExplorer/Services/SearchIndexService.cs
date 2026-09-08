@@ -50,11 +50,13 @@ public static class SearchIndexService
     private const int DirectoryEnumerationTimeoutSeconds = 60;
     private const int PerEntryStatTimeoutSeconds = 15;
 
-    // Hashing reads the whole file, so it gets a far more generous watchdog than a plain stat - a
-    // multi-GB file on a spinning disk can legitimately take minutes. On timeout the file is still
-    // indexed (name/size/modified), just with a null hash, and duplicate detection hashes it from
-    // disk on demand instead.
-    private const int PerEntryHashTimeoutSeconds = 300;
+    // Per-file cap on the background hash backfill. The hash read is genuinely cancellable (async
+    // FileStream + ComputeHashAsync), so a timeout actually stops the read and its CPU instead of
+    // abandoning a thread that keeps grinding the disk - which is what pinned ~1.2 cores and stalled
+    // the pass. A file that can't be hashed inside this window, or is larger than the byte cap, is
+    // marked unavailable and left for duplicate detection to hash on demand if it ever matters.
+    private const int BackfillHashTimeoutSeconds = 45;
+    private const long BackfillMaxHashBytes = 4L * 1024 * 1024 * 1024;
 
     private static readonly JsonFileStore<List<string>> RootsStore = new("search-index-roots.json", () => new List<string>());
 
@@ -162,6 +164,8 @@ public static class SearchIndexService
                     StatusChanged?.Invoke(null, EventArgs.Empty);
                 }
 
+                CheckpointWal();
+
                 // A pass that hashed nothing means everything reachable is done - wait a good while
                 // before re-deriving the collision set and sweeping again. Otherwise loop straight
                 // back in; there's more to do.
@@ -215,9 +219,18 @@ public static class SearchIndexService
                     continue;
                 }
 
-                var hash = TryRunWithTimeout(() => TryComputeMd5(path), TimeSpan.FromSeconds(PerEntryHashTimeoutSeconds), out var h) && h is { Length: 32 }
-                    ? h
-                    : HashUnavailable;
+                string hash;
+                if (size > BackfillMaxHashBytes)
+                {
+                    hash = HashUnavailable;
+                }
+                else
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(BackfillHashTimeoutSeconds));
+                    var h = await ComputeMd5Async(path, cts.Token).ConfigureAwait(false);
+                    hash = h is { Length: 32 } ? h : HashUnavailable;
+                }
+
                 pending.Add((path, hash));
 
                 if (pending.Count >= HashBackfillWriteBatch)
@@ -496,6 +509,8 @@ public static class SearchIndexService
                 LoggingService.LogWarning("SearchIndexService.RebuildRootsAsync: RefreshEntryCount in finally", ex);
             }
 
+            CheckpointWal();
+
             LoggingService.LogInfo(TraceSource, $"Finally: IsScanning={IsScanning}, EntryCount={EntryCount} - about to fire StatusChanged");
             StatusChanged?.Invoke(null, EventArgs.Empty);
             LoggingService.LogInfo(TraceSource, "Finally: StatusChanged fired, returning");
@@ -771,12 +786,23 @@ public static class SearchIndexService
         }
     }
 
-    private static string? TryComputeMd5(string path)
+    /// Cancellable MD5. The stream is opened for async I/O and ComputeHashAsync honours the token, so
+    /// cancelling (on timeout) actually aborts the read and frees the CPU - unlike a plain
+    /// File.OpenRead + MD5.HashData on an abandoned thread, which keeps grinding the disk forever.
+    private static async Task<string?> ComputeMd5Async(string path, CancellationToken cancellationToken)
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            return Convert.ToHexString(MD5.HashData(stream));
+            await using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var md5 = MD5.Create();
+            var digest = await md5.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
+            return Convert.ToHexString(digest);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -985,10 +1011,38 @@ public static class SearchIndexService
         catch (Exception ex) when (ex is SqliteException or IOException)
         {
             LoggingService.LogWarning("SearchIndexService.FlushPendingChanges", ex);
+            return;
         }
 
-        RefreshEntryCount();
+        // COUNT(*) over the whole table is not cheap at multi-million rows, and a watched drive root
+        // fires these flushes constantly - throttle it rather than running a full scan per event.
+        if ((DateTime.UtcNow - _lastEntryCountRefreshUtc).TotalSeconds >= 30)
+        {
+            _lastEntryCountRefreshUtc = DateTime.UtcNow;
+            RefreshEntryCount();
+        }
+
         StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    private static DateTime _lastEntryCountRefreshUtc = DateTime.MinValue;
+
+    /// Folds the WAL back into the main database file and truncates it. WAL grows without bound while
+    /// any checkpoint is blocked (a long reader, or writer contention), and a large WAL slows every
+    /// query - so this is run at quiet moments: after a full rescan and after each backfill pass.
+    private static void CheckpointWal()
+    {
+        try
+        {
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.CheckpointWal", ex);
+        }
     }
 
     private static void UpsertPathIfExists(SqliteCommand upsertCmd, string path)
