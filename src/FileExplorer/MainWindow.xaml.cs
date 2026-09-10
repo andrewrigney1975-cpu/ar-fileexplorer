@@ -1836,6 +1836,30 @@ public sealed partial class MainWindow : Window
 
     private void CopyButton_Click(object sender, RoutedEventArgs e) => SetClipboard(isCut: false);
 
+    // Ctrl+C / Ctrl+X / Ctrl+V live as window-level accelerators (not Button.KeyboardAccelerators)
+    // for the same reason Delete does - they act on the active pane's tracked selection, which a
+    // marquee-drag multi-select populates without ever giving the ListView keyboard focus.
+    private void CopyAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetClipboard(isCut: false);
+    }
+
+    private void CutAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SetClipboard(isCut: true);
+    }
+
+    private void PasteAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        if (_viewModel.SelectedTab is { } tab)
+        {
+            FileClipboardService.Instance.PasteInto(tab.ActivePane.CurrentPath);
+        }
+    }
+
     private void SetClipboard(bool isCut)
     {
         if (_viewModel.SelectedTab is not { } tab)
@@ -1862,7 +1886,44 @@ public sealed partial class MainWindow : Window
     private void ShiftDeleteAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
         => _ = DeleteActiveSelectionAsync(permanent: true, args);
 
-    private async Task DeleteActiveSelectionAsync(bool permanent, KeyboardAcceleratorInvokedEventArgs args)
+    private void DeleteButton_Click(object sender, RoutedEventArgs e)
+        => _ = DeleteActiveSelectionAsync(permanent: false, args: null);
+
+    private async void DeleteButton_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+
+        var confirm = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Empty all Recycle Bins?",
+            Content = "This permanently deletes the contents of the Recycle Bin on every drive. This can't be undone.",
+            PrimaryButtonText = "Empty",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        var error = await RecycleBinService.EmptyAllAsync();
+        _viewModel.RefreshAllPanes();
+
+        if (error is not null)
+        {
+            await new ContentDialog
+            {
+                XamlRoot = Content.XamlRoot,
+                Title = "Couldn't empty the Recycle Bin",
+                Content = new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "Close",
+            }.ShowAsync();
+        }
+    }
+
+    private async Task DeleteActiveSelectionAsync(bool permanent, KeyboardAcceleratorInvokedEventArgs? args)
     {
         if (_viewModel.SelectedTab is not { } tab)
         {
@@ -1879,7 +1940,11 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        args.Handled = true;
+        if (args is not null)
+        {
+            args.Handled = true;
+        }
+
         await DeleteService.DeleteItemsAsync(items, permanent, Content.XamlRoot, () => pane.Refresh());
     }
 

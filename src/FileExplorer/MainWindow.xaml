@@ -49,6 +49,9 @@
 
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Modifiers="Control" Key="K" Invoked="CommandPaletteAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="C" Invoked="CopyAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="X" Invoked="CutAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="V" Invoked="PasteAccelerator_Invoked" />
             <!-- Driven by the active pane's tracked selection (ActivePane.SelectedItems), not
                  literal keyboard focus - a routed-KeyDown handler on the ListView never fires after
                  a marquee-drag multi-select, since dragging over empty space never focuses it. -->
@@ -146,28 +149,25 @@
                 </Button>
                 <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Name="CutButton" Style="{StaticResource ActivityBarButtonStyle}"
-                        AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut"
+                        AutomationProperties.Name="Cut" ToolTipService.ToolTip="Cut (Ctrl+X)"
                         Click="CutButton_Click">
                     <FontIcon Glyph="&#xE8C6;" FontSize="19" />
-                    <Button.KeyboardAccelerators>
-                        <KeyboardAccelerator Modifiers="Control" Key="X" />
-                    </Button.KeyboardAccelerators>
                 </Button>
                 <Button x:Name="CopyButton" Style="{StaticResource ActivityBarButtonStyle}"
-                        AutomationProperties.Name="Copy" ToolTipService.ToolTip="Copy"
+                        AutomationProperties.Name="Copy" ToolTipService.ToolTip="Copy (Ctrl+C)"
                         Click="CopyButton_Click">
                     <FontIcon Glyph="&#xE8C8;" FontSize="19" />
-                    <Button.KeyboardAccelerators>
-                        <KeyboardAccelerator Modifiers="Control" Key="C" />
-                    </Button.KeyboardAccelerators>
                 </Button>
                 <Button x:Name="PasteButton" Style="{StaticResource ActivityBarButtonStyle}"
-                        AutomationProperties.Name="Paste" ToolTipService.ToolTip="Paste"
+                        AutomationProperties.Name="Paste" ToolTipService.ToolTip="Paste (Ctrl+V)"
                         Click="PasteButton_Click">
                     <FontIcon Glyph="&#xE77F;" FontSize="19" />
-                    <Button.KeyboardAccelerators>
-                        <KeyboardAccelerator Modifiers="Control" Key="V" />
-                    </Button.KeyboardAccelerators>
+                </Button>
+                <Button x:Name="DeleteButton" Style="{StaticResource ActivityBarButtonStyle}"
+                        AutomationProperties.Name="Delete"
+                        ToolTipService.ToolTip="Delete (right-click to empty all Recycle Bins)"
+                        Click="DeleteButton_Click" RightTapped="DeleteButton_RightTapped">
+                    <FontIcon Glyph="&#xE74D;" FontSize="19" />
                 </Button>
                 <Rectangle Height="1" Margin="8,3" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Name="NewFolderButton" Style="{StaticResource ActivityBarButtonStyle}"
