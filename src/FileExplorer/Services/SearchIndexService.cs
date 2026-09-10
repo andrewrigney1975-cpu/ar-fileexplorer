@@ -116,6 +116,59 @@ public static class SearchIndexService
 
     private static string DbDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FileExplorerApp");
     private static string DbPath => Path.Combine(DbDirectory, "search-index.db");
+    private static string HashPausePath => Path.Combine(DbDirectory, "hash-pause-until.txt");
+
+    /// When this returns a value, the MD5 hash backfill idles until then (the walk, watcher and
+    /// search are unaffected). File-backed so a pause survives an app restart - the backfill thread
+    /// otherwise starts unconditionally with the process and has no other off switch.
+    public static DateTime? BackfillPausedUntilUtc
+    {
+        get
+        {
+            try
+            {
+                if (File.Exists(HashPausePath)
+                    && DateTime.TryParse(File.ReadAllText(HashPausePath).Trim(), null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var until)
+                    && until.ToUniversalTime() > DateTime.UtcNow)
+                {
+                    return until.ToUniversalTime();
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogWarning("SearchIndexService.BackfillPausedUntilUtc", ex);
+            }
+
+            return null;
+        }
+    }
+
+    /// Pause the hash backfill for the given duration; TimeSpan.Zero (or less) resumes immediately.
+    public static void PauseBackfill(TimeSpan duration)
+    {
+        try
+        {
+            Directory.CreateDirectory(DbDirectory);
+            if (duration <= TimeSpan.Zero)
+            {
+                if (File.Exists(HashPausePath))
+                {
+                    File.Delete(HashPausePath);
+                }
+            }
+            else
+            {
+                File.WriteAllText(HashPausePath, DateTime.UtcNow.Add(duration).ToString("o"));
+            }
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.PauseBackfill", ex);
+        }
+
+        StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
 
     /// Safe to call more than once (e.g. re-enabling the feature mid-session in Preferences after
     /// it was off at launch) - only the first call does anything.
@@ -707,6 +760,7 @@ public static class SearchIndexService
         long cursorRowid = 0;
         HashSet<long>? collidingSizes = null;
         var writtenThisSweep = 0L;
+        var loggedPause = false;
 
         while (true)
         {
@@ -723,6 +777,21 @@ public static class SearchIndexService
                     Thread.Sleep(TimeSpan.FromSeconds(10));
                     continue;
                 }
+
+                if (BackfillPausedUntilUtc is { } pausedUntil)
+                {
+                    if (!loggedPause)
+                    {
+                        LoggingService.LogInfo("SearchIndexService.BackfillLoop", $"Hash backfill paused until {pausedUntil:o} (UTC)");
+                        loggedPause = true;
+                    }
+
+                    var wait = pausedUntil - DateTime.UtcNow;
+                    Thread.Sleep(wait < TimeSpan.FromSeconds(30) ? wait : TimeSpan.FromSeconds(30));
+                    continue;
+                }
+
+                loggedPause = false;
 
                 collidingSizes ??= LoadCollidingSizes();
                 if (collidingSizes.Count == 0)
@@ -774,7 +843,7 @@ public static class SearchIndexService
                     new ParallelOptions { MaxDegreeOfParallelism = HashBackfillParallelism },
                     path =>
                     {
-                        if (IsScanning)
+                        if (IsScanning || BackfillPausedUntilUtc is not null)
                         {
                             return;
                         }

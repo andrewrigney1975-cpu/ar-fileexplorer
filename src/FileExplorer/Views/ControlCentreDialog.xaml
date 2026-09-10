@@ -144,6 +144,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Add folder..." Click="AddSearchIndexRoot_Click" />
                                 <Button x:Name="RebuildSearchIndexButton" Content="Rebuild now" Click="RebuildSearchIndex_Click" />
+                                <Button x:Name="PauseHashingButton" Content="Pause hashing (6h)" Click="PauseHashing_Click" />
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Spacing="8">

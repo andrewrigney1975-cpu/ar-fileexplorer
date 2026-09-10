@@ -145,6 +145,16 @@ public sealed partial class ControlCentreDialog : UserControl
                     ? "Add a folder or drive below to start indexing."
                     : "Not scanned yet.";
 
+        if (SearchIndexService.BackfillPausedUntilUtc is { } pausedUntil)
+        {
+            PauseHashingButton.Content = "Resume hashing";
+            SearchIndexStatusText.Text += $" Hashing paused until {FileExplorer.Models.FileSystemItem.FormatDate(pausedUntil.ToLocalTime())}.";
+        }
+        else
+        {
+            PauseHashingButton.Content = "Pause hashing (6h)";
+        }
+
         RefreshBrowserIntegrationStatus();
     }
 
@@ -210,6 +220,13 @@ public sealed partial class ControlCentreDialog : UserControl
     private void RebuildSearchIndex_Click(object sender, RoutedEventArgs e)
     {
         _ = SearchIndexService.RebuildAsync(CancellationToken.None);
+        RefreshSearchIndex();
+    }
+
+    private void PauseHashing_Click(object sender, RoutedEventArgs e)
+    {
+        SearchIndexService.PauseBackfill(
+            SearchIndexService.BackfillPausedUntilUtc is null ? TimeSpan.FromHours(6) : TimeSpan.Zero);
         RefreshSearchIndex();
     }
 

@@ -27,7 +27,7 @@ public sealed class ScriptFileItem
 /// UI thread and wait on it without deadlocking.
 public static class ScriptEngineService
 {
-    private const int TimeoutSeconds = 30;
+    private const int TimeoutSeconds = 180;
     private const int MaxStatements = 2_000_000;
 
     public static async Task<ScriptRunResult> RunAsync(
