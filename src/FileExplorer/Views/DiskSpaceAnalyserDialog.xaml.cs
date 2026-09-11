@@ -31,9 +31,33 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
     private string? _currentPath;
     private int _hoverToken;
 
+    private CancellationTokenSource? _bigFilesCts;
+    private List<BigFileRow> _bigFileRows = new();
+
     private sealed record DriveTile(string Label, string RootPath, double UsedPercent, string UsageText);
 
     private sealed record EntryRow(SpaceEntry Entry, string Name, string Glyph, string SizeDisplay);
+
+    /// Mutable (not a record) - IsSelected is flipped in place by the per-row checkbox handler and
+    /// read back when "Delete selected" runs; the ListView is only ever re-bound wholesale (Select
+    /// all, after a delete), so this doesn't need INotifyPropertyChanged.
+    private sealed class BigFileRow
+    {
+        public required DiskSpaceAnalyserService.BigFileEntry Entry { get; init; }
+        public required string Name { get; init; }
+        public required string PathDisplay { get; init; }
+        public required string SizeDisplay { get; init; }
+        public bool IsSelected { get; set; }
+    }
+
+    private enum SizeUnit { KB, MB, GB }
+
+    private static long UnitBytes(SizeUnit unit) => unit switch
+    {
+        SizeUnit.KB => 1024L,
+        SizeUnit.MB => 1024L * 1024,
+        _ => 1024L * 1024 * 1024,
+    };
 
     public Action? RequestClose { get; set; }
 
@@ -95,7 +119,9 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
         _currentPath = null;
         BreadcrumbPanel.Visibility = Visibility.Collapsed;
         ExportButton.Visibility = Visibility.Collapsed;
+        BigFilesButton.Visibility = Visibility.Collapsed;
         BreakdownPanel.Visibility = Visibility.Collapsed;
+        BigFilesPanel.Visibility = Visibility.Collapsed;
         DriveGridPanel.Visibility = Visibility.Visible;
         PopulateDriveGrid();
     }
@@ -103,15 +129,18 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
     private async Task NavigateToAsync(string path)
     {
         _cts?.Cancel();
+        _bigFilesCts?.Cancel();
         var cts = new CancellationTokenSource();
         _cts = cts;
         var token = cts.Token;
 
         _currentPath = path;
         DriveGridPanel.Visibility = Visibility.Collapsed;
+        BigFilesPanel.Visibility = Visibility.Collapsed;
         BreakdownPanel.Visibility = Visibility.Visible;
         BreadcrumbPanel.Visibility = Visibility.Visible;
         ExportButton.Visibility = Visibility.Visible;
+        BigFilesButton.Visibility = Visibility.Visible;
         LoadingText.Visibility = Visibility.Visible;
         BuildBreadcrumb(path);
 
@@ -430,5 +459,234 @@ public sealed partial class DiskSpaceAnalyserDialog : UserControl
             };
             flyout.ShowAt((FrameworkElement)sender);
         }
+    }
+
+    // ================================================================= big files
+
+    private void BigFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        BreakdownPanel.Visibility = Visibility.Collapsed;
+        BigFilesPanel.Visibility = Visibility.Visible;
+        _ = RunBigFilesScanAsync();
+    }
+
+    private void BigFilesBack_Click(object sender, RoutedEventArgs e)
+    {
+        _bigFilesCts?.Cancel();
+        BigFilesPanel.Visibility = Visibility.Collapsed;
+        BreakdownPanel.Visibility = Visibility.Visible;
+    }
+
+    private void BigFilesScan_Click(object sender, RoutedEventArgs e) => _ = RunBigFilesScanAsync();
+
+    private async Task RunBigFilesScanAsync()
+    {
+        if (_currentPath is not { } path)
+        {
+            return;
+        }
+
+        _bigFilesCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _bigFilesCts = cts;
+        var token = cts.Token;
+
+        var unit = (SizeUnit)BigFilesUnitCombo.SelectedIndex;
+        var thresholdBytes = (long)(BigFilesThresholdBox.Value * UnitBytes(unit));
+
+        BigFilesDeleteButton.IsEnabled = false;
+        BigFilesSelectAllCheckBox.IsChecked = false;
+        BigFilesEmptyText.Visibility = Visibility.Collapsed;
+        BigFilesList.ItemsSource = null;
+        BigFilesProgressRing.IsActive = true;
+        BigFilesProgressRing.Visibility = Visibility.Visible;
+        BigFilesStatusText.Text = "Scanning...";
+
+        List<DiskSpaceAnalyserService.BigFileEntry> found;
+        try
+        {
+            found = await DiskSpaceAnalyserService.FindBigFilesAsync(path, Math.Max(0, thresholdBytes), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        BigFilesProgressRing.IsActive = false;
+        BigFilesProgressRing.Visibility = Visibility.Collapsed;
+
+        _bigFileRows = found.Select(f => new BigFileRow
+        {
+            Entry = f,
+            Name = f.Name,
+            PathDisplay = Path.GetDirectoryName(f.FullPath) ?? f.FullPath,
+            SizeDisplay = FormatInUnit(f.SizeBytes, unit),
+        }).ToList();
+
+        RefreshBigFilesList();
+
+        var totalBytes = found.Sum(f => f.SizeBytes);
+        BigFilesStatusText.Text = found.Count == 0
+            ? string.Empty
+            : $"{found.Count} file{(found.Count == 1 ? "" : "s")} found, {FileSystemItem.FormatSize(totalBytes)} total.";
+        BigFilesEmptyText.Visibility = found.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string FormatInUnit(long bytes, SizeUnit unit) => $"{bytes / (double)UnitBytes(unit):N2} {unit}";
+
+    /// Reassigns ItemsSource to a fresh wrapper list so every checkbox's OneWay IsChecked binding
+    /// re-reads IsSelected - the same list reference set again would no-op (WinUI compares reference
+    /// identity), so "Select all" and post-delete refreshes both need this rather than just mutating
+    /// the rows in place.
+    private void RefreshBigFilesList() => BigFilesList.ItemsSource = new List<BigFileRow>(_bigFileRows);
+
+    private void UpdateBigFilesSelectionState()
+    {
+        var selectedCount = _bigFileRows.Count(r => r.IsSelected);
+        BigFilesDeleteButton.IsEnabled = selectedCount > 0;
+        BigFilesDeleteButton.Content = selectedCount > 0 ? $"Delete selected ({selectedCount})" : "Delete selected";
+
+        BigFilesSelectAllCheckBox.IsChecked = _bigFileRows.Count == 0
+            ? false
+            : selectedCount == _bigFileRows.Count ? true : selectedCount == 0 ? false : null;
+    }
+
+    private void BigFileCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox { Tag: BigFileRow row } checkBox)
+        {
+            row.IsSelected = checkBox.IsChecked == true;
+            UpdateBigFilesSelectionState();
+        }
+    }
+
+    private void BigFilesSelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        var selectAll = BigFilesSelectAllCheckBox.IsChecked == true;
+        foreach (var row in _bigFileRows)
+        {
+            row.IsSelected = selectAll;
+        }
+
+        RefreshBigFilesList();
+        UpdateBigFilesSelectionState();
+    }
+
+    private async void BigFilesDelete_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = _bigFileRows.Where(r => r.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        var totalBytes = selected.Sum(r => r.Entry.SizeBytes);
+        var message = $"{selected.Count} file{(selected.Count == 1 ? "" : "s")} "
+            + $"({FileSystemItem.FormatSize(totalBytes)}) will be moved to the Recycle Bin.";
+
+        if (!await ShowConfirmFlyoutAsync((FrameworkElement)sender, "Delete selected files?", message, "Delete"))
+        {
+            return;
+        }
+
+        var failures = new List<(string Path, string Error)>();
+        await Task.Run(() =>
+        {
+            foreach (var row in selected)
+            {
+                try
+                {
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                        row.Entry.FullPath,
+                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failures.Add((row.Entry.FullPath, ex.Message));
+                }
+            }
+        });
+
+        var failedPaths = failures.Select(f => f.Path).ToHashSet();
+        _bigFileRows = _bigFileRows.Where(r => failedPaths.Contains(r.Entry.FullPath) || !selected.Contains(r)).ToList();
+        RefreshBigFilesList();
+        UpdateBigFilesSelectionState();
+
+        var remainingTotal = _bigFileRows.Sum(r => r.Entry.SizeBytes);
+        BigFilesStatusText.Text = _bigFileRows.Count == 0
+            ? string.Empty
+            : $"{_bigFileRows.Count} file{(_bigFileRows.Count == 1 ? "" : "s")} found, {FileSystemItem.FormatSize(remainingTotal)} total.";
+        BigFilesEmptyText.Visibility = _bigFileRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (failures.Count > 0)
+        {
+            var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+            flyout.Content = new StackPanel
+            {
+                Spacing = 4,
+                Width = 320,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = failures.Count == 1 ? "Couldn't delete 1 file" : $"Couldn't delete {failures.Count} files",
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    },
+                    new TextBlock
+                    {
+                        Text = string.Join("\n", failures.Select(f => $"{Path.GetFileName(f.Path)}: {f.Error}")),
+                        TextWrapping = TextWrapping.Wrap,
+                        FontSize = 12,
+                    },
+                },
+            };
+            flyout.ShowAt((FrameworkElement)sender);
+        }
+    }
+
+    /// A Yes/Cancel confirmation via Flyout rather than ContentDialog - this whole dialog only ever
+    /// runs hosted inside MainWindow's own already-open ContentDialog (see ShowDiskSpaceAnalyser),
+    /// and a nested ContentDialog.ShowAsync() throws ("Only a single ContentDialog can be open at any
+    /// time"), same reasoning as ExportButton_Click's error flyout above.
+    private static Task<bool> ShowConfirmFlyoutAsync(FrameworkElement anchor, string title, string message, string confirmText)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+
+        var confirmButton = new Button { Content = confirmText };
+        var cancelButton = new Button { Content = "Cancel" };
+
+        confirmButton.Click += (_, _) => { tcs.TrySetResult(true); flyout.Hide(); };
+        cancelButton.Click += (_, _) => { tcs.TrySetResult(false); flyout.Hide(); };
+        // Dismissed by clicking away / Escape without picking a button - treat as cancel. TrySetResult
+        // (not SetResult) because this fires after an explicit button click too; the first call wins.
+        flyout.Closed += (_, _) => tcs.TrySetResult(false);
+
+        flyout.Content = new StackPanel
+        {
+            Spacing = 10,
+            Width = 320,
+            Children =
+            {
+                new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 12 },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Children = { cancelButton, confirmButton },
+                },
+            },
+        };
+
+        flyout.ShowAt(anchor);
+        return tcs.Task;
     }
 }
