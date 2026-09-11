@@ -116,6 +116,63 @@ public static class DiskSpaceAnalyserService
         return (size, items);
     }
 
+    /// A single file at or over the "big files" threshold - see FindBigFilesAsync. Directories are
+    /// never included: "big" is asked of individual files, not folders (which DiskSpaceAnalyserService
+    /// already breaks down separately via AnalyseFolderAsync).
+    public sealed record BigFileEntry(string Name, string FullPath, long SizeBytes);
+
+    /// Every file at or under path whose size is >= thresholdBytes, sorted largest first.
+    /// Inaccessible files/folders are skipped rather than failing the whole scan, same as
+    /// AnalyseFolderAsync/SumDirectory above.
+    public static async Task<List<BigFileEntry>> FindBigFilesAsync(string path, long thresholdBytes, CancellationToken token)
+    {
+        return await Task.Run(() =>
+        {
+            var results = new List<BigFileEntry>();
+            FindBigFiles(path, thresholdBytes, results, token);
+            results.Sort((a, b) => b.SizeBytes.CompareTo(a.SizeBytes));
+            return results;
+        }, token);
+    }
+
+    private static void FindBigFiles(string path, long thresholdBytes, List<BigFileEntry> results, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+
+        IEnumerable<string> children;
+        try
+        {
+            children = Directory.EnumerateFileSystemEntries(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        foreach (var entry in children)
+        {
+            token.ThrowIfCancellationRequested();
+
+            if (Directory.Exists(entry))
+            {
+                FindBigFiles(entry, thresholdBytes, results, token);
+                continue;
+            }
+
+            try
+            {
+                var length = new FileInfo(entry).Length;
+                if (length >= thresholdBytes)
+                {
+                    results.Add(new BigFileEntry(Path.GetFileName(entry), entry, length));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private sealed record SpaceExportEntry(string Name, string FullPath, bool IsDirectory, long SizeBytes, string Size, int ItemCount);
 
     private sealed record SpaceExport(string FolderPath, string ExportedAt, int ItemCount, IReadOnlyList<SpaceExportEntry> Items);

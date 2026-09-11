@@ -27,6 +27,7 @@
                         Margin="24,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <Button x:Name="BigFilesButton" Content="Find big files..." Click="BigFilesButton_Click" Visibility="Collapsed" />
                 <Button x:Name="ExportButton" Content="Export listing (JSON)" Click="ExportButton_Click" Visibility="Collapsed" />
                 <Button Content="Close" Click="Close_Click" />
             </StackPanel>
@@ -115,6 +116,77 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+            </Grid>
+
+            <!-- Big files: recursive threshold search under the current location, with checkbox
+                 multi-select and a delete-selected action. -->
+            <Grid x:Name="BigFilesPanel" Visibility="Collapsed" RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="‹ Back to breakdown" Click="BigFilesBack_Click" />
+                    <TextBlock Text="Find files at least" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    <NumberBox x:Name="BigFilesThresholdBox" Value="100" Minimum="0" SpinButtonPlacementMode="Compact"
+                               SmallChange="10" LargeChange="100" Width="110"
+                               AutomationProperties.Name="Minimum file size" />
+                    <ComboBox x:Name="BigFilesUnitCombo" SelectedIndex="1" Width="90"
+                              AutomationProperties.Name="Size unit">
+                        <ComboBoxItem Content="KB" />
+                        <ComboBoxItem Content="MB" />
+                        <ComboBoxItem Content="GB" />
+                    </ComboBox>
+                    <Button Content="Scan" Click="BigFilesScan_Click" Margin="8,0,0,0" />
+                    <ProgressRing x:Name="BigFilesProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" Margin="8,0,0,0" />
+                    <TextBlock x:Name="BigFilesStatusText" Opacity="0.7" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <CheckBox x:Name="BigFilesSelectAllCheckBox" Content="Select all" IsThreeState="True" Click="BigFilesSelectAll_Click" />
+                    <Button x:Name="BigFilesDeleteButton" Content="Delete selected" Click="BigFilesDelete_Click" IsEnabled="False" />
+                </StackPanel>
+
+                <Grid Grid.Row="2" ColumnSpacing="8" Padding="30,0,16,4" Opacity="0.6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="180" />
+                        <ColumnDefinition Width="*" MinWidth="220" />
+                        <ColumnDefinition Width="110" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Name" FontSize="12" />
+                    <TextBlock Grid.Column="1" Text="Path" FontSize="12" />
+                    <TextBlock Grid.Column="2" Text="Size" FontSize="12" HorizontalAlignment="Right" />
+                </Grid>
+
+                <ListView x:Name="BigFilesList" Grid.Row="3" SelectionMode="None"
+                          AutomationProperties.Name="Big files found">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="8" Padding="0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" MinWidth="180" />
+                                    <ColumnDefinition Width="*" MinWidth="220" />
+                                    <ColumnDefinition Width="110" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                          Tag="{Binding}" Click="BigFileCheckBox_Click" />
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding PathDisplay}" TextTrimming="CharacterEllipsis"
+                                           Opacity="0.7" FontSize="12" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="3" Text="{Binding SizeDisplay}" FontSize="12" Opacity="0.7"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock x:Name="BigFilesEmptyText" Grid.Row="3" Text="No files found at or over that size."
+                           Opacity="0.6" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,8,0,0"
+                           Visibility="Collapsed" />
             </Grid>
         </Grid>
     </Grid>
