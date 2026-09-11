@@ -106,6 +106,48 @@ public sealed class MediaWebServerTests : IDisposable
         Assert.Equal(HttpStatusCode.MethodNotAllowed, res.StatusCode);
     }
 
+    [Fact]
+    public async Task Directory_page_includes_the_masonry_grid_and_filter_bar()
+    {
+        var res = await _http.GetAsync($"{Base}/dir?p=&k={_server.Token}");
+        var body = await res.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        // Filter bar markup.
+        Assert.Contains("id=\"f-name\"", body);
+        Assert.Contains("id=\"f-size-min\"", body);
+        Assert.Contains("id=\"f-size-max\"", body);
+        Assert.Contains("id=\"f-kinds\"", body);
+        Assert.Contains("id=\"f-count\"", body);
+    }
+
+    [Fact]
+    public async Task App_js_filters_by_name_size_and_kind_client_side()
+    {
+        var js = await _http.GetAsync($"{Base}/assets/app.js");
+        var body = await js.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, js.StatusCode);
+
+        // The filtering logic itself (name substring, size range in MB, kind checkboxes) and the
+        // masonry-aware lightbox wiring (openLightbox now takes the currently-filtered list) all
+        // live in this asset - a regression here would silently ship a folder page whose filters
+        // do nothing, so pin the load-bearing pieces by name.
+        Assert.Contains("function initFilters(", body);
+        Assert.Contains("activeKinds.has(e.kind)", body);
+        Assert.Contains("nameQ && !e.name.toLowerCase().includes(nameQ)", body);
+        Assert.Contains("window.openLightbox = (list, i)", body);
+    }
+
+    [Fact]
+    public async Task App_css_uses_column_based_masonry_for_the_grid()
+    {
+        var css = await _http.GetAsync($"{Base}/assets/app.css");
+        var body = await css.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, css.StatusCode);
+        Assert.Contains("column-width", body);
+        Assert.Contains("break-inside: avoid", body);
+    }
+
     public void Dispose()
     {
         _server.Stop();
