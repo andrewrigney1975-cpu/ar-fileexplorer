@@ -40,6 +40,14 @@ public static class ThumbnailCacheService
     private const long MemoryCacheBudgetBytes = 250 * 1024 * 1024;
     private const int MaxFolderIndexEntries = 100;
 
+    // Caps how many thumbnails generate at once (a subfolder's recursive image search plus a
+    // decode/encode). Nothing throttled this before - a big folder's initial virtualization burst
+    // (or scrolling through it in Icons/Gallery view) could fire dozens of these concurrently,
+    // saturating disk I/O/CPU and the UI thread's image-decode continuations far beyond what one
+    // screenful of new items needs. See the ">50 items stalls scrolling" report this was added for.
+    private const int MaxConcurrentGenerations = 4;
+    private static readonly SemaphoreSlim GenerationLimiter = new(MaxConcurrentGenerations);
+
     private static int MaxMemoryCacheEntries =>
         (int)Math.Clamp(MemoryCacheBudgetBytes / Math.Max(1, (long)MaxDimension * MaxDimension * 4), 100, 5000);
 
@@ -126,27 +134,48 @@ public static class ThumbnailCacheService
 
         if (png is null)
         {
-            // A folder's own "thumbnail" is just a downscaled copy of the first image found inside
-            // it (recursing into subfolders, breadth-first, if it has none directly) - the cache
-            // entry is still keyed by the folder's own path/modified time, not the found image's.
-            var sourceImagePath = isDirectory ? await Task.Run(() => FindFirstImage(fullPath)) : fullPath;
-            if (sourceImagePath is null)
+            await GenerationLimiter.WaitAsync().ConfigureAwait(false);
+            try
             {
-                return null;
-            }
+                // Re-check now that we hold a generation slot - another caller may have generated
+                // and cached this same entry while we were waiting.
+                lock (Sync)
+                {
+                    png = index.TryGetValue(name, out var entryAfterWait) && entryAfterWait.ModifiedTicks == modified.UtcTicks
+                        ? entryAfterWait.Png
+                        : null;
+                }
 
-            png = await EncodeThumbnailAsync(sourceImagePath);
-            if (png is null)
+                if (png is null)
+                {
+                    // A folder's own "thumbnail" is just a downscaled copy of the first image found
+                    // inside it (recursing into subfolders, breadth-first, if it has none directly) -
+                    // the cache entry is still keyed by the folder's own path/modified time, not the
+                    // found image's.
+                    var sourceImagePath = isDirectory ? await Task.Run(() => FindFirstImage(fullPath)) : fullPath;
+                    if (sourceImagePath is null)
+                    {
+                        return null;
+                    }
+
+                    png = await EncodeThumbnailAsync(sourceImagePath);
+                    if (png is null)
+                    {
+                        return null;
+                    }
+
+                    lock (Sync)
+                    {
+                        index[name] = new DiskEntry(modified.UtcTicks, png);
+                    }
+
+                    ScheduleFlush(folder, index);
+                }
+            }
+            finally
             {
-                return null;
+                GenerationLimiter.Release();
             }
-
-            lock (Sync)
-            {
-                index[name] = new DiskEntry(modified.UtcTicks, png);
-            }
-
-            ScheduleFlush(folder, index);
         }
 
         var bitmap = new BitmapImage();
@@ -184,25 +213,43 @@ public static class ThumbnailCacheService
             }
         }
 
-        var sourceImagePath = isDirectory ? await Task.Run(() => FindFirstImage(fullPath)) : fullPath;
-        if (sourceImagePath is null)
+        await GenerationLimiter.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return null;
-        }
+            // Re-check now that we hold a generation slot - another caller may have generated and
+            // cached this same entry while we were waiting.
+            lock (Sync)
+            {
+                if (index.TryGetValue(name, out var entryAfterWait) && entryAfterWait.ModifiedTicks == modified.UtcTicks)
+                {
+                    return entryAfterWait.Png;
+                }
+            }
 
-        var png = await EncodeThumbnailAsync(sourceImagePath);
-        if (png is null)
+            var sourceImagePath = isDirectory ? await Task.Run(() => FindFirstImage(fullPath)) : fullPath;
+            if (sourceImagePath is null)
+            {
+                return null;
+            }
+
+            var png = await EncodeThumbnailAsync(sourceImagePath);
+            if (png is null)
+            {
+                return null;
+            }
+
+            lock (Sync)
+            {
+                index[name] = new DiskEntry(modified.UtcTicks, png);
+            }
+
+            ScheduleFlush(folder, index);
+            return png;
+        }
+        finally
         {
-            return null;
+            GenerationLimiter.Release();
         }
-
-        lock (Sync)
-        {
-            index[name] = new DiskEntry(modified.UtcTicks, png);
-        }
-
-        ScheduleFlush(folder, index);
-        return png;
     }
 
     /// Marks memoryKey as most-recently-used and, on first insertion, evicts the least-recently-used
