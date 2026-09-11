@@ -261,9 +261,19 @@ public sealed partial class PaneView : UserControl
     // being freshly added to the tree, so its Loaded event (ThumbnailHost_Loaded, above) only ever
     // fires once per container - never again for whichever items later get virtualized into it. This
     // is the reliable per-recycle hook that actually covers every item, not just the first screenful.
+    //
+    // Only IconsTemplate/GalleryTemplate actually bind Thumbnail (see PaneView.xaml) - List/Details
+    // show nothing but a FontIcon glyph. Fetching thumbnails in those two modes was pure waste: for
+    // every subfolder it meant a bounded but still real recursive disk walk (FindFirstImage, up to
+    // MaxFolderScanDepth/MaxFolderScanEntries) plus a decode/encode, fired for every item the
+    // virtualizer realizes - on a >50-item folder in the default Details view, that was enough
+    // concurrent I/O/CPU work to stall scrolling for many seconds. Skip it entirely outside the two
+    // view modes that can ever show the result.
+    private bool ThumbnailsVisibleInCurrentView => ViewModel?.ViewMode is ViewMode.Icons or ViewMode.Gallery;
+
     private void ItemsList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
-        if (args.Item is FileSystemItem item)
+        if (ThumbnailsVisibleInCurrentView && args.Item is FileSystemItem item)
         {
             _ = item.EnsureThumbnailAsync();
         }
