@@ -147,6 +147,44 @@
                                 <Button x:Name="PauseHashingButton" Content="Pause hashing (6h)" Click="PauseHashing_Click" />
                             </StackPanel>
 
+                            <Border x:Name="HashBucketCard" Padding="12" CornerRadius="6"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Hash backfill progress, by file size (refreshes every 2 min)" FontSize="12" Opacity="0.7" />
+                                    <Grid ColumnSpacing="8" Padding="0,4,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="100" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Size" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock Grid.Column="1" Text="Hashed" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="2" Text="Left" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="3" Text="Left (bytes)" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                    <ItemsControl x:Name="HashBucketList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnSpacing="8" Padding="0,3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="80" />
+                                                        <ColumnDefinition Width="80" />
+                                                        <ColumnDefinition Width="100" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="12" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding HashedDisplay}" FontSize="12" HorizontalAlignment="Right" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding UnhashedDisplay}" FontSize="12" HorizontalAlignment="Right" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding UnhashedBytesDisplay}" FontSize="12" HorizontalAlignment="Right" Opacity="0.7" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <ProgressRing x:Name="SearchIndexProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
                                 <TextBlock x:Name="SearchIndexStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />

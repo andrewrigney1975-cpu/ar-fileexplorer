@@ -1283,6 +1283,73 @@ public static class SearchIndexService
         return counts;
     }
 
+    /// One size bucket's hash-backfill progress, for Control Centre's Search Index table.
+    public sealed record HashBucketRow(string Label, long Hashed, long Unhashed, long UnhashedBytes);
+
+    // Bucket upper bounds in bytes (exclusive) - matches the backfill's own smallest-first sweep
+    // order, so the table reads as "what's done" at the top and "what's left" at the bottom.
+    private static readonly (long UpperBound, string Label)[] HashBuckets =
+    [
+        (1024L * 1024, "< 1 MB"),
+        (10L * 1024 * 1024, "1-10 MB"),
+        (100L * 1024 * 1024, "10-100 MB"),
+        (1024L * 1024 * 1024, "100 MB-1 GB"),
+        (long.MaxValue, "> 1 GB"),
+    ];
+
+    /// Hashed/unhashed file counts (and remaining bytes), bucketed by size. Zero-byte files and
+    /// directories are excluded - the backfill never hashes them. Opens its own read connection so
+    /// it can run alongside the writer and backfill threads.
+    ///
+    /// This is a full GROUP BY scan over every indexed row (millions on a large index) - callers
+    /// must run it off the UI thread and poll it infrequently (Control Centre does so via
+    /// Task.Run on a 120s timer, not the 1s status poll the rest of the panel uses).
+    public static List<HashBucketRow> GetHashBucketSummary()
+    {
+        var rows = new List<HashBucketRow>();
+
+        try
+        {
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT
+                    CASE
+                        WHEN SizeBytes < 1048576 THEN 0
+                        WHEN SizeBytes < 10485760 THEN 1
+                        WHEN SizeBytes < 104857600 THEN 2
+                        WHEN SizeBytes < 1073741824 THEN 3
+                        ELSE 4
+                    END AS Bucket,
+                    SUM(CASE WHEN Md5Hash IS NOT NULL THEN 1 ELSE 0 END) AS Hashed,
+                    SUM(CASE WHEN Md5Hash IS NULL THEN 1 ELSE 0 END) AS Unhashed,
+                    SUM(CASE WHEN Md5Hash IS NULL THEN SizeBytes ELSE 0 END) AS UnhashedBytes
+                FROM Entries
+                WHERE IsDirectory = 0 AND SizeBytes > 0
+                GROUP BY Bucket
+                """;
+
+            using var reader = cmd.ExecuteReader();
+            var byBucket = new Dictionary<int, (long Hashed, long Unhashed, long UnhashedBytes)>();
+            while (reader.Read())
+            {
+                byBucket[reader.GetInt32(0)] = (reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3));
+            }
+
+            for (var i = 0; i < HashBuckets.Length; i++)
+            {
+                var (hashed, unhashed, unhashedBytes) = byBucket.TryGetValue(i, out var v) ? v : (0, 0, 0);
+                rows.Add(new HashBucketRow(HashBuckets[i].Label, hashed, unhashed, unhashedBytes));
+            }
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.GetHashBucketSummary", ex);
+        }
+
+        return rows;
+    }
+
     /// True when <paramref name="path"/> is one of the configured index roots or sits underneath one.
     public static bool IsPathIndexed(string path)
     {

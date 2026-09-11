@@ -59,6 +59,7 @@ public sealed partial class ControlCentreDialog : UserControl
             SettingsService.Changed -= OnSettingsChanged;
             SearchIndexService.StatusChanged -= OnSearchIndexStatusChanged;
             StopSearchIndexPolling();
+            StopHashBucketPolling();
         };
     }
 
@@ -81,6 +82,63 @@ public sealed partial class ControlCentreDialog : UserControl
     {
         _searchIndexPollCts?.Cancel();
         _searchIndexPollCts = null;
+    }
+
+    // Separate from the 1s status poll above: GetHashBucketSummary() is a full GROUP BY scan over
+    // every indexed row (millions on a large index), so it runs on a background thread (Task.Run)
+    // on its own much slower cadence rather than inline on the UI thread every second - that
+    // combination is what hung the UI the first time this table was added.
+    private const int HashBucketRefreshSeconds = 120;
+    private CancellationTokenSource? _hashBucketPollCts;
+
+    private void StartHashBucketPolling()
+    {
+        StopHashBucketPolling();
+        var cts = new CancellationTokenSource();
+        _hashBucketPollCts = cts;
+        _ = PollHashBucketsAsync(cts.Token);
+    }
+
+    private void StopHashBucketPolling()
+    {
+        _hashBucketPollCts?.Cancel();
+        _hashBucketPollCts = null;
+    }
+
+    private async Task PollHashBucketsAsync(CancellationToken token)
+    {
+        try
+        {
+            while (true)
+            {
+                var rows = await Task.Run(SearchIndexService.GetHashBucketSummary, token);
+                token.ThrowIfCancellationRequested();
+                ApplyHashBucketRows(rows);
+
+                await Task.Delay(TimeSpan.FromSeconds(HashBucketRefreshSeconds), token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped because the section changed or the dialog closed - not an error.
+        }
+    }
+
+    private void ApplyHashBucketRows(List<SearchIndexService.HashBucketRow> rows)
+    {
+        var displayRows = rows
+            .Select(b => new HashBucketDisplayRow(
+                b.Label,
+                b.Hashed.ToString("N0"),
+                b.Unhashed.ToString("N0"),
+                b.Unhashed == 0 ? "-" : FileExplorer.Models.FileSystemItem.FormatSize(b.UnhashedBytes)))
+            .ToList();
+
+        if (!displayRows.SequenceEqual(_lastHashBucketRows))
+        {
+            HashBucketList.ItemsSource = displayRows;
+            _lastHashBucketRows = displayRows;
+        }
     }
 
     private async Task PollSearchIndexAsync(CancellationToken token)
@@ -113,6 +171,10 @@ public sealed partial class ControlCentreDialog : UserControl
     // comparison here. Without this, polling reassigned an equivalent-but-new list every second,
     // which made the ListView visibly flash/flicker even though nothing had changed.
     private List<SearchIndexRootRow> _lastSearchIndexRows = new();
+
+    private sealed record HashBucketDisplayRow(string Label, string HashedDisplay, string UnhashedDisplay, string UnhashedBytesDisplay);
+
+    private List<HashBucketDisplayRow> _lastHashBucketRows = new();
 
     private void RefreshSearchIndex()
     {
@@ -260,10 +322,12 @@ public sealed partial class ControlCentreDialog : UserControl
         {
             RefreshSearchIndex();
             StartSearchIndexPolling();
+            StartHashBucketPolling();
         }
         else
         {
             StopSearchIndexPolling();
+            StopHashBucketPolling();
         }
         PreferencesPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, PreferencesNavItem) ? Visibility.Visible : Visibility.Collapsed;
         KeyboardShortcutsPanel.Visibility = ReferenceEquals(SectionList.SelectedItem, KeyboardShortcutsNavItem) ? Visibility.Visible : Visibility.Collapsed;
