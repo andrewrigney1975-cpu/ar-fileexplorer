@@ -55,10 +55,22 @@ internal static class WebAssets
         var crumbs = Breadcrumbs(root, rel, token);
 
         return Shell(Html(folderName), $$"""
-            <header>
-              <nav class="crumbs">{{crumbs}}</nav>
-              <a class="slideshow-link" href="/slideshow?p={{Enc(rel)}}&k={{token}}">▶ Show folder as slideshow</a>
-            </header>
+            <div class="topbar">
+              <header>
+                <nav class="crumbs">{{crumbs}}</nav>
+                <a class="slideshow-link" href="/slideshow?p={{Enc(rel)}}&k={{token}}">▶ Show folder as slideshow</a>
+              </header>
+              <div class="filterbar">
+                <input id="f-name" type="search" placeholder="Filter by name..." autocomplete="off" />
+                <div class="f-size">
+                  <input id="f-size-min" type="number" min="0" step="any" placeholder="Min MB" />
+                  <span class="f-size-sep">–</span>
+                  <input id="f-size-max" type="number" min="0" step="any" placeholder="Max MB" />
+                </div>
+                <div id="f-kinds" class="f-kinds"></div>
+                <span id="f-count" class="f-count"></span>
+              </div>
+            </div>
             <main id="grid"></main>
             <div id="lightbox" class="lightbox hidden">
               <button class="lb-close" data-act="close">✕</button>
@@ -142,19 +154,45 @@ internal static class WebAssets
         body { margin: 0; font: 14px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif;
                background: #16161a; color: #e6e6ea; }
         a { color: #7db3ff; text-decoration: none; }
+        .topbar { position: sticky; top: 0; z-index: 5; }
         header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
-                 justify-content: space-between; padding: 14px 18px; position: sticky; top: 0;
-                 background: #1d1d22; border-bottom: 1px solid #2c2c33; z-index: 5; }
+                 justify-content: space-between; padding: 14px 18px;
+                 background: #1d1d22; border-bottom: 1px solid #2c2c33; }
         .crumbs { font-size: 15px; }
         .crumbs .sep { opacity: .4; margin: 0 2px; }
         .slideshow-link { padding: 7px 12px; background: #2b2b33; border-radius: 6px; white-space: nowrap; }
-        #grid { display: grid; gap: 14px; padding: 18px;
-                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-        .tile { display: block; text-align: center; cursor: pointer; }
-        .tile .frame { position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px;
+
+        .filterbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+                     padding: 10px 18px; background: #1a1a1f; border-bottom: 1px solid #2c2c33; }
+        .filterbar input { background: #24242b; border: 1px solid #33333c; color: #e6e6ea;
+                            border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+        .filterbar input:focus { outline: 1px solid #4c9eff; }
+        #f-name { flex: 1 1 160px; min-width: 120px; }
+        .f-size { display: flex; align-items: center; gap: 6px; }
+        .f-size input { width: 78px; }
+        .f-size-sep { opacity: .5; }
+        .f-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+        .f-kind { display: flex; align-items: center; gap: 5px; padding: 5px 10px;
+                  background: #24242b; border: 1px solid #33333c; border-radius: 14px;
+                  font-size: 12px; cursor: pointer; user-select: none; }
+        .f-kind input { margin: 0; accent-color: #4c9eff; }
+        .f-count { margin-left: auto; font-size: 12px; opacity: .6; white-space: nowrap; }
+
+        /* Masonry: CSS columns pack tiles top-to-bottom-then-next-column at their natural height -
+           only image tiles actually vary in height (see .tile img rules below); dir/video/audio/other
+           stay fixed-square so the folder/kind glyphs don't stretch or crop oddly. */
+        #grid { column-width: 180px; column-gap: 14px; padding: 18px; }
+        .tile { display: inline-block; width: 100%; break-inside: avoid; margin: 0 0 14px;
+                text-align: center; cursor: pointer; }
+        .tile.hidden { display: none; }
+        .tile .frame { position: relative; width: 100%; border-radius: 8px;
                        overflow: hidden; background: #24242b; display: flex; align-items: center;
                        justify-content: center; }
-        .tile img { width: 100%; height: 100%; object-fit: cover; }
+        .tile.dir .frame, .tile.kind-video .frame, .tile.kind-audio .frame, .tile.kind-other .frame
+                       { aspect-ratio: 1; }
+        .tile img { width: 100%; display: block; }
+        .tile.dir img, .tile.kind-video img { height: 100%; object-fit: cover; }
+        .tile.kind-image img { height: auto; }
         .tile .glyph { font-size: 46px; opacity: .5; }
         .tile .badge { position: absolute; right: 6px; bottom: 6px; background: #000a; color: #fff;
                        font-size: 11px; padding: 1px 6px; border-radius: 4px; }
@@ -207,16 +245,22 @@ internal static class WebAssets
           return (i ? n.toFixed(1) : n) + " " + u[i];
         }
 
+        // Referenced by initFilters(), called synchronously from initGrid() below - must be declared
+        // before the initGrid()/initSlideshow() dispatch runs, or it's a temporal-dead-zone
+        // ReferenceError (const declarations don't hoist their initialization, only the binding).
+        const KIND_LABEL = { dir: "Folders", image: "Images", video: "Videos", audio: "Audio", other: "Other" };
+
         if (window.__MODE === "slideshow") initSlideshow(); else initGrid();
 
         // ---------- directory grid + lightbox ----------
         function initGrid() {
           const grid = document.getElementById("grid");
-          const previewable = D.entries.filter(e => e.kind === "image" || e.kind === "video" || e.kind === "audio");
+          const tileByEntry = new Map();
+          let visible = D.entries;
 
           D.entries.forEach(e => {
             const tile = document.createElement(e.kind === "dir" ? "a" : "div");
-            tile.className = "tile";
+            tile.className = "tile " + (e.kind === "dir" ? "dir" : "kind-" + e.kind);
             if (e.kind === "dir") tile.href = dirUrl(e.p);
 
             const frame = document.createElement("div");
@@ -243,18 +287,28 @@ internal static class WebAssets
             if (e.kind !== "dir") {
               tile.onclick = () => {
                 if (e.kind === "other") { location.href = fileUrl(e.p); return; }
-                openLightbox(previewable.indexOf(e));
+                const list = visible.filter(v => v.kind === "image" || v.kind === "video" || v.kind === "audio");
+                const i = list.indexOf(e);
+                if (i !== -1) openLightbox(list, i);
               };
             }
             grid.appendChild(tile);
+            tileByEntry.set(e, tile);
+          });
+
+          initFilters(D.entries, entries => {
+            visible = entries;
+            const visibleSet = new Set(visible);
+            tileByEntry.forEach((tile, e) => tile.classList.toggle("hidden", !visibleSet.has(e)));
           });
 
           const lb = document.getElementById("lightbox");
           const stage = lb.querySelector(".lb-stage");
           const caption = lb.querySelector(".lb-caption");
+          let previewable = [];
           let idx = 0;
 
-          window.openLightbox = i => { idx = i; renderLb(); lb.classList.remove("hidden"); };
+          window.openLightbox = (list, i) => { previewable = list; idx = i; renderLb(); lb.classList.remove("hidden"); };
           function closeLb() { stage.innerHTML = ""; lb.classList.add("hidden"); }
           function step(d) { idx = (idx + d + previewable.length) % previewable.length; renderLb(); }
           function renderLb() {
@@ -279,6 +333,60 @@ internal static class WebAssets
             else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") step(-1);
             else if (ev.key === "ArrowRight" || ev.key === "ArrowDown" || ev.key === " ") { ev.preventDefault(); step(1); }
           });
+        }
+
+        // Name (substring), size in MB (dirs exempt - they carry no size), and kind (the same
+        // dir/image/video/audio/other buckets the tiles already use) - only the kinds actually
+        // present in this folder get a chip, so an empty folder-of-images doesn't show an "Audio"
+        // toggle that can never do anything. Calls onChange(filteredEntries) once at setup and again
+        // on every input change; filtering re-derives the array each time rather than mutating it in
+        // place, kept cheap by the visible.length being at most one folder's worth of entries.
+        function initFilters(entries, onChange) {
+          const nameBox = document.getElementById("f-name");
+          const minBox = document.getElementById("f-size-min");
+          const maxBox = document.getElementById("f-size-max");
+          const kindsHost = document.getElementById("f-kinds");
+          const countEl = document.getElementById("f-count");
+
+          const kindsPresent = [...new Set(entries.map(e => e.kind))]
+            .sort((a, b) => Object.keys(KIND_LABEL).indexOf(a) - Object.keys(KIND_LABEL).indexOf(b));
+          const kindChecks = kindsPresent.map(kind => {
+            const id = "f-kind-" + kind;
+            const label = document.createElement("label");
+            label.className = "f-kind";
+            label.innerHTML = '<input type="checkbox" id="' + id + '" checked /> ' + (KIND_LABEL[kind] || kind);
+            kindsHost.appendChild(label);
+            return label.querySelector("input");
+          });
+
+          function run() {
+            const nameQ = nameBox.value.trim().toLowerCase();
+            const minMB = parseFloat(minBox.value);
+            const maxMB = parseFloat(maxBox.value);
+            const activeKinds = new Set(kindChecks.filter(c => c.checked).map(c => c.id.slice("f-kind-".length)));
+
+            const filtered = entries.filter(e => {
+              if (!activeKinds.has(e.kind)) return false;
+              if (nameQ && !e.name.toLowerCase().includes(nameQ)) return false;
+              if (e.kind !== "dir") {
+                const mb = (e.size || 0) / (1024 * 1024);
+                if (!isNaN(minMB) && mb < minMB) return false;
+                if (!isNaN(maxMB) && mb > maxMB) return false;
+              }
+              return true;
+            });
+
+            countEl.textContent = filtered.length === entries.length
+              ? entries.length + " item" + (entries.length === 1 ? "" : "s")
+              : "Showing " + filtered.length + " of " + entries.length;
+            onChange(filtered);
+          }
+
+          nameBox.addEventListener("input", run);
+          minBox.addEventListener("input", run);
+          maxBox.addEventListener("input", run);
+          kindChecks.forEach(c => c.addEventListener("change", run));
+          run();
         }
 
         // ---------- slideshow ----------
