@@ -15,7 +15,8 @@ public static class FileOperationService
     /// local-only atomic-rename shortcut, which only makes sense between two real local paths).
     public static bool SameDrive(string pathA, string pathB)
     {
-        if (RemotePathService.IsRemote(pathA) || RemotePathService.IsRemote(pathB))
+        if (RemotePathService.IsRemote(pathA) || RemotePathService.IsRemote(pathB) ||
+            EncryptedFolderPathService.IsEncrypted(pathA) || EncryptedFolderPathService.IsEncrypted(pathB))
         {
             return false;
         }
@@ -33,7 +34,8 @@ public static class FileOperationService
     /// would matter anyway.
     public static bool IsValidDropTarget(IEnumerable<string> sourcePaths, string targetFolder)
     {
-        if (RemotePathService.IsRemote(targetFolder) || sourcePaths.Any(RemotePathService.IsRemote))
+        if (RemotePathService.IsRemote(targetFolder) || sourcePaths.Any(RemotePathService.IsRemote) ||
+            EncryptedFolderPathService.IsEncrypted(targetFolder) || sourcePaths.Any(EncryptedFolderPathService.IsEncrypted))
         {
             return true;
         }

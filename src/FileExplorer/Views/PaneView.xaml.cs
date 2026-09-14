@@ -1656,11 +1656,18 @@ public sealed partial class PaneView : UserControl
         // ComputeHashesAsync, DeleteItemsAsync) and stay available.
         var isRemote = selection.Any(item => item.IsRemote);
 
+        // Content browsed out of an unlocked encrypted folder gets the same treatment: the local-
+        // only features below would try to File.Copy/File.Open an "encryptedfolder://" path
+        // directly and fail, so they're hidden rather than left half-working. Cut/Copy/Rename/
+        // Delete stay available - Delete routes through EncryptedFolderSession.DeleteEntryAsync
+        // (see DeleteService), and Cut+Paste is how a file/folder gets added to the container.
+        var isRestrictedScheme = isRemote || selection.Any(item => item.IsEncryptedFolderContent);
+
         if (selection.Count == 1)
         {
             var single = selection[0];
             menu.Items.Add(NewMenuItem("Open", "", () => OpenItem(single)));
-            if (!single.IsDirectory && !isRemote)
+            if (!single.IsDirectory && !isRestrictedScheme)
             {
                 menu.Items.Add(NewMenuItem("Open with...", "", () => OpenWithPicker(single)));
             }
@@ -1675,7 +1682,7 @@ public sealed partial class PaneView : UserControl
             menu.Items.Add(NewMenuItem("Rename...", "", async () => await BatchRenameAsync(selection)));
         }
 
-        if (!isRemote) {
+        if (!isRestrictedScheme) {
         menu.Items.Add(NewMenuItem("Move to folder...", "", async () => await MoveSelectionToNewFolderAsync()));
         menu.Items.Add(NewMenuItem("Compress to .zip", "", async () => await CompressSelectionAsync(selection)));
         if (selection.Count > 0 && selection.All(item => IconHelper.IsExtractableArchive(item.Extension)))
@@ -1691,7 +1698,7 @@ public sealed partial class PaneView : UserControl
                 () => ConvertRequested?.Invoke(this, selection.Select(s => s.FullPath).ToList())));
         }
         }
-        if (selection.Count == 1 && selection[0].IsDirectory && !isRemote)
+        if (selection.Count == 1 && selection[0].IsDirectory && !isRestrictedScheme)
         {
             var folder = selection[0];
             menu.Items.Add(NewMenuItem(
@@ -1758,7 +1765,7 @@ public sealed partial class PaneView : UserControl
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
-        if (!isRemote)
+        if (!isRestrictedScheme)
         {
             menu.Items.Add(BuildTagSubMenu(selection));
             menu.Items.Add(BuildRatingSubMenu(selection));
@@ -1786,7 +1793,7 @@ public sealed partial class PaneView : UserControl
             }));
         }
 
-        if (!isRemote) {
+        if (!isRestrictedScheme) {
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Properties", "", async () => await ShowPropertiesAsync(selection)));
         }
@@ -2006,13 +2013,20 @@ public sealed partial class PaneView : UserControl
         return menu;
     }
 
-    /// Browsing inside an unlocked encrypted folder isn't a real directory either - Paste/New
-    /// folder/etc. would silently write plaintext into the temp decrypt cache rather than the
-    /// container, so this replaces them with Lock and the explicit permanent-decrypt escape hatch.
+    /// Browsing inside an unlocked encrypted folder isn't a real directory - Paste and New folder
+    /// route into EncryptedFolderSession (container rewrite) rather than the temp decrypt cache;
+    /// see EncryptedFolderSession.AddFileAsync/AddFolderAsync/NewFolderAsync.
     private MenuFlyout BuildEncryptedFolderEmptySpaceContextMenu(string containerPath)
     {
         var menu = new MenuFlyout();
 
+        var paste = NewMenuItem("Paste", "", () => FileClipboardService.Instance.PasteInto(ViewModel!.CurrentPath));
+        paste.IsEnabled = FileClipboardService.Instance.HasContent;
+        menu.Items.Add(paste);
+        menu.Items.Add(NewMenuItem("New folder", "", CreateNewFolderHere));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Compact fragmented space", string.Empty, async () => await CompactEncryptedFolderAsync(containerPath)));
+        menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Lock", string.Empty, () =>
         {
             EncryptedFolderSession.Lock(containerPath);
@@ -2028,6 +2042,32 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", string.Empty, () => ViewModel?.Refresh()));
         return menu;
+    }
+
+    private async Task CompactEncryptedFolderAsync(string containerPath)
+    {
+        try
+        {
+            var before = new FileInfo(containerPath).Length;
+            await EncryptedFolderSession.CompactAsync(containerPath, CancellationToken.None);
+            var after = new FileInfo(containerPath).Length;
+            ViewModel?.Refresh();
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "Compact complete",
+                Content = after < before
+                    ? $"Reclaimed {(before - after):N0} bytes."
+                    : "No fragmented space to reclaim - the container was already compact.",
+                CloseButtonText = "OK",
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            await ShowErrorAsync("Couldn't compact encrypted folder", ex.Message);
+        }
     }
 
     private async Task RenameVirtualFolderAsync(string virtualFolderId)
@@ -2067,6 +2107,12 @@ public sealed partial class PaneView : UserControl
         if (RemotePathService.IsRemote(basePath))
         {
             await CreateNewRemoteFolderAsync(basePath);
+            return;
+        }
+
+        if (EncryptedFolderPathService.IsEncrypted(basePath))
+        {
+            await CreateNewEncryptedFolderAsync(basePath);
             return;
         }
 
@@ -2113,6 +2159,36 @@ public sealed partial class PaneView : UserControl
             ViewModel.Refresh(candidateFullPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            await ShowErrorAsync("Couldn't create folder", ex.Message);
+        }
+    }
+
+    /// No Undo support for a folder created inside an encrypted container - same reasoning as
+    /// remote above, and every mutation already rewrites the whole container.
+    private async Task CreateNewEncryptedFolderAsync(string basePath)
+    {
+        if (!EncryptedFolderPathService.TryParse(basePath, out var containerPath, out var relativePath) || ViewModel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var existingNames = EncryptedFolderSession.GetChildren(containerPath, relativePath)
+                .Select(i => i.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var name = "New folder";
+            for (var i = 2; existingNames.Contains(name); i++)
+            {
+                name = $"New folder ({i})";
+            }
+
+            await EncryptedFolderSession.NewFolderAsync(containerPath, relativePath, name, CancellationToken.None);
+            ViewModel.Refresh(EncryptedFolderPathService.Combine(basePath, name));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             await ShowErrorAsync("Couldn't create folder", ex.Message);
         }

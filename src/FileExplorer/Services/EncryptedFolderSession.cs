@@ -15,6 +15,10 @@ public static class EncryptedFolderSession
         public required byte[] Key;
         public required List<EncryptedFolderService.IndexEntry> Entries;
         public required string TempDir;
+
+        /// Serializes add/delete/compact calls against this one container - each rewrites the whole
+        /// file, so two concurrent rewrites racing would corrupt or lose one of them.
+        public readonly SemaphoreSlim MutationLock = new(1, 1);
     }
 
     private static readonly Dictionary<string, Unlocked> _unlocked = new(StringComparer.OrdinalIgnoreCase);
@@ -83,6 +87,7 @@ public static class EncryptedFolderSession
             LoggingService.LogWarning("EncryptedFolderSession.Lock", ex);
         }
 
+        unlocked.MutationLock.Dispose();
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
@@ -155,6 +160,112 @@ public static class EncryptedFolderSession
         }
 
         return destPath;
+    }
+
+    /// Encrypts a real file into this container as a new entry under the given "/"-rooted parent
+    /// path ("/" for the container root), updates the in-memory index, and raises Changed so any
+    /// open pane browsing this container refreshes. Rewrites the whole container on disk - see
+    /// EncryptedFolderService.RewriteContainerAsync.
+    public static async Task AddFileAsync(string containerPath, string parentRelativePath, string sourceFilePath, CancellationToken ct)
+    {
+        var unlocked = GetUnlockedOrThrow(containerPath);
+        var parentKey = EncryptedFolderPathService.NormalizeIndexKey(parentRelativePath);
+
+        await unlocked.MutationLock.WaitAsync(ct);
+        try
+        {
+            unlocked.Entries = await EncryptedFolderService.AddFileEntryAsync(
+                containerPath, unlocked.Key, unlocked.Entries, parentKey, sourceFilePath, ct);
+        }
+        finally
+        {
+            unlocked.MutationLock.Release();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// Recursively encrypts a real folder (and everything inside it) into this container as a new
+    /// subtree under the given parent path.
+    public static async Task AddFolderAsync(string containerPath, string parentRelativePath, string sourceFolderPath, CancellationToken ct)
+    {
+        var unlocked = GetUnlockedOrThrow(containerPath);
+        var parentKey = EncryptedFolderPathService.NormalizeIndexKey(parentRelativePath);
+
+        await unlocked.MutationLock.WaitAsync(ct);
+        try
+        {
+            unlocked.Entries = await EncryptedFolderService.AddFolderTreeEntriesAsync(
+                containerPath, unlocked.Key, unlocked.Entries, parentKey, sourceFolderPath, ct);
+        }
+        finally
+        {
+            unlocked.MutationLock.Release();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// Adds a new, empty directory entry under the given parent path (the encrypted-folder
+    /// equivalent of "New Folder").
+    public static async Task NewFolderAsync(string containerPath, string parentRelativePath, string name, CancellationToken ct)
+    {
+        var unlocked = GetUnlockedOrThrow(containerPath);
+        var parentKey = EncryptedFolderPathService.NormalizeIndexKey(parentRelativePath);
+
+        await unlocked.MutationLock.WaitAsync(ct);
+        try
+        {
+            unlocked.Entries = await EncryptedFolderService.AddEmptyFolderEntryAsync(
+                containerPath, unlocked.Key, unlocked.Entries, parentKey, name, ct);
+        }
+        finally
+        {
+            unlocked.MutationLock.Release();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// Removes the entry at the given "/"-rooted path - and, for a directory, everything nested
+    /// under it - from the container. Permanent: there is no Recycle Bin equivalent inside a
+    /// container, matching how a remote-connection delete has no undo either.
+    public static async Task DeleteEntryAsync(string containerPath, string relativePath, CancellationToken ct)
+    {
+        var unlocked = GetUnlockedOrThrow(containerPath);
+        var key = EncryptedFolderPathService.NormalizeIndexKey(relativePath);
+
+        await unlocked.MutationLock.WaitAsync(ct);
+        try
+        {
+            unlocked.Entries = await EncryptedFolderService.RemoveEntryAsync(
+                containerPath, unlocked.Key, unlocked.Entries, key, ct);
+        }
+        finally
+        {
+            unlocked.MutationLock.Release();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// Manually reclaims any dead space in the container (see EncryptedFolderService.CompactAsync -
+    /// normally a no-op since every add/delete already rebuilds without dead bytes).
+    public static async Task CompactAsync(string containerPath, CancellationToken ct)
+    {
+        var unlocked = GetUnlockedOrThrow(containerPath);
+
+        await unlocked.MutationLock.WaitAsync(ct);
+        try
+        {
+            unlocked.Entries = await EncryptedFolderService.CompactAsync(containerPath, unlocked.Key, unlocked.Entries, ct);
+        }
+        finally
+        {
+            unlocked.MutationLock.Release();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
     }
 
     public static (byte[] Key, List<EncryptedFolderService.IndexEntry> Entries)? TryGetUnlocked(string containerPath)

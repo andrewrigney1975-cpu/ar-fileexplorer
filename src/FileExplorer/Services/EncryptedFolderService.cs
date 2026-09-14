@@ -281,6 +281,283 @@ public static class EncryptedFolderService
         }
     }
 
+    /// Rebuilds the container from scratch with <paramref name="newEntries"/> as its new index:
+    /// unchanged files' ciphertext is streamed byte-for-byte from the old container (their nonces/
+    /// tags stay valid since the bytes never change), while any entry named in
+    /// <paramref name="newFileSources"/> is freshly encrypted from that real source file. Writes to
+    /// a ".tmp" sibling, verifies it opens with <paramref name="key"/> and matches the expected
+    /// entry count, then atomically replaces the container - the same verify-before-swap pattern as
+    /// EncryptFolderAsync, so a failure or crash mid-rewrite never corrupts or loses the original.
+    /// Because every add/delete goes through this and only ever emits bytes for entries present in
+    /// <paramref name="newEntries"/>, the container never actually accumulates dead space between
+    /// calls - a delete already "compacts" as a side effect. CompactAsync exists anyway as an
+    /// explicit, user-triggered no-op-if-nothing-to-do safety valve.
+    private static async Task<List<IndexEntry>> RewriteContainerAsync(
+        string containerPath,
+        byte[] key,
+        List<IndexEntry> oldEntries,
+        List<IndexEntry> newEntries,
+        IReadOnlyDictionary<string, string> newFileSources,
+        CancellationToken ct)
+    {
+        var tempPath = containerPath + ".tmp";
+        var oldEntryByPath = oldEntries.ToDictionary(e => e.RelativePath, StringComparer.Ordinal);
+        var rebuiltEntries = new List<IndexEntry>();
+
+        try
+        {
+            byte[] header;
+            await using (var oldFile = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                header = new byte[HeaderSize];
+                await ReadExactAsync(oldFile, header, HeaderSize, ct);
+
+                await using var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await output.WriteAsync(header, ct);
+
+                long runningOffset = 0;
+                var copyBuffer = new byte[81920];
+
+                foreach (var entry in newEntries)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    if (entry.IsDirectory)
+                    {
+                        rebuiltEntries.Add(entry with { DataStartOffset = 0 });
+                        continue;
+                    }
+
+                    if (newFileSources.TryGetValue(entry.RelativePath, out var sourcePath))
+                    {
+                        var dataStart = runningOffset;
+                        var chunks = new List<ChunkInfo>();
+                        using var aes = new AesGcm(key, TagSize);
+                        await using var input = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var buffer = new byte[ChunkSize];
+                        var remaining = entry.SizeBytes;
+
+                        while (remaining > 0)
+                        {
+                            var take = (int)Math.Min(ChunkSize, remaining);
+                            await ReadExactAsync(input, buffer, take, ct);
+
+                            var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+                            var ciphertext = new byte[take];
+                            var tag = new byte[TagSize];
+                            aes.Encrypt(nonce, buffer.AsSpan(0, take), ciphertext, tag);
+
+                            await output.WriteAsync(ciphertext, ct);
+                            chunks.Add(new ChunkInfo(nonce, tag, take));
+                            runningOffset += take;
+                            remaining -= take;
+                        }
+
+                        rebuiltEntries.Add(entry with { DataStartOffset = dataStart, Chunks = chunks });
+                    }
+                    else
+                    {
+                        var oldEntry = oldEntryByPath[entry.RelativePath];
+                        var dataStart = runningOffset;
+                        var totalLength = oldEntry.Chunks.Sum(c => (long)c.Length);
+
+                        oldFile.Seek(HeaderSize + oldEntry.DataStartOffset, SeekOrigin.Begin);
+                        var remaining = totalLength;
+                        while (remaining > 0)
+                        {
+                            var take = (int)Math.Min(copyBuffer.Length, remaining);
+                            await ReadExactAsync(oldFile, copyBuffer, take, ct);
+                            await output.WriteAsync(copyBuffer.AsMemory(0, take), ct);
+                            remaining -= take;
+                        }
+
+                        runningOffset += totalLength;
+                        rebuiltEntries.Add(entry with { DataStartOffset = dataStart });
+                    }
+                }
+
+                var indexJson = JsonSerializer.SerializeToUtf8Bytes(rebuiltEntries);
+                var indexNonce = RandomNumberGenerator.GetBytes(NonceSize);
+                var indexCiphertext = new byte[indexJson.Length];
+                var indexTag = new byte[TagSize];
+                using (var aes = new AesGcm(key, TagSize))
+                {
+                    aes.Encrypt(indexNonce, indexJson, indexCiphertext, indexTag);
+                }
+
+                var indexSectionOffset = output.Position;
+                await output.WriteAsync(indexNonce, ct);
+                await output.WriteAsync(indexCiphertext, ct);
+                await output.WriteAsync(indexTag, ct);
+
+                var footer = new byte[FooterSize];
+                BitConverter.TryWriteBytes(footer.AsSpan(0, 8), indexSectionOffset);
+                BitConverter.TryWriteBytes(footer.AsSpan(8, 8), (long)indexCiphertext.Length);
+                FooterMagic.CopyTo(footer.AsSpan(16, 8));
+                await output.WriteAsync(footer, ct);
+            }
+
+            var verified = await TryOpenWithKeyAsync(tempPath, key, ct);
+            if (verified is null || verified.Count != rebuiltEntries.Count)
+            {
+                throw new InvalidOperationException("The rewritten encrypted container failed verification - the original was not touched.");
+            }
+
+            File.Delete(containerPath);
+            File.Move(tempPath, containerPath, overwrite: false);
+        }
+        catch
+        {
+            try { File.Delete(tempPath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            throw;
+        }
+
+        return rebuiltEntries;
+    }
+
+    /// Same authentication guarantee as TryOpenAsync (the index only decrypts if the key is right
+    /// and every byte is intact) but takes the already-derived key directly instead of re-deriving
+    /// it from a PIN - used to verify a freshly rewritten container without ever needing the PIN
+    /// again after the initial unlock.
+    private static async Task<List<IndexEntry>?> TryOpenWithKeyAsync(string containerPath, byte[] key, CancellationToken ct)
+    {
+        await using var file = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        file.Seek(-FooterSize, SeekOrigin.End);
+        var footer = new byte[FooterSize];
+        await ReadExactAsync(file, footer, FooterSize, ct);
+        if (!footer.AsSpan(16, 8).SequenceEqual(FooterMagic))
+        {
+            return null;
+        }
+
+        var indexOffset = BitConverter.ToInt64(footer, 0);
+        var indexCiphertextLength = (int)BitConverter.ToInt64(footer, 8);
+
+        file.Seek(indexOffset, SeekOrigin.Begin);
+        var indexNonce = new byte[NonceSize];
+        await ReadExactAsync(file, indexNonce, NonceSize, ct);
+        var indexCiphertext = new byte[indexCiphertextLength];
+        await ReadExactAsync(file, indexCiphertext, indexCiphertextLength, ct);
+        var indexTag = new byte[TagSize];
+        await ReadExactAsync(file, indexTag, TagSize, ct);
+
+        var indexPlain = new byte[indexCiphertextLength];
+        try
+        {
+            using var indexAes = new AesGcm(key, TagSize);
+            indexAes.Decrypt(indexNonce, indexCiphertext, indexTag, indexPlain);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<List<IndexEntry>>(indexPlain) ?? new List<IndexEntry>();
+    }
+
+    /// Adds one real file as a new entry under <paramref name="parentRelativeKey"/> ("" for the
+    /// container root). Throws IOException if an entry with that name already exists there.
+    public static Task<List<IndexEntry>> AddFileEntryAsync(
+        string containerPath, byte[] key, List<IndexEntry> entries, string parentRelativeKey, string sourceFilePath, CancellationToken ct)
+    {
+        var info = new FileInfo(sourceFilePath);
+        var relKey = parentRelativeKey.Length == 0 ? info.Name : parentRelativeKey + "/" + info.Name;
+
+        if (entries.Any(e => string.Equals(e.RelativePath, relKey, StringComparison.Ordinal)))
+        {
+            throw new IOException($"\"{info.Name}\" already exists in this encrypted folder.");
+        }
+
+        var newEntry = new IndexEntry(relKey, false, info.Length, (int)info.Attributes, info.LastWriteTimeUtc.Ticks, 0, new List<ChunkInfo>());
+        var newEntries = new List<IndexEntry>(entries) { newEntry };
+        var sources = new Dictionary<string, string> { [relKey] = sourceFilePath };
+
+        return RewriteContainerAsync(containerPath, key, entries, newEntries, sources, ct);
+    }
+
+    /// Recursively adds a real folder (and everything inside it) as a new subtree under
+    /// <paramref name="parentRelativeKey"/>. Throws IOException if an entry with that name already
+    /// exists there.
+    public static Task<List<IndexEntry>> AddFolderTreeEntriesAsync(
+        string containerPath, byte[] key, List<IndexEntry> entries, string parentRelativeKey, string sourceFolderPath, CancellationToken ct)
+    {
+        var rootName = Path.GetFileName(sourceFolderPath.TrimEnd(Path.DirectorySeparatorChar));
+        var rootRel = parentRelativeKey.Length == 0 ? rootName : parentRelativeKey + "/" + rootName;
+
+        if (entries.Any(e => string.Equals(e.RelativePath, rootRel, StringComparison.Ordinal)))
+        {
+            throw new IOException($"\"{rootName}\" already exists in this encrypted folder.");
+        }
+
+        var walk = new List<WalkEntry>();
+        var rootInfo = new DirectoryInfo(sourceFolderPath);
+        walk.Add(new WalkEntry { FullPath = sourceFolderPath, RelativePath = rootRel, IsDirectory = true, Attributes = rootInfo.Attributes, ModifiedUtcTicks = rootInfo.LastWriteTimeUtc.Ticks });
+        WalkRecursive(sourceFolderPath, rootRel, walk);
+
+        var newEntries = new List<IndexEntry>(entries);
+        var sources = new Dictionary<string, string>();
+
+        foreach (var w in walk)
+        {
+            if (w.IsDirectory)
+            {
+                newEntries.Add(new IndexEntry(w.RelativePath, true, 0, (int)w.Attributes, w.ModifiedUtcTicks, 0, new List<ChunkInfo>()));
+            }
+            else
+            {
+                newEntries.Add(new IndexEntry(w.RelativePath, false, w.SizeBytes, (int)w.Attributes, w.ModifiedUtcTicks, 0, new List<ChunkInfo>()));
+                sources[w.RelativePath] = w.FullPath;
+            }
+        }
+
+        return RewriteContainerAsync(containerPath, key, entries, newEntries, sources, ct);
+    }
+
+    /// Adds a new, empty directory entry under <paramref name="parentRelativeKey"/>. Throws
+    /// IOException if an entry with that name already exists there.
+    public static Task<List<IndexEntry>> AddEmptyFolderEntryAsync(
+        string containerPath, byte[] key, List<IndexEntry> entries, string parentRelativeKey, string name, CancellationToken ct)
+    {
+        var relKey = parentRelativeKey.Length == 0 ? name : parentRelativeKey + "/" + name;
+
+        if (entries.Any(e => string.Equals(e.RelativePath, relKey, StringComparison.Ordinal)))
+        {
+            throw new IOException($"\"{name}\" already exists in this encrypted folder.");
+        }
+
+        var newEntry = new IndexEntry(relKey, true, 0, (int)FileAttributes.Directory, DateTime.UtcNow.Ticks, 0, new List<ChunkInfo>());
+        var newEntries = new List<IndexEntry>(entries) { newEntry };
+
+        return RewriteContainerAsync(containerPath, key, entries, newEntries, new Dictionary<string, string>(), ct);
+    }
+
+    /// Removes the entry at <paramref name="relativeKey"/> - and, if it's a directory, every entry
+    /// nested under it - from the index and rebuilds the container without their data.
+    public static Task<List<IndexEntry>> RemoveEntryAsync(
+        string containerPath, byte[] key, List<IndexEntry> entries, string relativeKey, CancellationToken ct)
+    {
+        var prefix = relativeKey + "/";
+        var newEntries = entries
+            .Where(e => !string.Equals(e.RelativePath, relativeKey, StringComparison.Ordinal) &&
+                        !e.RelativePath.StartsWith(prefix, StringComparison.Ordinal))
+            .ToList();
+
+        if (newEntries.Count == entries.Count)
+        {
+            throw new FileNotFoundException("That item is no longer in the encrypted folder's index.", relativeKey);
+        }
+
+        return RewriteContainerAsync(containerPath, key, entries, newEntries, new Dictionary<string, string>(), ct);
+    }
+
+    /// Rebuilds the container with the same entries it already has - a manual, explicit "reclaim any
+    /// dead space" action. In practice every add/delete already rebuilds without dead bytes, so this
+    /// is normally a no-op; it exists as a user-triggered safety valve rather than something the app
+    /// needs to rely on internally.
+    public static Task<List<IndexEntry>> CompactAsync(string containerPath, byte[] key, List<IndexEntry> entries, CancellationToken ct) =>
+        RewriteContainerAsync(containerPath, key, entries, entries, new Dictionary<string, string>(), ct);
+
     private static byte[] DeriveKey(string pin, byte[] salt, int iterations) =>
         Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(pin), salt, iterations, HashAlgorithmName.SHA256, 32);
 

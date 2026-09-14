@@ -143,6 +143,27 @@ public sealed class FileOperationQueueService
                 return;
             }
 
+            var sourceIsEncrypted = job.SourcePaths.Count > 0 && EncryptedFolderPathService.IsEncrypted(job.SourcePaths[0]);
+            var destIsEncrypted = EncryptedFolderPathService.IsEncrypted(job.DestinationFolder);
+
+            if (sourceIsEncrypted || destIsEncrypted)
+            {
+                if (sourceIsEncrypted)
+                {
+                    throw new NotSupportedException(
+                        "Copying files out of an encrypted folder into another location isn't supported yet - open the file instead, or use \"Decrypt Folder...\" to remove encryption entirely.");
+                }
+
+                await RunEncryptedFolderAwareJobAsync(job, token).ConfigureAwait(false);
+
+                _dispatcher.TryEnqueue(() =>
+                {
+                    job.ProgressPercent = 100;
+                    job.Status = FileOperationStatus.Completed;
+                });
+                return;
+            }
+
             var resolved = await ResolveTopLevelCollisionsAsync(job.SourcePaths, job.DestinationFolder, token).ConfigureAwait(false);
             var allSameDrive = job.SourcePaths.All(p => FileOperationService.SameDrive(p, job.DestinationFolder));
 
@@ -268,6 +289,68 @@ public sealed class FileOperationQueueService
         {
             _dispatcher.TryEnqueue(() => JobCompleted?.Invoke(this, job));
         }
+    }
+
+    /// Handles a job whose destination is an unlocked encrypted folder container (source is always
+    /// real disk - copying out of a container is rejected before this ever runs, see RunJobAsync).
+    /// Deliberately single-threaded and sequential: EncryptedFolderSession serializes mutations
+    /// against one container internally anyway (each rewrites the whole file), so parallelizing
+    /// here would only add contention, not throughput.
+    private async Task RunEncryptedFolderAwareJobAsync(FileOperationJob job, CancellationToken token)
+    {
+        if (!EncryptedFolderPathService.TryParse(job.DestinationFolder, out var containerPath, out var relativePath))
+        {
+            throw new InvalidOperationException("Not an encrypted folder destination.");
+        }
+
+        if (!EncryptedFolderSession.IsUnlocked(containerPath))
+        {
+            throw new InvalidOperationException("This encrypted folder is locked - unlock it first.");
+        }
+
+        long bytesTotal = 0;
+        foreach (var source in job.SourcePaths)
+        {
+            bytesTotal += Directory.Exists(source)
+                ? Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
+                : File.Exists(source) ? new FileInfo(source).Length : 0;
+        }
+
+        _dispatcher.TryEnqueue(() => job.BytesTotal = bytesTotal);
+        long bytesDone = 0;
+
+        foreach (var source in job.SourcePaths)
+        {
+            token.ThrowIfCancellationRequested();
+            var trimmedSource = source.TrimEnd(Path.DirectorySeparatorChar);
+            _dispatcher.TryEnqueue(() => job.CurrentFileName = Path.GetFileName(trimmedSource));
+
+            if (Directory.Exists(source))
+            {
+                await EncryptedFolderSession.AddFolderAsync(containerPath, relativePath, source, token).ConfigureAwait(false);
+                bytesDone += Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+            }
+            else if (File.Exists(source))
+            {
+                await EncryptedFolderSession.AddFileAsync(containerPath, relativePath, source, token).ConfigureAwait(false);
+                bytesDone += new FileInfo(source).Length;
+            }
+
+            var doneSoFar = bytesDone;
+            _dispatcher.TryEnqueue(() =>
+            {
+                job.BytesDone = doneSoFar;
+                job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, doneSoFar * 100.0 / job.BytesTotal) : 100;
+            });
+
+            if (job.Kind == FileDropOperation.Move)
+            {
+                DeleteSource(source);
+            }
+        }
+
+        // No Undo support for anything added into an encrypted container (see UndoActions.cs -
+        // every action there is a direct local Directory/File call with no container equivalent).
     }
 
     private sealed record RemoteCopyPlan(

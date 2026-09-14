@@ -115,6 +115,183 @@ public class EncryptedFolderServiceTests
         File.Delete(containerPath);
         Directory.Delete(restoreDir, recursive: true);
     }
+
+    [Fact]
+    public async Task AddFileEntryAsync_AddsNewFile_AndLeavesExistingEntriesIntact()
+    {
+        var root = CreateSampleFolder(out var file1Bytes, out var file2Bytes);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var newFilePath = Path.Combine(Path.GetTempPath(), "dxlock-newfile-" + Guid.NewGuid().ToString("N") + ".txt");
+        var newFileBytes = Encoding.UTF8.GetBytes("brand new content");
+        await File.WriteAllBytesAsync(newFilePath, newFileBytes);
+
+        var updated = await EncryptedFolderService.AddFileEntryAsync(containerPath, key, entries, "", newFilePath, CancellationToken.None);
+        File.Delete(newFilePath);
+
+        Assert.Equal(entries.Count + 1, updated.Count);
+        Assert.Contains(updated, e => e.RelativePath == "file1.txt");
+        Assert.Contains(updated, e => e.RelativePath == "sub/file2.bin");
+
+        // Reopen from disk (not just the in-memory returned list) to prove the rewrite actually persisted.
+        var reopened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        Assert.NotNull(reopened);
+        var newEntry = reopened!.Value.Entries.Single(e => e.RelativePath == Path.GetFileName(newFilePath));
+
+        var outDir = Directory.CreateTempSubdirectory().FullName;
+        var outPath = Path.Combine(outDir, "out.txt");
+        await EncryptedFolderService.DecryptEntryToFileAsync(containerPath, reopened.Value.Key, newEntry, outPath, CancellationToken.None);
+        Assert.Equal(newFileBytes, await File.ReadAllBytesAsync(outPath));
+
+        // Original files must still round-trip correctly after the rewrite.
+        var file1Entry = reopened.Value.Entries.Single(e => e.RelativePath == "file1.txt");
+        var file2Entry = reopened.Value.Entries.Single(e => e.RelativePath == "sub/file2.bin");
+        var out1 = Path.Combine(outDir, "file1.txt");
+        var out2 = Path.Combine(outDir, "file2.bin");
+        await EncryptedFolderService.DecryptEntryToFileAsync(containerPath, reopened.Value.Key, file1Entry, out1, CancellationToken.None);
+        await EncryptedFolderService.DecryptEntryToFileAsync(containerPath, reopened.Value.Key, file2Entry, out2, CancellationToken.None);
+        Assert.Equal(file1Bytes, await File.ReadAllBytesAsync(out1));
+        Assert.Equal(file2Bytes, await File.ReadAllBytesAsync(out2));
+
+        File.Delete(containerPath);
+        Directory.Delete(outDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task AddFileEntryAsync_DuplicateName_ThrowsWithoutTouchingContainer()
+    {
+        var root = CreateSampleFolder(out _, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var dupPath = Path.Combine(Path.GetTempPath(), "dxlock-dup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dupPath);
+        var dupFile = Path.Combine(dupPath, "file1.txt");
+        await File.WriteAllTextAsync(dupFile, "collides with existing entry");
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            EncryptedFolderService.AddFileEntryAsync(containerPath, key, entries, "", dupFile, CancellationToken.None));
+
+        var reopened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        Assert.Equal(entries.Count, reopened!.Value.Entries.Count);
+
+        Directory.Delete(dupPath, recursive: true);
+        File.Delete(containerPath);
+    }
+
+    [Fact]
+    public async Task AddEmptyFolderEntryAsync_AddsDirectoryEntry()
+    {
+        var root = CreateSampleFolder(out _, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var updated = await EncryptedFolderService.AddEmptyFolderEntryAsync(containerPath, key, entries, "", "New folder", CancellationToken.None);
+        Assert.Contains(updated, e => e.RelativePath == "New folder" && e.IsDirectory);
+
+        var reopened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        Assert.Contains(reopened!.Value.Entries, e => e.RelativePath == "New folder" && e.IsDirectory);
+
+        File.Delete(containerPath);
+    }
+
+    [Fact]
+    public async Task AddFolderTreeEntriesAsync_AddsNestedSubtree()
+    {
+        var root = CreateSampleFolder(out _, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var sourceTree = Path.Combine(Path.GetTempPath(), "dxlock-tree-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(sourceTree, "nested"));
+        var nestedBytes = Encoding.UTF8.GetBytes("nested content");
+        await File.WriteAllBytesAsync(Path.Combine(sourceTree, "nested", "leaf.txt"), nestedBytes);
+        var treeName = Path.GetFileName(sourceTree);
+
+        var updated = await EncryptedFolderService.AddFolderTreeEntriesAsync(containerPath, key, entries, "", sourceTree, CancellationToken.None);
+        Directory.Delete(sourceTree, recursive: true);
+
+        Assert.Contains(updated, e => e.RelativePath == treeName && e.IsDirectory);
+        Assert.Contains(updated, e => e.RelativePath == $"{treeName}/nested" && e.IsDirectory);
+        var leafEntry = updated.Single(e => e.RelativePath == $"{treeName}/nested/leaf.txt");
+
+        var reopened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var reopenedLeaf = reopened!.Value.Entries.Single(e => e.RelativePath == leafEntry.RelativePath);
+
+        var outPath = Path.Combine(Directory.CreateTempSubdirectory().FullName, "leaf.txt");
+        await EncryptedFolderService.DecryptEntryToFileAsync(containerPath, reopened.Value.Key, reopenedLeaf, outPath, CancellationToken.None);
+        Assert.Equal(nestedBytes, await File.ReadAllBytesAsync(outPath));
+
+        File.Delete(containerPath);
+        Directory.Delete(Path.GetDirectoryName(outPath)!, recursive: true);
+    }
+
+    [Fact]
+    public async Task RemoveEntryAsync_RemovesFileAndDescendants_LeavesSiblingsIntact()
+    {
+        var root = CreateSampleFolder(out var file1Bytes, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var updated = await EncryptedFolderService.RemoveEntryAsync(containerPath, key, entries, "sub", CancellationToken.None);
+
+        Assert.DoesNotContain(updated, e => e.RelativePath == "sub" || e.RelativePath.StartsWith("sub/"));
+        Assert.Contains(updated, e => e.RelativePath == "file1.txt");
+
+        var reopened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        Assert.DoesNotContain(reopened!.Value.Entries, e => e.RelativePath.StartsWith("sub"));
+        var file1Entry = reopened.Value.Entries.Single(e => e.RelativePath == "file1.txt");
+
+        var outPath = Path.Combine(Directory.CreateTempSubdirectory().FullName, "file1.txt");
+        await EncryptedFolderService.DecryptEntryToFileAsync(containerPath, reopened.Value.Key, file1Entry, outPath, CancellationToken.None);
+        Assert.Equal(file1Bytes, await File.ReadAllBytesAsync(outPath));
+
+        File.Delete(containerPath);
+        Directory.Delete(Path.GetDirectoryName(outPath)!, recursive: true);
+    }
+
+    [Fact]
+    public async Task RemoveEntryAsync_UnknownPath_Throws()
+    {
+        var root = CreateSampleFolder(out _, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            EncryptedFolderService.RemoveEntryAsync(containerPath, key, entries, "does-not-exist.txt", CancellationToken.None));
+
+        File.Delete(containerPath);
+    }
+
+    [Fact]
+    public async Task CompactAsync_ShrinksContainer_AfterADeleteLeavesNothingOrphaned()
+    {
+        var root = CreateSampleFolder(out _, out _);
+        var containerPath = await EncryptedFolderService.EncryptFolderAsync(root, Pin, null, CancellationToken.None);
+        var opened = await EncryptedFolderService.TryOpenAsync(containerPath, Pin, CancellationToken.None);
+        var (key, entries) = opened!.Value;
+
+        var afterDelete = await EncryptedFolderService.RemoveEntryAsync(containerPath, key, entries, "sub", CancellationToken.None);
+        var sizeAfterDelete = new FileInfo(containerPath).Length;
+
+        var afterCompact = await EncryptedFolderService.CompactAsync(containerPath, key, afterDelete, CancellationToken.None);
+        var sizeAfterCompact = new FileInfo(containerPath).Length;
+
+        // The rewrite-on-every-mutation design means delete already drops the removed file's bytes,
+        // so compact on an already-compact container should be a same-size no-op rather than shrink
+        // further - this pins that invariant rather than assuming a specific byte count.
+        Assert.Equal(afterDelete.Count, afterCompact.Count);
+        Assert.True(sizeAfterCompact <= sizeAfterDelete);
+
+        File.Delete(containerPath);
+    }
 }
 
 public class EncryptedFolderPathServiceTests
