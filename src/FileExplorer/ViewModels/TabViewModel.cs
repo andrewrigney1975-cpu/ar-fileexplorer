@@ -131,7 +131,11 @@ public sealed partial class TabViewModel : ObservableObject
         var path = ActivePane.CurrentPath;
         string? name;
 
-        if (RemotePathService.IsRemote(path))
+        if (VirtualFolderPathService.TryParse(path, out var virtualFolderId))
+        {
+            name = VirtualFolderService.Find(virtualFolderId)?.Name;
+        }
+        else if (RemotePathService.IsRemote(path))
         {
             name = RemotePathService.GetFileName(path);
             if (string.IsNullOrEmpty(name) && RemotePathService.TryParse(path, out _, out var connectionId, out _))

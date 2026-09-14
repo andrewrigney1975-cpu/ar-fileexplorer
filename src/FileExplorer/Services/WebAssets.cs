@@ -83,6 +83,50 @@ internal static class WebAssets
             """);
     }
 
+    /// Flat, read-only listing for a virtual folder: <paramref name="members"/> maps an opaque "p="
+    /// id to each member's real absolute path (built once in MediaWebServer.StartVirtual). No
+    /// breadcrumbs/slideshow link - a virtual folder has no real subtree to navigate into.
+    public static string BuildVirtualDirectoryPage(string name, IReadOnlyDictionary<string, string> members, string token)
+    {
+        var entries = new List<object>();
+
+        foreach (var (id, path) in members)
+        {
+            long size = 0;
+            try { size = new FileInfo(path).Length; } catch (IOException) { }
+            entries.Add(new { name = Path.GetFileName(path), kind = Kind(path), p = id, size });
+        }
+
+        var data = JsonSerializer.Serialize(new { token, rel = "", entries });
+
+        return Shell(Html(name), $$"""
+            <div class="topbar">
+              <header>
+                <nav class="crumbs">{{Html(name)}}</nav>
+              </header>
+              <div class="filterbar">
+                <input id="f-name" type="search" placeholder="Filter by name..." autocomplete="off" />
+                <div class="f-size">
+                  <input id="f-size-min" type="number" min="0" step="any" placeholder="Min MB" />
+                  <span class="f-size-sep">–</span>
+                  <input id="f-size-max" type="number" min="0" step="any" placeholder="Max MB" />
+                </div>
+                <div id="f-kinds" class="f-kinds"></div>
+                <span id="f-count" class="f-count"></span>
+              </div>
+            </div>
+            <main id="grid"></main>
+            <div id="lightbox" class="lightbox hidden">
+              <button class="lb-close" data-act="close">✕</button>
+              <button class="lb-nav lb-prev" data-act="prev">‹</button>
+              <button class="lb-nav lb-next" data-act="next">›</button>
+              <div class="lb-stage"></div>
+              <div class="lb-caption"></div>
+            </div>
+            <script>window.__DATA = {{data}};</script>
+            """);
+    }
+
     public static string BuildSlideshowPage(string root, string dir, string rel, IReadOnlyList<string> images, string token)
     {
         var imgData = images.Select(i => new { name = Path.GetFileName(i), p = RelOf(root, i) }).ToList();

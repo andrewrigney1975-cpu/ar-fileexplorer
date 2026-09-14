@@ -38,6 +38,14 @@ public sealed class MediaWebServer
     public int Port { get; private set; }
     public string Token { get; private set; } = string.Empty;
 
+    /// Set only while serving a virtual folder (see StartVirtual) instead of a real Root tree: maps
+    /// opaque "p=" ids to each member's real absolute path. Members that are themselves folders, or
+    /// have gone missing since being added, are left out - this mode is deliberately flat/read-only
+    /// (see the "Virtual Folders" plan's Web Browse v1 scope: real Root's single-physical-tree
+    /// containment check in TryResolvePath can't apply when members span multiple drives/roots).
+    private Dictionary<string, string>? _virtualMembers;
+    private string _virtualName = string.Empty;
+
     /// Supplies thumbnail PNG bytes for /thumb. Wired to ThumbnailCacheService.GetPngBytesAsync at
     /// app startup; left injectable (and null-safe) so this class stays free of any WinUI dependency
     /// and can be integration-tested on its own.
@@ -55,24 +63,62 @@ public sealed class MediaWebServer
         lock (_gate)
         {
             Stop_NoLock();
-
             Root = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar);
-            Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16))
-                .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-
-            var listener = BindListener();
-            Port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            _listener = listener;
-            _cts = new CancellationTokenSource();
-            _lastRequestUtc = DateTime.UtcNow;
-            _idleTimer = new Timer(_ => CheckIdle(), null, IdleTimeout, IdleTimeout);
-            IsRunning = true;
-
-            _ = AcceptLoopAsync(listener, _cts.Token);
+            StartListening_NoLock();
         }
 
         StateChanged?.Invoke(this, EventArgs.Empty);
         LoggingService.LogInfo("MediaWebServer", $"Started on {Url} serving {Root}");
+    }
+
+    /// Serves a virtual folder's member files instead of a real directory tree - a flat, read-only
+    /// listing (no sub-navigation into member folders) since members can span multiple physical
+    /// roots and the ordinary single-Root containment check in TryResolvePath doesn't apply here.
+    public void StartVirtual(string virtualFolderId)
+    {
+        var folder = VirtualFolderService.Find(virtualFolderId);
+        if (folder is null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            Stop_NoLock();
+
+            _virtualName = folder.Name;
+            _virtualMembers = new Dictionary<string, string>(StringComparer.Ordinal);
+            var index = 0;
+            foreach (var path in VirtualFolderService.GetMembers(virtualFolderId))
+            {
+                if (File.Exists(path))
+                {
+                    _virtualMembers[(index++).ToString()] = path;
+                }
+            }
+
+            Root = string.Empty;
+            StartListening_NoLock();
+        }
+
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        LoggingService.LogInfo("MediaWebServer", $"Started on {Url} serving virtual folder '{_virtualName}'");
+    }
+
+    private void StartListening_NoLock()
+    {
+        Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+        var listener = BindListener();
+        Port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        _listener = listener;
+        _cts = new CancellationTokenSource();
+        _lastRequestUtc = DateTime.UtcNow;
+        _idleTimer = new Timer(_ => CheckIdle(), null, IdleTimeout, IdleTimeout);
+        IsRunning = true;
+
+        _ = AcceptLoopAsync(listener, _cts.Token);
     }
 
     public void Stop()
@@ -100,6 +146,8 @@ public sealed class MediaWebServer
         _idleTimer?.Dispose();
         _idleTimer = null;
         IsRunning = false;
+        _virtualMembers = null;
+        _virtualName = string.Empty;
     }
 
     private void CheckIdle()
@@ -300,6 +348,13 @@ public sealed class MediaWebServer
 
     private async Task ServeDirectoryAsync(NetworkStream stream, string rel, CancellationToken ct)
     {
+        if (_virtualMembers is not null)
+        {
+            var virtualHtml = WebAssets.BuildVirtualDirectoryPage(_virtualName, _virtualMembers, Token);
+            await WriteBytesAsync(stream, 200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(virtualHtml), ct);
+            return;
+        }
+
         if (!TryResolveDirectory(rel, out var dir))
         {
             await WriteStatusAsync(stream, 404, "Not Found", ct);
@@ -312,6 +367,12 @@ public sealed class MediaWebServer
 
     private async Task ServeSlideshowAsync(NetworkStream stream, string rel, CancellationToken ct)
     {
+        if (_virtualMembers is not null)
+        {
+            await WriteStatusAsync(stream, 404, "Not Found", ct);
+            return;
+        }
+
         if (!TryResolveDirectory(rel, out var dir))
         {
             await WriteStatusAsync(stream, 404, "Not Found", ct);
@@ -484,6 +545,18 @@ public sealed class MediaWebServer
 
     private bool TryResolvePath(string rel, out string full)
     {
+        if (_virtualMembers is not null)
+        {
+            if (_virtualMembers.TryGetValue(rel ?? string.Empty, out var mapped))
+            {
+                full = mapped;
+                return true;
+            }
+
+            full = string.Empty;
+            return false;
+        }
+
         full = string.Empty;
         try
         {

@@ -147,7 +147,12 @@ public sealed partial class PaneView : UserControl
 
         List<(string Label, string FullPath)> segments;
 
-        if (RemotePathService.TryParse(path, out var scheme, out var connectionId, out _))
+        if (VirtualFolderPathService.TryParse(path, out var virtualFolderId))
+        {
+            var name = VirtualFolderService.Find(virtualFolderId)?.Name ?? "Virtual Folder";
+            segments = new List<(string Label, string FullPath)> { (name, path) };
+        }
+        else if (RemotePathService.TryParse(path, out var scheme, out var connectionId, out _))
         {
             var rootLabel = App.Services.GetRequiredService<IRemoteConnectionService>().Find(connectionId)?.Name ?? connectionId;
             segments = new List<(string Label, string FullPath)> { (rootLabel, RemotePathService.BuildRoot(scheme, connectionId)) };
@@ -1688,6 +1693,7 @@ public sealed partial class PaneView : UserControl
         {
             menu.Items.Add(BuildTagSubMenu(selection));
             menu.Items.Add(BuildRatingSubMenu(selection));
+            menu.Items.Add(BuildVirtualFolderSubMenu(selection.Select(s => s.FullPath).ToList()));
 
             if (BuildRunActionSubMenu(selection.Select(s => s.FullPath).ToList()) is { } runActions)
             {
@@ -1696,6 +1702,20 @@ public sealed partial class PaneView : UserControl
         }
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Delete", "", async () => await DeleteItemsAsync(selection, permanent: false)));
+
+        if (!isRemote && ViewModel is not null && VirtualFolderPathService.TryParse(ViewModel.CurrentPath, out var currentVirtualFolderId))
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(NewMenuItem("Remove from Virtual Folder", string.Empty, () =>
+            {
+                foreach (var item in selection)
+                {
+                    VirtualFolderService.RemoveMember(currentVirtualFolderId, item.FullPath);
+                }
+
+                ViewModel.Refresh();
+            }));
+        }
 
         if (!isRemote) {
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -1776,6 +1796,39 @@ public sealed partial class PaneView : UserControl
         ViewModel?.Refresh();
     }
 
+    /// "Add to Virtual Folder" - existing virtual folders first, then "New Virtual Folder..." to
+    /// create one from this selection on the spot.
+    private MenuFlyoutSubItem BuildVirtualFolderSubMenu(IReadOnlyList<string> paths)
+    {
+        var subMenu = new MenuFlyoutSubItem { Text = "Add to Virtual Folder" };
+
+        foreach (var folder in VirtualFolderService.List())
+        {
+            var item = new MenuFlyoutItem { Text = folder.Name };
+            item.Click += (_, _) => VirtualFolderService.AddMembers(folder.Id, paths);
+            subMenu.Items.Add(item);
+        }
+
+        if (subMenu.Items.Count > 0)
+        {
+            subMenu.Items.Add(new MenuFlyoutSeparator());
+        }
+
+        var newFolder = new MenuFlyoutItem { Text = "New Virtual Folder..." };
+        newFolder.Click += async (_, _) => await CreateVirtualFolderFromSelectionAsync(paths);
+        subMenu.Items.Add(newFolder);
+
+        return subMenu;
+    }
+
+    private async Task CreateVirtualFolderFromSelectionAsync(IReadOnlyList<string> paths)
+    {
+        if (await VirtualFolderDialogs.CreateAsync(XamlRoot) is { } folder)
+        {
+            VirtualFolderService.AddMembers(folder.Id, paths);
+        }
+    }
+
     /// Cheap check for the "Slideshow..." menu item - stops at the first image in the folder.
     private static bool FolderHasImages(string folderPath)
     {
@@ -1820,6 +1873,11 @@ public sealed partial class PaneView : UserControl
 
     private MenuFlyout BuildEmptySpaceContextMenu()
     {
+        if (ViewModel is not null && VirtualFolderPathService.TryParse(ViewModel.CurrentPath, out var virtualFolderId))
+        {
+            return BuildVirtualFolderEmptySpaceContextMenu(virtualFolderId);
+        }
+
         var menu = new MenuFlyout();
         var paste = NewMenuItem("Paste", "", () => FileClipboardService.Instance.PasteInto(ViewModel!.CurrentPath));
         paste.IsEnabled = FileClipboardService.Instance.HasContent;
@@ -1848,6 +1906,55 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", "", () => ViewModel?.Refresh()));
         return menu;
+    }
+
+    /// A virtual folder's root has no real directory behind it, so most of the ordinary empty-space
+    /// actions (Paste, New folder, Find Duplicates, Analyse Folder, ...) don't apply here.
+    private MenuFlyout BuildVirtualFolderEmptySpaceContextMenu(string virtualFolderId)
+    {
+        var menu = new MenuFlyout();
+
+        if (SettingsService.Current.EnableWebBrowse)
+        {
+            menu.Items.Add(NewMenuItem("Web Browse This Virtual Folder...", string.Empty,
+                () => WebBrowseRequested?.Invoke(this, ViewModel!.CurrentPath)));
+        }
+
+        menu.Items.Add(NewMenuItem("Rename Virtual Folder...", string.Empty, async () => await RenameVirtualFolderAsync(virtualFolderId)));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Delete Virtual Folder", string.Empty, () =>
+        {
+            VirtualFolderService.Delete(virtualFolderId);
+            ViewModel?.NavigateTo(MainViewModel.GetDefaultStartPath());
+        }));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Refresh", string.Empty, () => ViewModel?.Refresh()));
+        return menu;
+    }
+
+    private async Task RenameVirtualFolderAsync(string virtualFolderId)
+    {
+        var folder = VirtualFolderService.Find(virtualFolderId);
+        if (folder is null)
+        {
+            return;
+        }
+
+        var nameBox = new TextBox { Text = folder.Name };
+        var dialog = new ContentDialog
+        {
+            Title = "Rename Virtual Folder",
+            Content = nameBox,
+            PrimaryButtonText = "Rename",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(nameBox.Text))
+        {
+            VirtualFolderService.Rename(virtualFolderId, nameBox.Text.Trim());
+        }
     }
 
     private async void CreateNewFolderHere()
