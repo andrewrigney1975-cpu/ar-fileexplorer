@@ -331,6 +331,12 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Row="0" Text="This PC" FontWeight="SemiBold" Margin="12,10,12,4" />
                 <TreeView x:Name="DriveTree" Grid.Row="1" Margin="4,0,4,4"
@@ -462,9 +468,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="8" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="14" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="9" Background="Transparent" Margin="4,4,8,4" Tapped="NetworkLocationsHeader_Tapped">
+                <Grid Grid.Row="15" Background="Transparent" Margin="4,4,8,4" Tapped="NetworkLocationsHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -488,7 +494,7 @@
                     </Button>
                 </Grid>
 
-                <ListView Grid.Row="10" x:Name="NetworkLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="16" x:Name="NetworkLocationsList" Margin="4,0,4,4" MaxHeight="200"
                           AutomationProperties.Name="Network locations list"
                           SelectionMode="None" ItemClick="NetworkLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
@@ -514,9 +520,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="11" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="17" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="12" Background="Transparent" Margin="4,4,8,4" Tapped="CloudLocationsHeader_Tapped">
+                <Grid Grid.Row="18" Background="Transparent" Margin="4,4,8,4" Tapped="CloudLocationsHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -526,7 +532,7 @@
                     <TextBlock Grid.Column="1" Text="Cloud Storage" FontWeight="SemiBold" VerticalAlignment="Center" />
                 </Grid>
 
-                <ListView Grid.Row="13" x:Name="CloudLocationsList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="19" x:Name="CloudLocationsList" Margin="4,0,4,4" MaxHeight="200"
                           AutomationProperties.Name="Cloud storage locations list"
                           SelectionMode="None" ItemClick="CloudLocationsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
@@ -540,9 +546,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="14" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="20" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="15" Background="Transparent" Margin="4,4,8,4" Tapped="RemoteConnectionsHeader_Tapped">
+                <Grid Grid.Row="21" Background="Transparent" Margin="4,4,8,4" Tapped="RemoteConnectionsHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -559,7 +565,7 @@
                     </Button>
                 </Grid>
 
-                <ListView Grid.Row="16" x:Name="RemoteConnectionsList" Margin="4,0,4,4" MaxHeight="200"
+                <ListView Grid.Row="22" x:Name="RemoteConnectionsList" Margin="4,0,4,4" MaxHeight="200"
                           AutomationProperties.Name="Remote connections list"
                           SelectionMode="None" ItemClick="RemoteConnectionsList_ItemClick" IsItemClickEnabled="True">
                     <ListView.ItemTemplate>
@@ -585,9 +591,9 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <Rectangle Grid.Row="17" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                <Rectangle Grid.Row="23" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                <Grid Grid.Row="18" Background="Transparent" Margin="4,4,8,4" Tapped="DiskActivityHeader_Tapped">
+                <Grid Grid.Row="24" Background="Transparent" Margin="4,4,8,4" Tapped="DiskActivityHeader_Tapped">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -600,12 +606,110 @@
                 <!-- No numeric readout by design - purely a glance-able "something is happening"
                      indicator, aggregated across every drive; the full per-drive breakdown with
                      numbers lives in the Disk Activity Monitor dialog (toolbar icon). -->
-                <Border Grid.Row="19" x:Name="RailDiskActivityHost" Height="48" Margin="8,0,8,8" CornerRadius="4"
+                <Border Grid.Row="25" x:Name="RailDiskActivityHost" Height="48" Margin="8,0,8,8" CornerRadius="4"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         SizeChanged="RailDiskActivityHost_SizeChanged">
                     <Canvas x:Name="RailDiskActivityCanvas" AutomationProperties.Name="Aggregated disk activity" />
                 </Border>
+
+                <Rectangle Grid.Row="8" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <Grid Grid.Row="9" Background="Transparent" Margin="4,4,8,4" Tapped="VirtualFoldersHeader_Tapped">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="VirtualFoldersChevron" Grid.Column="0" Glyph="&#xE70D;" FontSize="10"
+                              Margin="4,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="Virtual Folders" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
+                            Click="AddVirtualFolderButton_Click"
+                            AutomationProperties.Name="New virtual folder"
+                            ToolTipService.ToolTip="New Virtual Folder...">
+                        <FontIcon Glyph="&#xE710;" FontSize="12" />
+                    </Button>
+                </Grid>
+
+                <ListView Grid.Row="10" x:Name="VirtualFoldersList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Virtual folders list"
+                          SelectionMode="None" ItemClick="VirtualFoldersList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xE8B7;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <FontIcon Glyph="&#xF4A9;" FontSize="8" FontFamily="Segoe Fluent Icons"
+                                                  Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                  Margin="0,0,-2,-2" />
+                                    </Grid>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RemoveVirtualFolderButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Delete virtual folder"
+                                        ToolTipService.ToolTip="Delete">
+                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <Rectangle Grid.Row="11" Height="1" Margin="8,4" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                <!-- Collapsed by design at the start of every session - PrivateVirtualFoldersList's
+                     Visibility is never set from saved state, only from a successful PIN entry
+                     (see MainWindow.xaml.cs PrivateVirtualFoldersHeader_Tapped). -->
+                <Grid Grid.Row="12" Background="Transparent" Margin="4,4,8,4" Tapped="PrivateVirtualFoldersHeader_Tapped">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="PrivateVirtualFoldersChevron" Grid.Column="0" Glyph="&#xE72E;" FontSize="10"
+                              Margin="4,0,6,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="Private Virtual Folders" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </Grid>
+
+                <ListView Grid.Row="13" x:Name="PrivateVirtualFoldersList" Margin="4,0,4,4" MaxHeight="200"
+                          AutomationProperties.Name="Private virtual folders list" Visibility="Collapsed"
+                          SelectionMode="None" ItemClick="VirtualFoldersList_ItemClick" IsItemClickEnabled="True">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xE8B7;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <FontIcon Glyph="&#xF4A9;" FontSize="8" FontFamily="Segoe Fluent Icons"
+                                                  Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                  Margin="0,0,-2,-2" />
+                                    </Grid>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RemoveVirtualFolderButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Delete virtual folder"
+                                        ToolTipService.ToolTip="Delete">
+                                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </Grid>
 
             <!-- Rail splitter -->

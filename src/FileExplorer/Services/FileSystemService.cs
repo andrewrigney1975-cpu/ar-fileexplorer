@@ -43,6 +43,11 @@ public sealed class FileSystemService : IFileSystemService
     /// flow before any navigation into that connection happens.
     public Task<List<FileSystemItem>> GetItemsAsync(string path, CancellationToken cancellationToken, bool bypassCache = false)
     {
+        if (VirtualFolderPathService.TryParse(path, out var virtualFolderId))
+        {
+            return GetVirtualFolderItemsAsync(virtualFolderId, cancellationToken);
+        }
+
         if (RemotePathService.IsRemote(path))
         {
             return GetRemoteItemsAsync(path, cancellationToken);
@@ -91,6 +96,60 @@ public sealed class FileSystemService : IFileSystemService
                 Extension = e.IsDirectory ? string.Empty : Path.GetExtension(e.Name),
             })
             .ToList();
+    }
+
+    /// A virtual folder has no real subtree to enumerate - each member path is stat-ed individually,
+    /// and a member that no longer exists (moved/deleted since being added) is silently skipped, the
+    /// same convention GetItems uses for ACL-denied entries.
+    private static Task<List<FileSystemItem>> GetVirtualFolderItemsAsync(string virtualFolderId, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            var items = new List<FileSystemItem>();
+
+            foreach (var path in VirtualFolderService.GetMembers(virtualFolderId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    if (Directory.Exists(path))
+                    {
+                        var info = new DirectoryInfo(path);
+                        items.Add(new FileSystemItem
+                        {
+                            Name = info.Name,
+                            FullPath = info.FullName,
+                            IsDirectory = true,
+                            Modified = info.LastWriteTimeUtc,
+                            Attributes = info.Attributes,
+                            TagColor = TagService.GetColor(info.FullName),
+                            CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
+                        });
+                    }
+                    else if (File.Exists(path))
+                    {
+                        var info = new FileInfo(path);
+                        items.Add(new FileSystemItem
+                        {
+                            Name = info.Name,
+                            FullPath = info.FullName,
+                            IsDirectory = false,
+                            SizeBytes = info.Length,
+                            Modified = info.LastWriteTimeUtc,
+                            Extension = info.Extension,
+                            Attributes = info.Attributes,
+                            TagColor = TagService.GetColor(info.FullName),
+                            CloudBadge = CloudProviderService.GetBadgeGlyph(info.FullName),
+                        });
+                    }
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { }
+            }
+
+            RatingService.ResolveListing(string.Empty, items);
+            return items;
+        }, cancellationToken);
     }
 
     public IReadOnlyList<DriveInfo> GetReadyDrives()

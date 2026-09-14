@@ -53,6 +53,12 @@ public sealed partial class MainWindow : Window
         PopulateCloudLocations();
         PopulateFavourites();
         FavouriteService.Changed += (_, _) => DispatcherQueue.TryEnqueue(PopulateFavourites);
+        PopulateVirtualFolders();
+        VirtualFolderService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            PopulateVirtualFolders();
+            _viewModel.RefreshAllPanes();
+        });
         SubscribeToActiveTab(_viewModel.SelectedTab);
         SubscribeSyncDropdown(_viewModel.SelectedTab);
         SyncTaskService.Changed += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -731,6 +737,29 @@ public sealed partial class MainWindow : Window
     private void DiskActivityHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
         ToggleSection(DiskActivityChevron, RailDiskActivityHost);
 
+    private void VirtualFoldersHeader_Tapped(object sender, TappedRoutedEventArgs e) =>
+        ToggleSection(VirtualFoldersChevron, VirtualFoldersList);
+
+    /// True once the user has entered the correct PIN this session - never persisted, so the
+    /// section is always locked and collapsed again at the start of every new session (per the
+    /// "Private Virtual Folders" design: the PIN gate itself, not just the collapsed state, resets).
+    private bool _privateVirtualFoldersUnlocked;
+
+    private async void PrivateVirtualFoldersHeader_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (!_privateVirtualFoldersUnlocked)
+        {
+            if (!await VirtualFolderDialogs.UnlockPrivateSectionAsync(Content.XamlRoot))
+            {
+                return;
+            }
+
+            _privateVirtualFoldersUnlocked = true;
+        }
+
+        ToggleSection(PrivateVirtualFoldersChevron, PrivateVirtualFoldersList);
+    }
+
     // ----- Favourites (left rail) -----
 
     private void PopulateFavourites()
@@ -776,6 +805,36 @@ public sealed partial class MainWindow : Window
 
         var name = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar));
         FavouriteService.Add(new FavouriteLocation(string.IsNullOrEmpty(name) ? path : name, path));
+    }
+
+    // ----- Virtual folders (left rail) -----
+
+    private void PopulateVirtualFolders()
+    {
+        var all = VirtualFolderService.List();
+        VirtualFoldersList.ItemsSource = all.Where(f => !f.IsPrivate).ToList();
+        PrivateVirtualFoldersList.ItemsSource = all.Where(f => f.IsPrivate).ToList();
+    }
+
+    private async void AddVirtualFolderButton_Click(object sender, RoutedEventArgs e) =>
+        await VirtualFolderDialogs.CreateAsync(Content.XamlRoot);
+
+    private void VirtualFoldersList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not VirtualFolder folder || _viewModel.SelectedTab is not { } tab)
+        {
+            return;
+        }
+
+        tab.ActivePane.NavigateTo(VirtualFolderPathService.BuildPath(folder.Id));
+    }
+
+    private void RemoveVirtualFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: VirtualFolder folder })
+        {
+            VirtualFolderService.Delete(folder.Id);
+        }
     }
 
     // ----- Saved searches (left rail) -----
@@ -1568,7 +1627,14 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            MediaWebServer.Instance.Start(folderPath);
+            if (VirtualFolderPathService.TryParse(folderPath, out var virtualFolderId))
+            {
+                MediaWebServer.Instance.StartVirtual(virtualFolderId);
+            }
+            else
+            {
+                MediaWebServer.Instance.Start(folderPath);
+            }
         }
         catch (Exception ex)
         {
@@ -1589,6 +1655,9 @@ public sealed partial class MainWindow : Window
     private async Task ShowWebServerDialogAsync(string folderPath)
     {
         var server = MediaWebServer.Instance;
+        var displayName = VirtualFolderPathService.TryParse(folderPath, out var virtualFolderId)
+            ? $"virtual folder \"{VirtualFolderService.Find(virtualFolderId)?.Name}\""
+            : folderPath;
 
         var lanUrl = new TextBox
         {
@@ -1622,7 +1691,7 @@ public sealed partial class MainWindow : Window
                 {
                     new TextBlock
                     {
-                        Text = $"Serving {folderPath} to your network. Open this link on another device on the " +
+                        Text = $"Serving {displayName} to your network. Open this link on another device on the " +
                                "same network (phone, tablet, other PC). The link contains an access key - anyone " +
                                "with it can browse and download from this folder over plain HTTP while the server " +
                                "runs. It stops on exit, after 30 minutes idle, or with Stop server.",

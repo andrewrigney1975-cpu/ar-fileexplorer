@@ -105,14 +105,17 @@ public sealed partial class PaneViewModel : ObservableObject
         ApplyFilter();
     }
 
-    public bool CanNavigateUp => RemotePathService.GetParent(CurrentPath) is not null;
+    /// A virtual folder is always a top-level location (it aggregates paths rather than containing a
+    /// real subtree), so it never has a parent to navigate up to.
+    public bool CanNavigateUp => !VirtualFolderPathService.IsVirtual(CurrentPath) && RemotePathService.GetParent(CurrentPath) is not null;
 
     /// Feeds FolderVisitService, which MainWindow uses on startup to pre-warm the listing cache for
-    /// whichever folders the user actually navigates into most - remote paths are excluded since
-    /// pre-warming those would mean a network round-trip on every app launch for no guaranteed payoff.
+    /// whichever folders the user actually navigates into most - remote and virtual-folder paths are
+    /// excluded (remote: a network round-trip on every app launch for no guaranteed payoff; virtual:
+    /// not a real path FolderVisitService could pre-warm).
     private static void RecordVisitIfLocal(string path)
     {
-        if (!RemotePathService.IsRemote(path))
+        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path))
         {
             FolderVisitService.RecordVisit(path);
         }
@@ -123,7 +126,7 @@ public sealed partial class PaneViewModel : ObservableObject
         // Remote existence isn't checked here (that would block this UI-thread call on a network
         // round-trip) - LoadAsync() below is the source of truth instead, surfacing a failure via
         // LoadError without touching CurrentPath/history if the remote listing fails.
-        if (!RemotePathService.IsRemote(path) && !Directory.Exists(path))
+        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path) && !Directory.Exists(path))
         {
             return;
         }

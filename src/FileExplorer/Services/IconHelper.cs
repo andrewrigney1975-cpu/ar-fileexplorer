@@ -5,6 +5,9 @@ public static class IconHelper
 {
     public const string Folder = "\uE8B7";
     public const string FolderOpen = "\uE838";
+
+    /// "Sparkle" - the small AI badge glyph overlaid on a virtual folder's icon.
+    public const string VirtualFolderGlint = "\uF4A9";
     public const string Drive = "\uEDA2";
     public const string NetworkDrive = "\uE968";
     public const string GenericFile = "\uE8A5";

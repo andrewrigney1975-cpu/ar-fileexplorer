@@ -19,7 +19,7 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - The active tab's panes also auto-refresh whenever the app window regains focus (Alt-Tab back to it, click it after using another program), for the same reason - picks up files added/changed/removed elsewhere while the app was in the background
 - Folder listings are cached in memory for 5 minutes, so revisiting a folder (back/forward, re-navigating into it) is instant instead of re-scanning the disk; a folder with an active folder watch (see Automation, below) is invalidated the moment a new file lands in it, and the toolbar Refresh button (or focus-regain auto-refresh above) always bypasses the cache for a live re-scan. Turn off from Control Centre → Preferences
 - Command palette (`Ctrl+K`) for navigation, view switching, running actions by name, and opening the Control Centre; a persistent "Command Palette (Ctrl+K)" bar sits top-center of the toolbar as a discoverable, clickable entry point to the same popup
-- Collapsible left-rail sections (Favourites, Saved Searches, Network Locations, Cloud Storage), VS Code style
+- Collapsible left-rail sections (Favourites, Saved Searches, Virtual Folders, Private Virtual Folders, Network Locations, Cloud Storage), VS Code style
 - Favourites: pin any folder from the left rail's own `+` button or a folder's context menu ("Add to Favourites"), click to navigate, `−` to unpin
 - Custom title bar: app content (and its Mica backdrop) extends up into the OS caption area, with theme-matched caption buttons, so the window frame reads as one continuous surface
 
@@ -106,8 +106,19 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Cloud storage: auto-detects OneDrive, Google Drive, Dropbox, and Box **local sync folders** and pins them to the left rail, with online-only/always-available status badges on files inside them. This reads what each provider's desktop client already mirrors locally — it does **not** use any provider's web API, so no accounts, OAuth, or credentials are involved.
 - FTP, FTPS (explicit), and SFTP: a "Remote Connections" left-rail section (its own "+" button) saves connection profiles (name, protocol, host, port, username — **passwords are never saved to disk**, prompted fresh each time you connect and kept in memory only for that session); clicking a saved connection browses it as a first-class location in the normal dual-pane view, with a working breadcrumb, double-click navigation into subfolders, rename/delete/new folder, and Checksum (which reads the remote file as a stream, no local temp file). Upload and download run through the same File Operations queue/progress UI as any local copy, in either direction — drag-and-drop or Cut/Copy/Paste between a remote pane and a local one both work, including the usual Overwrite/Skip/Rename/Cancel collision dialog (an Overwrite against a remote destination is explicitly called out as permanent, since there's no remote Recycle Bin). SFTP host keys are pinned trust-on-first-use (a later mismatch is a hard failure, never silently re-accepted) via [SSH.NET](https://github.com/sshnet/SSH.NET); FTP/FTPS via [FluentFTP](https://github.com/robinrodricks/FluentFTP). **Not supported (deliberate v1 scope, not oversights):** transferring directly between two remote connections (download to a local folder first, then upload from there); Undo for anything touching a remote location; thumbnails, symbolic link/junction creation, folder watch, folder sync tasks, colour tags, and the Properties dialog for remote items (all local-only, hidden from a remote item's context menu); and restoring a remote pane location across app restarts (falls back to that pane's local default).
 
+### Virtual Folders
+- Virtual Folders group any mix of files/folders from anywhere on disk — even across drives — into a single named collection that browses like a real folder, without moving or copying anything; membership just references the original paths
+- Left rail section (below Saved Searches): its `+` button opens "New Virtual Folder...", and right-clicking any selection anywhere (any pane, any file/folder type) offers "Add to Virtual Folder ▸" to add it to an existing one or create a new one on the spot; click a virtual folder in the rail to open it, its trash icon deletes the collection entirely (the original files are never touched)
+- Once open, empty-space right-click offers Rename, Delete, and (if Web Browse is enabled) "Web Browse This Virtual Folder..." instead of the usual folder actions — Paste, New folder, Find Duplicates, Analyse Folder, and folder sync/watch don't apply to a members list rather than a real directory; from inside one, "Remove from Virtual Folder" is available alongside the ordinary file-selection context menu
+- Shown with a small "AI glint" badge over the folder icon in the rail, so a virtual folder reads as distinct from a real one at a glance
+- **Private Virtual Folders**: check "Private" when creating one to put it in a separate, PIN-gated rail section instead of the regular one. The first time you mark a folder private, you're asked to set a PIN (stored locally as a salted hash — there's no recovery if it's forgotten); after that, expanding the "Private Virtual Folders" section requires that PIN. Once unlocked it stays open for the rest of the session, but the section is always collapsed and re-locked the next time the app starts — the unlocked state is never persisted
+- Web Browse works for virtual folders too (see below): a flat, read-only listing of the collection's member files, since members can span multiple physical drives and the server's usual single-folder containment guarantee doesn't apply there
+- Not indexed by Search Everywhere: a member file is still found by name if its real location happens to be an indexed root, but there's no "search by virtual folder name" or "search only inside this virtual folder" yet, and **private virtual folders are deliberately excluded from any such indexing/search when it's added** — a name or membership list under the PIN-gated section should never leak into an unlocked search result
+
 ### Web browsing (LAN media server)
 Right-click a folder → **"Web Browse From Here..."** starts a small embedded HTTP server that serves *that one folder tree* so you can browse its media from a phone, tablet, or another PC on the same network. It renders a directory page — a CSS-column **masonry** grid (photos pack at their real aspect ratio; folders/video/audio/other stay fixed-square, since their thumbnail is a generic representative rather than the item itself) with a filter bar above it (name substring, size range in MB, and kind checkboxes auto-built from whichever of folder/image/video/audio/other are actually present in that folder — all filtering is client-side over the already-loaded listing, no extra requests) — a click-to-open lightbox with arrow-key navigation that respects the current filter (a Quick Look analogue), and a "Show folder as slideshow" page that mirrors the native slideshow — big image, arrow/PageUp-Down/Home/End keys, a thumbnail strip that scrolls to track position. `/file` responses honour HTTP `Range`, so videos seek. Thumbnails reuse the app's own on-disk thumbnail cache.
+
+A [Virtual Folder](#virtual-folders) can be Web Browsed the same way ("Web Browse This Virtual Folder..." from its empty-space context menu), but serves a **flat, read-only** listing of just its member files instead of a real directory tree — no sub-navigation into a member's own subfolders, and no slideshow page — since members can live on different physical drives and the server's usual single-folder containment guarantee can't apply across them.
 
 This is the deliberate, tightly-guarded exception to the "no local HTTP server" stance behind [Browser Integration](#search--organization) above — it only ships with **all** of these:
 
@@ -231,10 +242,10 @@ Two xUnit projects under `tests/`, split by whether the code under test needs Wi
 ```
 src/FileExplorer/
   Models/        Data records (FileSystemItem, FolderNode, TabState, SavedSearch, SyncRole,
-                 RemoteConnection, RemoteProtocol, ...)
+                 RemoteConnection, RemoteProtocol, VirtualFolder, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
   Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, AutomationDialog,
-                 ControlCentreDialog, PropertiesDialog (XAML + code-behind)
+                 ControlCentreDialog, PropertiesDialog, VirtualFolderDialogs (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
@@ -243,11 +254,13 @@ src/FileExplorer/
                  thumbnail caching/generation (ThumbnailCacheService), image metadata/EXIF
                  reading (ImageMetadataService), AVIF decoding (AvifImageService),
                  collision prompts (FileCollisionService), Favourites (FavouriteService),
-                 user preferences/feature toggles (SettingsService), symbolic link/junction
-                 detection and creation (ReparsePointService), network drive mapping
-                 (NetworkDriveService), FTP/FTPS/SFTP remote connections
-                 (RemoteConnectionService, RemoteHostKeyStore, RemoteSessionManager,
-                 RemotePathService, IRemoteFileSystem + SftpFileSystem/FtpFileSystem adapters)
+                 Virtual Folders + private-section PIN (VirtualFolderService,
+                 VirtualFolderPathService), user preferences/feature toggles
+                 (SettingsService), symbolic link/junction detection and creation
+                 (ReparsePointService), network drive mapping (NetworkDriveService),
+                 FTP/FTPS/SFTP remote connections (RemoteConnectionService,
+                 RemoteHostKeyStore, RemoteSessionManager, RemotePathService,
+                 IRemoteFileSystem + SftpFileSystem/FtpFileSystem adapters)
   Converters/    XAML value converters
   Helpers/       ObservableObject/RelayCommand (hand-rolled MVVM base), FuzzyMatcher,
                  SyntaxHighlighter (preview-pane code coloring), AppVersionInfo
