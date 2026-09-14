@@ -21,6 +21,11 @@ public sealed partial class FileSystemItem : ObservableObject
     /// skipped for these - see RemotePathService for the "scheme://connectionId/path" shape.
     public bool IsRemote => RemotePathService.IsRemote(FullPath);
 
+    /// True for an item browsed out of an unlocked encrypted folder container rather than the real
+    /// filesystem - see EncryptedFolderPathService. Delete has no Recycle Bin equivalent here, same
+    /// as IsRemote above.
+    public bool IsEncryptedFolderContent => EncryptedFolderPathService.IsEncrypted(FullPath);
+
     /// None unless Attributes has ReparsePoint set. Set by FileSystemService on load.
     public ReparsePointKind LinkKind { get; init; } = ReparsePointKind.None;
 

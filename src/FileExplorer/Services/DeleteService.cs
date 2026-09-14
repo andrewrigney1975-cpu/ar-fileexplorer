@@ -21,15 +21,22 @@ public static class DeleteService
         }
 
         var hasRemote = items.Any(i => i.IsRemote);
+        var hasEncrypted = items.Any(i => i.IsEncryptedFolderContent);
 
-        if (permanent || hasRemote)
+        if (permanent || hasRemote || hasEncrypted)
         {
+            var noRecycleBinReason = hasRemote && hasEncrypted
+                ? "a remote connection or an encrypted folder"
+                : hasRemote
+                    ? "a remote connection"
+                    : "an encrypted folder";
+
             var dialog = new ContentDialog
             {
                 XamlRoot = xamlRoot,
                 Title = "Delete permanently?",
-                Content = hasRemote
-                    ? $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently - there is no Recycle Bin for a remote connection. This can't be undone."
+                Content = hasRemote || hasEncrypted
+                    ? $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently - there is no Recycle Bin for {noRecycleBinReason}. This can't be undone."
                     : $"{items.Count} item{(items.Count == 1 ? "" : "s")} will be deleted permanently. This can't be undone.",
                 PrimaryButtonText = "Delete",
                 CloseButtonText = "Cancel",
@@ -42,7 +49,7 @@ public static class DeleteService
             }
         }
 
-        var paths = items.Where(i => !i.IsRemote).Select(i => i.FullPath).ToList();
+        var paths = items.Where(i => !i.IsRemote && !i.IsEncryptedFolderContent).Select(i => i.FullPath).ToList();
         var failures = new List<(string Path, string Error)>();
 
         await Task.Run(() =>
@@ -92,6 +99,25 @@ public static class DeleteService
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                failures.Add((item.FullPath, ex.Message));
+            }
+        }
+
+        // No Undo support for encrypted-folder delete either - same reasoning as remote above, and
+        // every mutation already rewrites the whole container, so there's no cheap way to "restore".
+        foreach (var item in items.Where(i => i.IsEncryptedFolderContent))
+        {
+            if (!EncryptedFolderPathService.TryParse(item.FullPath, out var containerPath, out var relativePath))
+            {
+                continue;
+            }
+
+            try
+            {
+                await EncryptedFolderSession.DeleteEntryAsync(containerPath, relativePath, token);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 failures.Add((item.FullPath, ex.Message));
             }
