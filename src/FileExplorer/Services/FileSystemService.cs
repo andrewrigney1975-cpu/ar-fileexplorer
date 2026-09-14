@@ -48,6 +48,11 @@ public sealed class FileSystemService : IFileSystemService
             return GetVirtualFolderItemsAsync(virtualFolderId, cancellationToken);
         }
 
+        if (EncryptedFolderPathService.TryParse(path, out var containerPath, out var relativePath))
+        {
+            return Task.FromResult(EncryptedFolderSession.GetChildren(containerPath, relativePath));
+        }
+
         if (RemotePathService.IsRemote(path))
         {
             return GetRemoteItemsAsync(path, cancellationToken);

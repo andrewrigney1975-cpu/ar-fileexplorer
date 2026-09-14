@@ -135,6 +135,10 @@ public sealed partial class TabViewModel : ObservableObject
         {
             name = VirtualFolderService.Find(virtualFolderId)?.Name;
         }
+        else if (EncryptedFolderPathService.IsEncrypted(path))
+        {
+            name = EncryptedFolderPathService.GetFileName(path);
+        }
         else if (RemotePathService.IsRemote(path))
         {
             name = RemotePathService.GetFileName(path);

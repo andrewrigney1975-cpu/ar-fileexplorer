@@ -106,16 +106,21 @@ public sealed partial class PaneViewModel : ObservableObject
     }
 
     /// A virtual folder is always a top-level location (it aggregates paths rather than containing a
-    /// real subtree), so it never has a parent to navigate up to.
-    public bool CanNavigateUp => !VirtualFolderPathService.IsVirtual(CurrentPath) && RemotePathService.GetParent(CurrentPath) is not null;
+    /// real subtree), so it never has a parent to navigate up to. An encrypted folder does preserve
+    /// real subfolder structure, so it uses the same GetParent dispatch a remote path does.
+    public bool CanNavigateUp => !VirtualFolderPathService.IsVirtual(CurrentPath) && GetParentAnyScheme(CurrentPath) is not null;
+
+    private static string? GetParentAnyScheme(string path) =>
+        EncryptedFolderPathService.IsEncrypted(path) ? EncryptedFolderPathService.GetParent(path) : RemotePathService.GetParent(path);
 
     /// Feeds FolderVisitService, which MainWindow uses on startup to pre-warm the listing cache for
-    /// whichever folders the user actually navigates into most - remote and virtual-folder paths are
-    /// excluded (remote: a network round-trip on every app launch for no guaranteed payoff; virtual:
-    /// not a real path FolderVisitService could pre-warm).
+    /// whichever folders the user actually navigates into most - remote, virtual-folder, and
+    /// encrypted-folder paths are all excluded (none are real paths FolderVisitService could
+    /// pre-warm, and remote additionally means a network round-trip on every app launch for no
+    /// guaranteed payoff).
     private static void RecordVisitIfLocal(string path)
     {
-        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path))
+        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path) && !EncryptedFolderPathService.IsEncrypted(path))
         {
             FolderVisitService.RecordVisit(path);
         }
@@ -125,8 +130,10 @@ public sealed partial class PaneViewModel : ObservableObject
     {
         // Remote existence isn't checked here (that would block this UI-thread call on a network
         // round-trip) - LoadAsync() below is the source of truth instead, surfacing a failure via
-        // LoadError without touching CurrentPath/history if the remote listing fails.
-        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path) && !Directory.Exists(path))
+        // LoadError without touching CurrentPath/history if the remote listing fails. Same reasoning
+        // for an encrypted folder: whether it's actually unlocked is discovered by LoadAsync too.
+        if (!RemotePathService.IsRemote(path) && !VirtualFolderPathService.IsVirtual(path) &&
+            !EncryptedFolderPathService.IsEncrypted(path) && !Directory.Exists(path))
         {
             return;
         }
@@ -148,7 +155,7 @@ public sealed partial class PaneViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanNavigateUp))]
     public void NavigateUp()
     {
-        var parent = RemotePathService.GetParent(CurrentPath);
+        var parent = GetParentAnyScheme(CurrentPath);
         if (parent is not null)
         {
             NavigateTo(parent);

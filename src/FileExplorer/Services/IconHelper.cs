@@ -8,6 +8,9 @@ public static class IconHelper
 
     /// "Sparkle" - the small AI badge glyph overlaid on a virtual folder's icon.
     public const string VirtualFolderGlint = "\uF4A9";
+
+    /// "Lock" - shown for a real, on-disk encrypted folder container (EncryptedFolderService.ContainerExtension).
+    public const string Lock = "\uE72E";
     public const string Drive = "\uEDA2";
     public const string NetworkDrive = "\uE968";
     public const string GenericFile = "\uE8A5";
@@ -52,6 +55,7 @@ public static class IconHelper
 
     public static string GlyphFor(string extension)
     {
+        if (string.Equals(extension, EncryptedFolderService.ContainerExtension, StringComparison.OrdinalIgnoreCase)) return Lock;
         if (ImageExt.Contains(extension)) return Image;
         if (AudioExt.Contains(extension)) return Audio;
         if (VideoExt.Contains(extension)) return Video;

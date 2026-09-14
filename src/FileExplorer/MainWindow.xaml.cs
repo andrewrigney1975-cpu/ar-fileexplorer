@@ -149,6 +149,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             MediaWebServer.Instance.Stop();
+            EncryptedFolderSession.LockAll();
             _viewModel.SaveSession();
             var width = PreviewColumn.ActualWidth > 0 ? PreviewColumn.ActualWidth : _previewExpandedWidth;
             var railWidth = RailColumn.ActualWidth > 0 ? RailColumn.ActualWidth : (double?)null;
