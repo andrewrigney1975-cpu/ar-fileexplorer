@@ -152,6 +152,12 @@ public sealed partial class PaneView : UserControl
             var name = VirtualFolderService.Find(virtualFolderId)?.Name ?? "Virtual Folder";
             segments = new List<(string Label, string FullPath)> { (name, path) };
         }
+        else if (EncryptedFolderPathService.TryParse(path, out var containerPath, out _))
+        {
+            var rootLabel = EncryptedFolderPathService.GetFileName(EncryptedFolderPathService.BuildRoot(containerPath));
+            segments = new List<(string Label, string FullPath)> { (rootLabel, EncryptedFolderPathService.BuildRoot(containerPath)) };
+            segments.AddRange(EncryptedFolderPathService.GetBreadcrumbSegments(path).Select(s => (s.Name, s.Path)));
+        }
         else if (RemotePathService.TryParse(path, out var scheme, out var connectionId, out _))
         {
             var rootLabel = App.Services.GetRequiredService<IRemoteConnectionService>().Find(connectionId)?.Name ?? connectionId;
@@ -323,22 +329,61 @@ public sealed partial class PaneView : UserControl
         }
     }
 
-    private void OpenItem(FileSystemItem item)
+    private async void OpenItem(FileSystemItem item)
     {
         if (item.IsDirectory)
         {
             ViewModel?.NavigateTo(item.FullPath);
+            return;
         }
-        else
+
+        // A real, still-encrypted container: double-clicking (or "Open") prompts for its PIN and, on
+        // success, navigates into it rather than trying to launch it with a (nonexistent) associated
+        // app - see EncryptedFolderPathService/EncryptedFolderSession.
+        if (string.Equals(item.Extension, EncryptedFolderService.ContainerExtension, StringComparison.OrdinalIgnoreCase))
         {
+            if (await EncryptedFolderDialogs.UnlockAsync(XamlRoot, item.FullPath))
+            {
+                ViewModel?.NavigateTo(EncryptedFolderPathService.BuildRoot(item.FullPath));
+            }
+
+            return;
+        }
+
+        // A file inside an already-unlocked encrypted folder: decrypt it to this session's temp
+        // folder first, then hand that real path to the OS the same way any other file opens.
+        if (EncryptedFolderPathService.TryParse(item.FullPath, out var containerPath, out var relativePath))
+        {
+            string tempPath;
             try
             {
-                Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });
+                tempPath = await EncryptedFolderSession.DecryptToTempAsync(containerPath, relativePath, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or FileNotFoundException)
+            {
+                LoggingService.LogWarning("PaneView.OpenItem (encrypted)", ex);
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(tempPath) { UseShellExecute = true });
             }
             catch (System.ComponentModel.Win32Exception)
             {
                 // No associated application; ignore.
             }
+
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // No associated application; ignore.
         }
     }
 
@@ -1686,6 +1731,30 @@ public sealed partial class PaneView : UserControl
             {
                 menu.Items.Add(NewMenuItem("Web Browse From Here...", "", () => WebBrowseRequested?.Invoke(this, folder.FullPath)));
             }
+
+            if (!EncryptedFolderPathService.IsEncrypted(folder.FullPath))
+            {
+                menu.Items.Add(NewMenuItem("Encrypt Folder...", string.Empty, async () =>
+                {
+                    if (await EncryptedFolderDialogs.EncryptFolderAsync(XamlRoot, folder.FullPath) is not null)
+                    {
+                        ViewModel?.Refresh();
+                    }
+                }));
+            }
+        }
+
+        if (selection.Count == 1 && !selection[0].IsDirectory && !isRemote &&
+            string.Equals(selection[0].Extension, EncryptedFolderService.ContainerExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            menu.Items.Add(NewMenuItem("Unlock Encrypted Folder...", string.Empty, async () =>
+            {
+                var single = selection[0];
+                if (await EncryptedFolderDialogs.UnlockAsync(XamlRoot, single.FullPath))
+                {
+                    ViewModel?.NavigateTo(EncryptedFolderPathService.BuildRoot(single.FullPath));
+                }
+            }));
         }
 
         menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
@@ -1878,6 +1947,11 @@ public sealed partial class PaneView : UserControl
             return BuildVirtualFolderEmptySpaceContextMenu(virtualFolderId);
         }
 
+        if (ViewModel is not null && EncryptedFolderPathService.TryParse(ViewModel.CurrentPath, out var containerPath, out _))
+        {
+            return BuildEncryptedFolderEmptySpaceContextMenu(containerPath);
+        }
+
         var menu = new MenuFlyout();
         var paste = NewMenuItem("Paste", "", () => FileClipboardService.Instance.PasteInto(ViewModel!.CurrentPath));
         paste.IsEnabled = FileClipboardService.Instance.HasContent;
@@ -1926,6 +2000,30 @@ public sealed partial class PaneView : UserControl
         {
             VirtualFolderService.Delete(virtualFolderId);
             ViewModel?.NavigateTo(MainViewModel.GetDefaultStartPath());
+        }));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(NewMenuItem("Refresh", string.Empty, () => ViewModel?.Refresh()));
+        return menu;
+    }
+
+    /// Browsing inside an unlocked encrypted folder isn't a real directory either - Paste/New
+    /// folder/etc. would silently write plaintext into the temp decrypt cache rather than the
+    /// container, so this replaces them with Lock and the explicit permanent-decrypt escape hatch.
+    private MenuFlyout BuildEncryptedFolderEmptySpaceContextMenu(string containerPath)
+    {
+        var menu = new MenuFlyout();
+
+        menu.Items.Add(NewMenuItem("Lock", string.Empty, () =>
+        {
+            EncryptedFolderSession.Lock(containerPath);
+            ViewModel?.NavigateTo(MainViewModel.GetDefaultStartPath());
+        }));
+        menu.Items.Add(NewMenuItem("Decrypt Folder... (remove encryption permanently)", string.Empty, async () =>
+        {
+            if (await EncryptedFolderDialogs.DecryptPermanentlyAsync(XamlRoot, containerPath))
+            {
+                ViewModel?.NavigateTo(MainViewModel.GetDefaultStartPath());
+            }
         }));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(NewMenuItem("Refresh", string.Empty, () => ViewModel?.Refresh()));

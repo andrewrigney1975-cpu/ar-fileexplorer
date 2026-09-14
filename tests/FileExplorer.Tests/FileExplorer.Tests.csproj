@@ -13,6 +13,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,6 +35,11 @@
     <Compile Include="..\..\src\FileExplorer\Services\MarqueeGeometry.cs" Link="Sources\MarqueeGeometry.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\RemoteProtocol.cs" Link="Sources\RemoteProtocol.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\IconHelper.cs" Link="Sources\IconHelper.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\EncryptedFolderService.cs" Link="Sources\EncryptedFolderService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\EncryptedFolderPathService.cs" Link="Sources\EncryptedFolderPathService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\VirtualFolderService.cs" Link="Sources\VirtualFolderService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Services\VirtualFolderPathService.cs" Link="Sources\VirtualFolderPathService.cs" />
+    <Compile Include="..\..\src\FileExplorer\Models\VirtualFolder.cs" Link="Sources\VirtualFolder.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\MediaWebServer.cs" Link="Sources\MediaWebServer.cs" />
     <Compile Include="..\..\src\FileExplorer\Services\WebAssets.cs" Link="Sources\WebAssets.cs" />
     <Compile Include="..\..\src\FileExplorer\Models\ImageConversion.cs" Link="Sources\ImageConversion.cs" />

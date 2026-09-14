@@ -115,6 +115,17 @@ A native dual-pane file explorer for Windows, built with WinUI 3 / Windows App S
 - Web Browse works for virtual folders too (see below): a flat, read-only listing of the collection's member files, since members can span multiple physical drives and the server's usual single-folder containment guarantee doesn't apply there
 - Not indexed by Search Everywhere: a member file is still found by name if its real location happens to be an indexed root, but there's no "search by virtual folder name" or "search only inside this virtual folder" yet, and **private virtual folders are deliberately excluded from any such indexing/search when it's added** — a name or membership list under the PIN-gated section should never leak into an unlocked search result
 
+### Encrypted Folders
+Right-click any real folder → **"Encrypt Folder..."** replaces it with a single opaque `Name.dxlock` file in the same location — real AES-256-GCM encryption of the content, file names, and folder structure, not just a UI-level gate. This is a different, stronger primitive than [Private Virtual Folders](#virtual-folders) above: that PIN only hides a section of the app's own left rail, while this PIN derives an actual encryption key, and the two are deliberately kept completely separate (different code paths, different stored hashes) even though both are called a "PIN" in the UI.
+- Set an 8+ character PIN (not purely numeric — a short numeric PIN is brute-forceable offline in seconds no matter how the key is derived) when encrypting; there's no recovery if it's forgotten. The key is derived via PBKDF2-SHA256 with a high iteration count, stored per-container so the count can be raised later without breaking older containers
+- Verification before destruction: the freshly-written container is opened and checked against the same PIN before the original files are touched at all, so a failure partway through never costs you the source folder
+- Originals are then best-effort wiped (overwritten before delete) — **not a guarantee against forensic recovery on an SSD**, since wear-leveling/TRIM can retain old flash cells beyond the OS's control; full-disk encryption (BitLocker) is the real mitigation for that specific gap, not this feature
+- Double-click a `.dxlock` file (or its "Unlock Encrypted Folder..." context menu entry) to prompt for the PIN and browse straight into it, full original nested folder structure intact — it behaves like a real location (breadcrumb, back/forward, subfolders) rather than a flat file dump
+- **Decrypt-on-demand**: once unlocked, browsing only reads the decrypted file index (names/sizes/dates) — nothing is written to disk. Opening a file decrypts just that one file to a per-session temp folder and hands it off the same way any other file opens; that temp copy (and every other unlocked container) is wiped the moment you choose **Lock** from the empty-space menu, or when the app closes — nothing decrypted ever survives to the next session
+- **Decrypt Folder... (remove encryption permanently)**: the explicit escape hatch, from the same empty-space menu — restores a real, unencrypted folder next to the container and only deletes the container after that succeeds
+- Large files are encrypted and decrypted in 64MB chunks, each independently authenticated, so opening one file out of a huge encrypted tree — or encrypting a folder containing a multi-gigabyte file — never requires holding more than one chunk in memory at a time
+- Not indexed by Search Everywhere, and not planned to be — an encrypted folder's contents are only ever visible in memory for the current unlocked session
+
 ### Web browsing (LAN media server)
 Right-click a folder → **"Web Browse From Here..."** starts a small embedded HTTP server that serves *that one folder tree* so you can browse its media from a phone, tablet, or another PC on the same network. It renders a directory page — a CSS-column **masonry** grid (photos pack at their real aspect ratio; folders/video/audio/other stay fixed-square, since their thumbnail is a generic representative rather than the item itself) with a filter bar above it (name substring, size range in MB, and kind checkboxes auto-built from whichever of folder/image/video/audio/other are actually present in that folder — all filtering is client-side over the already-loaded listing, no extra requests) — a click-to-open lightbox with arrow-key navigation that respects the current filter (a Quick Look analogue), and a "Show folder as slideshow" page that mirrors the native slideshow — big image, arrow/PageUp-Down/Home/End keys, a thumbnail strip that scrolls to track position. `/file` responses honour HTTP `Range`, so videos seek. Thumbnails reuse the app's own on-disk thumbnail cache.
 
@@ -226,7 +237,7 @@ submitted.
 
 Two xUnit projects under `tests/`, split by whether the code under test needs WinUI/Windows App SDK types:
 
-- **`tests/FileExplorer.Tests`** — pure logic with zero WinUI dependency (`RemotePathService`, `FileOperationService`, `JsonFileStore<T>`, `FuzzyMatcher`, `LoggingService`, `MediaWebServer` + `WebAssets`, `ImageConversionService`). Links the real source files from `src/FileExplorer` rather than duplicating them. Builds and runs with plain `dotnet test` from the project directory — no Visual Studio involved.
+- **`tests/FileExplorer.Tests`** — pure logic with zero WinUI dependency (`RemotePathService`, `FileOperationService`, `JsonFileStore<T>`, `FuzzyMatcher`, `LoggingService`, `MediaWebServer` + `WebAssets`, `ImageConversionService`, `VirtualFolderService` + `VirtualFolderPathService`, `EncryptedFolderService` + `EncryptedFolderPathService`). Links the real source files from `src/FileExplorer` rather than duplicating them, so **any new file linked into this project that itself calls into another `src/FileExplorer` type needs that type linked in too** (`MediaWebServer.cs`'s dependency on `VirtualFolderService` briefly broke `dotnet test` here for exactly this reason). Builds and runs with plain `dotnet test` from the project directory — no Visual Studio involved. `EncryptedFolderServiceTests` covers a full encrypt/decrypt round trip (including a multi-chunk large file), wrong-PIN rejection, and nested/empty-folder structure preservation.
 - **`tests/FileExplorer.WinUI.Tests`** — code that needs a real `FileSystemItem` or other WinUI-touching type (`FileSystemItem`'s own formatting/display logic, `RenamePatternService`). References `FileExplorer.csproj` directly via `ProjectReference`. Because of that reference, this project **cannot be built** with the dotnet CLI — same `MrtCore.PriGen` limitation that keeps the main app from building via `dotnet build` (see "Why build via Visual Studio's MSBuild" above). Build it with VS's MSBuild exactly like the app:
 
   ```powershell
@@ -245,7 +256,8 @@ src/FileExplorer/
                  RemoteConnection, RemoteProtocol, VirtualFolder, ...)
   ViewModels/    MainViewModel, PaneViewModel, TabViewModel, enums (ViewMode, SortColumn)
   Views/         PaneView, PreviewPane, TerminalPane, ScriptManagerDialog, AutomationDialog,
-                 ControlCentreDialog, PropertiesDialog, VirtualFolderDialogs (XAML + code-behind)
+                 ControlCentreDialog, PropertiesDialog, VirtualFolderDialogs,
+                 EncryptedFolderDialogs (XAML + code-behind)
   Services/      File system access, search, tagging, undo, clipboard, cloud/network
                  detection, duplicate finder, Office text extraction, session/layout
                  persistence, folder sync (SyncTaskService), toast notifications,
@@ -255,7 +267,9 @@ src/FileExplorer/
                  reading (ImageMetadataService), AVIF decoding (AvifImageService),
                  collision prompts (FileCollisionService), Favourites (FavouriteService),
                  Virtual Folders + private-section PIN (VirtualFolderService,
-                 VirtualFolderPathService), user preferences/feature toggles
+                 VirtualFolderPathService), real AES-256-GCM folder encryption
+                 (EncryptedFolderService, EncryptedFolderPathService,
+                 EncryptedFolderSession), user preferences/feature toggles
                  (SettingsService), symbolic link/junction detection and creation
                  (ReparsePointService), network drive mapping (NetworkDriveService),
                  FTP/FTPS/SFTP remote connections (RemoteConnectionService,
