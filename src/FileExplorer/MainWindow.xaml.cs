@@ -277,8 +277,8 @@ public sealed partial class MainWindow : Window
     private void UpdateOperationsSpinner()
     {
         var spin = (Storyboard)RootGrid.Resources["OperationsGearSpin"];
-        var inProgress = _scriptRunsInProgress > 0 ||
-            _operationQueue.Jobs.Any(j => j.Status is FileOperationStatus.Queued or FileOperationStatus.Running);
+        var incompleteCount = _operationQueue.Jobs.Count(j => j.Status is FileOperationStatus.Queued or FileOperationStatus.Running);
+        var inProgress = _scriptRunsInProgress > 0 || incompleteCount > 0;
         var spinning = spin.GetCurrentState() == ClockState.Active;
 
         if (inProgress && !spinning)
@@ -296,6 +296,11 @@ public sealed partial class MainWindow : Window
         {
             presenter.Opacity = inProgress ? 1.0 : 0.5;
         }
+
+        // The badge counts only queued/running file operations, not script runs (_scriptRunsInProgress) -
+        // a script run has no FileOperationJob to show a count for, so it only drives the gear spin.
+        OperationsBadgeText.Text = incompleteCount > 99 ? "99+" : incompleteCount.ToString();
+        OperationsBadge.Visibility = incompleteCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static ContentPresenter? FindContentPresenter(DependencyObject root)
