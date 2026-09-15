@@ -347,7 +347,7 @@ public static class SearchIndexService
                 foreach (var path in deletes)
                 {
                     deleteCmd.Parameters["@p"].Value = path;
-                    deleteCmd.Parameters["@prefix"].Value = EscapeLike(path) + "\\%";
+                    deleteCmd.Parameters["@prefix"].Value = EscapeLike(path) + "\\\\%";
                     deleteCmd.ExecuteNonQuery();
                 }
             }
@@ -1286,7 +1286,7 @@ public static class SearchIndexService
                 deleteCmd.Transaction = transaction;
                 deleteCmd.CommandText = "DELETE FROM Entries WHERE Path = @p OR Path LIKE @prefix ESCAPE '\\'";
                 deleteCmd.Parameters.AddWithValue("@p", path);
-                deleteCmd.Parameters.AddWithValue("@prefix", EscapeLike(path) + "\\%");
+                deleteCmd.Parameters.AddWithValue("@prefix", EscapeLike(path) + "\\\\%");
                 deleteCmd.ExecuteNonQuery();
             }
 
@@ -1344,7 +1344,7 @@ public static class SearchIndexService
                 if (normalizedScope is not null)
                 {
                     cmd.Parameters.AddWithValue("@scopePath", normalizedScope);
-                    cmd.Parameters.AddWithValue("@scopePrefix", EscapeLike(normalizedScope) + "\\%");
+                    cmd.Parameters.AddWithValue("@scopePrefix", EscapeLike(normalizedScope) + "\\\\%");
                 }
             }
 
@@ -1579,7 +1579,7 @@ public static class SearchIndexService
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT Path, SizeBytes, Md5Hash FROM Entries WHERE IsDirectory = 0 AND (Path = @p OR Path LIKE @prefix ESCAPE '\\')";
             cmd.Parameters.AddWithValue("@p", path.TrimEnd('\\'));
-            cmd.Parameters.AddWithValue("@prefix", EscapeLike(path.TrimEnd('\\')) + "\\%");
+            cmd.Parameters.AddWithValue("@prefix", EscapeLike(path.TrimEnd('\\')) + "\\\\%");
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
