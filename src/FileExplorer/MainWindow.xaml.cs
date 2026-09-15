@@ -2300,6 +2300,11 @@ public sealed partial class MainWindow : Window
         if (settings.EnableSearchIndex)
         {
             commands.Add(new PaletteCommand("Search Everywhere...", "Instant substring search across every indexed file and folder (F9)", () => _ = OpenSearchEverywhereAsync()));
+
+            if (pane is not null)
+            {
+                commands.Add(new PaletteCommand("Search From Here...", $"Same search, limited to {pane.CurrentPath} and its subfolders (Alt+F9)", () => _ = OpenSearchEverywhereAsync(pane.CurrentPath)));
+            }
         }
 
         if (settings.EnableTerminal)
@@ -2385,7 +2390,7 @@ public sealed partial class MainWindow : Window
         return folder?.Path;
     }
 
-    private async Task OpenSearchEverywhereAsync()
+    private async Task OpenSearchEverywhereAsync(string? scopePath = null)
     {
         if (!SettingsService.Current.EnableSearchIndex)
         {
@@ -2394,12 +2399,13 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ContentDialog
         {
-            Title = "Search Everywhere",
+            Title = scopePath is null ? "Search Everywhere" : "Search From Here",
             XamlRoot = Content.XamlRoot,
         };
 
         var search = new SearchEverywhereDialog
         {
+            ScopePath = scopePath,
             RequestClose = () => dialog.Hide(),
             // Opens a brand-new "Search Results" workspace rather than navigating whatever pane was
             // last active, so existing workspaces/tabs are never disturbed by following a result. A
@@ -2437,6 +2443,16 @@ public sealed partial class MainWindow : Window
     {
         args.Handled = true;
         _ = OpenSearchEverywhereAsync();
+    }
+
+    /// Alt+F9 "Search From Here" - same dialog as F9, scoped to the active pane's current folder
+    /// and everything nested under it. Falls through to the ordinary unscoped behaviour (with a
+    /// warning) if there's somehow no active pane, rather than doing nothing silently.
+    private void SearchFromHereAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        var pane = _viewModel.SelectedTab?.ActivePane;
+        _ = OpenSearchEverywhereAsync(pane?.CurrentPath);
     }
 
     private void DiskSpaceAnalyserButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskSpaceAnalyserAsync();

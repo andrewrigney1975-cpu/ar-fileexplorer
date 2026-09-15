@@ -1320,7 +1320,7 @@ public static class SearchIndexService
     /// Substring match on filename, then ranked with the same typo-tolerant FuzzyMatcher the per-pane
     /// search uses. Queries of 3+ characters use the trigram FTS index; shorter ones and any FTS
     /// error fall back to a LIKE scan.
-    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0, bool caseSensitive = false, bool prioritizeFolders = false)
+    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0, bool caseSensitive = false, bool prioritizeFolders = false, string? scopePath = null)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -1331,6 +1331,22 @@ public static class SearchIndexService
         {
             var candidates = new List<SearchIndexEntry>();
             var trimmed = query.Trim();
+
+            // "Search From Here" (Alt+F9) - restricts results to scopePath itself plus everything
+            // nested under it, same prefix-match pattern as AddExcludedPathJob's "everything under
+            // this folder" delete. Pushed into the SQL WHERE clause (not a post-filter after
+            // candidates come back) so a scoped search over a small folder isn't starved by
+            // SqlCandidateLimit being spent on name matches elsewhere in a huge index.
+            var normalizedScope = scopePath?.TrimEnd('\\', '/');
+            var scopeClause = normalizedScope is null ? string.Empty : " AND (Path = @scopePath OR Path LIKE @scopePrefix ESCAPE '\\')";
+            void AddScopeParameters(SqliteCommand cmd)
+            {
+                if (normalizedScope is not null)
+                {
+                    cmd.Parameters.AddWithValue("@scopePath", normalizedScope);
+                    cmd.Parameters.AddWithValue("@scopePrefix", EscapeLike(normalizedScope) + "\\%");
+                }
+            }
 
             static SearchIndexEntry ReadEntry(SqliteDataReader r) => new(
                 r.GetString(0), r.GetString(1), r.GetString(2),
@@ -1343,8 +1359,9 @@ public static class SearchIndexService
                 {
                     candidates.Clear();
                     using var cmd = connection.CreateCommand();
-                    cmd.CommandText = "SELECT Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks FROM Entries WHERE Name LIKE @pattern ESCAPE '\\' LIMIT @limit";
+                    cmd.CommandText = "SELECT Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks FROM Entries WHERE Name LIKE @pattern ESCAPE '\\'" + scopeClause + " LIMIT @limit";
                     cmd.Parameters.AddWithValue("@pattern", "%" + EscapeLike(query) + "%");
+                    AddScopeParameters(cmd);
                     cmd.Parameters.AddWithValue("@limit", SqlCandidateLimit);
 
                     using var reader = cmd.ExecuteReader();
@@ -1362,8 +1379,9 @@ public static class SearchIndexService
                         using var cmd = connection.CreateCommand();
                         cmd.CommandText = "SELECT e.Path, e.Name, e.DirectoryPath, e.IsDirectory, e.SizeBytes, e.ModifiedTicks " +
                                           "FROM EntriesFts f JOIN Entries e ON e.rowid = f.rowid " +
-                                          "WHERE f.Name MATCH @q LIMIT @limit";
+                                          "WHERE f.Name MATCH @q" + scopeClause + " LIMIT @limit";
                         cmd.Parameters.AddWithValue("@q", "\"" + trimmed.Replace("\"", "\"\"") + "\"");
+                        AddScopeParameters(cmd);
                         cmd.Parameters.AddWithValue("@limit", SqlCandidateLimit);
 
                         using var reader = cmd.ExecuteReader();

@@ -28,6 +28,10 @@ public sealed partial class SearchEverywhereDialog : UserControl
 
     public Action? OpenSearchIndexSettings { get; set; }
 
+    /// Set by MainWindow for "Search From Here" (Alt+F9) to restrict results to this folder and
+    /// everything nested under it - null for the ordinary whole-index Search Everywhere (F9).
+    public string? ScopePath { get; set; }
+
     public SearchEverywhereDialog()
     {
         InitializeComponent();
@@ -36,6 +40,14 @@ public sealed partial class SearchEverywhereDialog : UserControl
         {
             QueryBox.Focus(FocusState.Programmatic);
             SearchIndexService.StatusChanged += OnIndexStatusChanged;
+
+            if (ScopePath is { } scope)
+            {
+                QueryBox.PlaceholderText = $"Search in {scope}...";
+                ScopeText.Text = $"Searching in: {scope}";
+                ScopeText.Visibility = Visibility.Visible;
+            }
+
             UpdateEmptyState();
         };
 
@@ -122,7 +134,7 @@ public sealed partial class SearchEverywhereDialog : UserControl
         {
             await Task.Delay(DebounceMs, cancellationToken);
 
-            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken, MinRating, CaseSensitive, PrioritizeFolders);
+            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken, MinRating, CaseSensitive, PrioritizeFolders, ScopePath);
             if (cancellationToken.IsCancellationRequested)
             {
                 return;

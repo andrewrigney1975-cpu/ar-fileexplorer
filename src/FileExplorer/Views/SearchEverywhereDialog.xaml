@@ -7,6 +7,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -15,7 +16,10 @@
                   FontSize="18" TextChanged="QueryBox_TextChanged" KeyDown="QueryBox_KeyDown"
                   AutomationProperties.Name="Search everywhere" />
 
-        <Grid Grid.Row="1" ColumnSpacing="12">
+        <TextBlock Grid.Row="1" x:Name="ScopeText" Opacity="0.7" FontSize="12" TextTrimming="CharacterEllipsis"
+                   Visibility="Collapsed" Margin="0,0,0,4" />
+
+        <Grid Grid.Row="2" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -39,7 +43,7 @@
             </ComboBox>
         </Grid>
 
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <ListView x:Name="ResultsList" SelectionMode="Single"
                       DoubleTapped="ResultsList_DoubleTapped" KeyDown="ResultsList_KeyDown"
                       AutomationProperties.Name="Search results">
@@ -74,7 +78,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="3" ColumnSpacing="8">
+        <Grid Grid.Row="4" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
