@@ -1694,7 +1694,7 @@ public sealed partial class PaneView : UserControl
         if (selection.Count > 0 && selection.All(item =>
                 item.IsDirectory || ImageConversionService.IsConvertibleImage(item.Extension)))
         {
-            menu.Items.Add(NewMenuItem("Convert To...", "",
+            menu.Items.Add(NewMenuItem("Convert To...", "",
                 () => ConvertRequested?.Invoke(this, selection.Select(s => s.FullPath).ToList())));
         }
         }
@@ -1709,12 +1709,12 @@ public sealed partial class PaneView : UserControl
             var settings = SettingsService.Current;
             if (settings.EnableSyncTasks)
             {
-            menu.Items.Add(NewMenuItem("Set sync source...", "", () => SyncTaskService.SetPendingSource(folder.FullPath)));
+            menu.Items.Add(NewMenuItem("Set sync source...", "", () => SyncTaskService.SetPendingSource(folder.FullPath)));
 
             if (SyncTaskService.PendingSourcePath is { } pendingSource &&
                 !string.Equals(pendingSource, folder.FullPath, StringComparison.OrdinalIgnoreCase))
             {
-                menu.Items.Add(NewMenuItem("Set sync target", "", async () => await SetSyncTargetAsync(folder.FullPath)));
+                menu.Items.Add(NewMenuItem("Set sync target", "", async () => await SetSyncTargetAsync(folder.FullPath)));
             }
             }
 
@@ -1770,7 +1770,7 @@ public sealed partial class PaneView : UserControl
             }));
         }
 
-        menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
+        menu.Items.Add(NewMenuItem("Checksum...", "", async () => await ComputeHashesAsync(selection)));
         if (!isRestrictedScheme)
         {
             menu.Items.Add(BuildTagSubMenu(selection));
