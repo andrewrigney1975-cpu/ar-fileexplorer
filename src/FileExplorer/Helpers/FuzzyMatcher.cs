@@ -5,7 +5,7 @@ namespace FileExplorer.Helpers;
 /// "readme.txt") scored by how consecutive the matched characters are.
 public static class FuzzyMatcher
 {
-    public static bool TryScore(string text, string query, out int score)
+    public static bool TryScore(string text, string query, out int score, bool caseSensitive = false)
     {
         score = 0;
 
@@ -19,7 +19,8 @@ public static class FuzzyMatcher
             return false;
         }
 
-        var substringIndex = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        var comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var substringIndex = text.IndexOf(query, comparison);
         if (substringIndex >= 0)
         {
             score = 10000 - substringIndex;
@@ -36,7 +37,10 @@ public static class FuzzyMatcher
             var found = -1;
             for (var i = textIndex; i < text.Length; i++)
             {
-                if (char.ToLowerInvariant(text[i]) == char.ToLowerInvariant(queryChar))
+                var matches = caseSensitive
+                    ? text[i] == queryChar
+                    : char.ToLowerInvariant(text[i]) == char.ToLowerInvariant(queryChar);
+                if (matches)
                 {
                     found = i;
                     break;

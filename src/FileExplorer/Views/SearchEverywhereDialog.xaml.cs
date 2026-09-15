@@ -92,7 +92,11 @@ public sealed partial class SearchEverywhereDialog : UserControl
         _ = RunSearchAsync(query, cts.Token);
     }
 
-    private void RatingFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void RatingFilterCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => RerunLastSearch();
+
+    private void SearchOption_Changed(object sender, RoutedEventArgs e) => RerunLastSearch();
+
+    private void RerunLastSearch()
     {
         if (string.IsNullOrWhiteSpace(_lastQuery))
         {
@@ -108,13 +112,17 @@ public sealed partial class SearchEverywhereDialog : UserControl
     /// 0 (Any) .. 5, matching RatingFilterCombo's item order.
     private int MinRating => RatingFilterCombo?.SelectedIndex ?? 0;
 
+    private bool CaseSensitive => CaseSensitiveCheck?.IsChecked == true;
+
+    private bool PrioritizeFolders => PrioritizeFoldersCheck?.IsChecked == true;
+
     private async Task RunSearchAsync(string query, CancellationToken cancellationToken)
     {
         try
         {
             await Task.Delay(DebounceMs, cancellationToken);
 
-            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken, MinRating);
+            var entries = await SearchIndexService.SearchAsync(query, MaxResults, cancellationToken, MinRating, CaseSensitive, PrioritizeFolders);
             if (cancellationToken.IsCancellationRequested)
             {
                 return;

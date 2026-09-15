@@ -1320,7 +1320,7 @@ public static class SearchIndexService
     /// Substring match on filename, then ranked with the same typo-tolerant FuzzyMatcher the per-pane
     /// search uses. Queries of 3+ characters use the trigram FTS index; shorter ones and any FTS
     /// error fall back to a LIKE scan.
-    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0)
+    public static async Task<List<SearchIndexEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken, int minRating = 0, bool caseSensitive = false, bool prioritizeFolders = false)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -1388,20 +1388,28 @@ public static class SearchIndexService
             var scored = new List<(SearchIndexEntry Entry, int Score)>();
             foreach (var candidate in candidates)
             {
-                if (FuzzyMatcher.TryScore(candidate.Name, query, out var score))
+                if (FuzzyMatcher.TryScore(candidate.Name, query, out var score, caseSensitive))
                 {
                     scored.Add((candidate, score));
                 }
             }
 
-            var ranked = scored.OrderByDescending(s => s.Score).Select(s => s.Entry);
+            // Folder-priority is a stable primary sort key ahead of score, not a separate pass -
+            // within "all folders, then all files" each group still ranks by fuzzy-match quality.
+            var orderedScored = prioritizeFolders
+                ? scored.OrderByDescending(s => s.Entry.IsDirectory).ThenByDescending(s => s.Score)
+                : scored.OrderByDescending(s => s.Score);
+            var ranked = orderedScored.Select(s => s.Entry);
 
             if (minRating > 0)
             {
-                return ranked
+                var byRating = ranked
                     .Select(e => e with { Rating = RatingService.GetEffective(e.Path, e.IsDirectory)?.Value })
-                    .Where(e => e.Rating is { } r && r >= minRating - 0.0001)
-                    .OrderByDescending(e => e.Rating)
+                    .Where(e => e.Rating is { } r && r >= minRating - 0.0001);
+
+                return (prioritizeFolders
+                        ? byRating.OrderByDescending(e => e.IsDirectory).ThenByDescending(e => e.Rating)
+                        : byRating.OrderByDescending(e => e.Rating))
                     .Take(maxResults)
                     .ToList();
             }

@@ -19,9 +19,15 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" x:Name="StatusText" Opacity="0.65" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
-            <ComboBox Grid.Column="1" x:Name="RatingFilterCombo" MinWidth="150" SelectedIndex="0"
+            <CheckBox Grid.Column="1" x:Name="CaseSensitiveCheck" Content="Case sensitive" VerticalAlignment="Center"
+                      Checked="SearchOption_Changed" Unchecked="SearchOption_Changed" />
+            <CheckBox Grid.Column="2" x:Name="PrioritizeFoldersCheck" Content="Prioritise folders" VerticalAlignment="Center"
+                      Checked="SearchOption_Changed" Unchecked="SearchOption_Changed" />
+            <ComboBox Grid.Column="3" x:Name="RatingFilterCombo" MinWidth="150" SelectedIndex="0"
                       AutomationProperties.Name="Minimum rating" ToolTipService.ToolTip="Filter by rating"
                       SelectionChanged="RatingFilterCombo_SelectionChanged">
                 <ComboBoxItem Content="Any rating" />
