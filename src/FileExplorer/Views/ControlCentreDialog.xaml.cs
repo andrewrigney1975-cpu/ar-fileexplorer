@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using FileExplorer.Helpers;
 using FileExplorer.Services;
 using FileExplorer.ViewModels;
@@ -26,6 +28,7 @@ public sealed partial class ControlCentreDialog : UserControl
     public ControlCentreDialog()
     {
         InitializeComponent();
+        SearchIndexRootsList.ItemsSource = _searchIndexRootRows;
 
         Loaded += (_, _) =>
         {
@@ -163,14 +166,22 @@ public sealed partial class ControlCentreDialog : UserControl
 
     private void OnSearchIndexStatusChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RefreshSearchIndex);
 
-    private sealed record SearchIndexRootRow(string Path, string CountDisplay);
+    /// A mutable row bound in place (ObservableObject + [ObservableProperty]) rather than an
+    /// immutable record - CountDisplay changes on practically every refresh while a scan or hash
+    /// backfill is running, and reassigning ListView.ItemsSource to a whole new list every time
+    /// (even an equal-by-value one) makes it visibly flash/flicker as every container gets torn
+    /// down and rebuilt. Mutating CountDisplay in place instead only updates that one TextBlock's
+    /// binding - see RefreshSearchIndex, which reconciles _searchIndexRootRows against the current
+    /// roots/counts (Add/Remove/Move only for an actual root change, never just a count tick).
+    private sealed partial class SearchIndexRootRow : ObservableObject
+    {
+        public required string Path { get; init; }
 
-    // Compared against on every refresh (event-driven or the 1s poll while the panel is visible) so
-    // SearchIndexRootsList.ItemsSource is only reassigned when something actually changed - records
-    // give SearchIndexRootRow structural equality for free, so List<T>.SequenceEqual is a real value
-    // comparison here. Without this, polling reassigned an equivalent-but-new list every second,
-    // which made the ListView visibly flash/flicker even though nothing had changed.
-    private List<SearchIndexRootRow> _lastSearchIndexRows = new();
+        [ObservableProperty]
+        public partial string? CountDisplay { get; set; }
+    }
+
+    private readonly ObservableCollection<SearchIndexRootRow> _searchIndexRootRows = new();
 
     private sealed record HashBucketDisplayRow(string Label, string HashedDisplay, string UnhashedDisplay, string UnhashedBytesDisplay);
 
@@ -181,31 +192,82 @@ public sealed partial class ControlCentreDialog : UserControl
         var roots = SearchIndexService.Roots;
         var counts = SearchIndexService.GetRootEntryCounts();
 
-        var rows = roots
-            .Select(r => new SearchIndexRootRow(r, counts.TryGetValue(r, out var count) ? $"{count:N0} items indexed" : "0 items indexed"))
-            .ToList();
-
-        if (!rows.SequenceEqual(_lastSearchIndexRows))
+        // Reconcile in place rather than reassigning ItemsSource - Add/Remove/Move only happen for
+        // an actual root being added/removed/reordered; a count-only change just mutates the
+        // existing row's CountDisplay property, which the binding picks up without touching the
+        // ListView's item containers at all (no flash).
+        for (var i = _searchIndexRootRows.Count - 1; i >= 0; i--)
         {
-            SearchIndexRootsList.ItemsSource = rows;
-            _lastSearchIndexRows = rows;
+            if (!roots.Contains(_searchIndexRootRows[i].Path, StringComparer.OrdinalIgnoreCase))
+            {
+                _searchIndexRootRows.RemoveAt(i);
+            }
         }
 
-        SearchIndexRootsEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RebuildSearchIndexButton.IsEnabled = rows.Count > 0 && !SearchIndexService.IsScanning;
+        for (var i = 0; i < roots.Count; i++)
+        {
+            var root = roots[i];
+            var countDisplay = counts.TryGetValue(root, out var count) ? $"{count:N0} items indexed" : "0 items indexed";
 
-        SearchIndexProgressRing.IsActive = SearchIndexService.IsScanning;
-        SearchIndexProgressRing.Visibility = SearchIndexService.IsScanning ? Visibility.Visible : Visibility.Collapsed;
+            var existingIndex = -1;
+            for (var j = 0; j < _searchIndexRootRows.Count; j++)
+            {
+                if (string.Equals(_searchIndexRootRows[j].Path, root, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingIndex = j;
+                    break;
+                }
+            }
+
+            if (existingIndex < 0)
+            {
+                _searchIndexRootRows.Insert(Math.Min(i, _searchIndexRootRows.Count), new SearchIndexRootRow { Path = root, CountDisplay = countDisplay });
+            }
+            else
+            {
+                if (_searchIndexRootRows[existingIndex].CountDisplay != countDisplay)
+                {
+                    _searchIndexRootRows[existingIndex].CountDisplay = countDisplay;
+                }
+
+                if (existingIndex != i)
+                {
+                    _searchIndexRootRows.Move(existingIndex, i);
+                }
+            }
+        }
+
+        SearchIndexRootsEmptyText.Visibility = roots.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RebuildSearchIndexButton.IsEnabled = roots.Count > 0 && !SearchIndexService.IsScanning;
+
+        var isBusy = SearchIndexService.IsScanning || SearchIndexService.IsHashing;
+        SearchIndexProgressRing.IsActive = isBusy;
+        SearchIndexProgressRing.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
 
         var dbSizeDisplay = FileExplorer.Models.FileSystemItem.FormatSize(SearchIndexService.DatabaseSizeBytes);
 
+        // IsScanning always wins the label even though the two can't actually overlap (BackfillLoop
+        // pauses itself entirely while a scan runs) - this ordering just makes that priority explicit
+        // rather than relying on the mutual-exclusion holding forever.
         SearchIndexStatusText.Text = SearchIndexService.IsScanning
-            ? $"Scanning... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk."
-            : SearchIndexService.LastScanUtc is { } lastScan
-                ? $"{SearchIndexService.EntryCount:N0} entries indexed, {dbSizeDisplay} on disk. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
-                : rows.Count == 0
-                    ? "Add a folder or drive below to start indexing."
-                    : "Not scanned yet.";
+            ? $"Indexing... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk."
+            : SearchIndexService.IsHashing
+                ? $"Hashing... {SearchIndexService.HashedThisSweepCount:N0} files hashed so far this pass, {dbSizeDisplay} on disk."
+                : SearchIndexService.LastScanUtc is { } lastScan
+                    ? $"{SearchIndexService.EntryCount:N0} entries indexed, {dbSizeDisplay} on disk. Last full scan: {FileExplorer.Models.FileSystemItem.FormatDate(lastScan.ToLocalTime())}."
+                    : roots.Count == 0
+                        ? "Add a folder or drive below to start indexing."
+                        : "Not scanned yet.";
+
+        if (SearchIndexService.IsScanning && SearchIndexService.CurrentScanPath is { } currentPath)
+        {
+            SearchIndexCurrentPathText.Text = currentPath;
+            SearchIndexCurrentPathText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SearchIndexCurrentPathText.Visibility = Visibility.Collapsed;
+        }
 
         if (SearchIndexService.BackfillPausedUntilUtc is { } pausedUntil)
         {
@@ -290,6 +352,24 @@ public sealed partial class ControlCentreDialog : UserControl
         SearchIndexService.PauseBackfill(
             SearchIndexService.BackfillPausedUntilUtc is null ? TimeSpan.FromHours(6) : TimeSpan.Zero);
         RefreshSearchIndex();
+    }
+
+    private void ShowExcludedPaths_Click(object sender, RoutedEventArgs e) => RefreshExcludedPaths();
+
+    private async void RemoveExcludedPath_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path })
+        {
+            await SearchIndexService.RemoveExcludedPathAsync(path);
+            RefreshExcludedPaths();
+        }
+    }
+
+    private void RefreshExcludedPaths()
+    {
+        var paths = SearchIndexService.ExcludedPaths;
+        ExcludedPathsList.ItemsSource = paths;
+        ExcludedPathsEmptyText.Visibility = paths.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => RequestClose?.Invoke();

@@ -1749,6 +1749,12 @@ public sealed partial class PaneView : UserControl
                     }
                 }));
             }
+
+            if (settings.EnableSearchIndex)
+            {
+                menu.Items.Add(NewMenuItem("Exclude from indexing and hashing", string.Empty, async () =>
+                    await SearchIndexService.AddExcludedPathAsync(folder.FullPath)));
+            }
         }
 
         if (selection.Count == 1 && !selection[0].IsDirectory && !isRemote &&

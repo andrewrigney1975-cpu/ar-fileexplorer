@@ -145,6 +145,38 @@
                                 <Button Content="Add folder..." Click="AddSearchIndexRoot_Click" />
                                 <Button x:Name="RebuildSearchIndexButton" Content="Rebuild now" Click="RebuildSearchIndex_Click" />
                                 <Button x:Name="PauseHashingButton" Content="Pause hashing (6h)" Click="PauseHashing_Click" />
+                                <Button Content="Show excluded parent paths" Click="ShowExcludedPaths_Click">
+                                    <Button.Flyout>
+                                        <Flyout x:Name="ExcludedPathsFlyout" Placement="Bottom">
+                                            <StackPanel Spacing="8" Width="420">
+                                                <TextBlock Text="Excluded parent paths" FontWeight="SemiBold" />
+                                                <TextBlock Text="Each path below - and everything nested under it - is skipped by indexing, the file watcher, and hash backfill. Right-click a folder and choose &quot;Exclude from indexing and hashing&quot; to add one."
+                                                           Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+                                                <ListView x:Name="ExcludedPathsList" MaxHeight="320" SelectionMode="None"
+                                                          AutomationProperties.Name="Excluded parent paths list">
+                                                    <ListView.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid ColumnSpacing="8" Padding="0,4">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Grid.Column="0" Text="{Binding}" TextTrimming="CharacterEllipsis"
+                                                                           ToolTipService.ToolTip="{Binding}" VerticalAlignment="Center" />
+                                                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
+                                                                        Click="RemoveExcludedPath_Click" Tag="{Binding}"
+                                                                        AutomationProperties.Name="Remove exclusion" ToolTipService.ToolTip="Stop excluding this path">
+                                                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                                                </Button>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ListView.ItemTemplate>
+                                                </ListView>
+                                                <TextBlock x:Name="ExcludedPathsEmptyText" Text="No excluded paths yet" Opacity="0.6" FontSize="12" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
                             </StackPanel>
 
                             <Border x:Name="HashBucketCard" Padding="12" CornerRadius="6"
@@ -189,6 +221,8 @@
                                 <ProgressRing x:Name="SearchIndexProgressRing" Width="16" Height="16" IsActive="False" Visibility="Collapsed" />
                                 <TextBlock x:Name="SearchIndexStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
                             </StackPanel>
+                            <TextBlock x:Name="SearchIndexCurrentPathText" Opacity="0.55" FontSize="11" FontFamily="Consolas"
+                                       TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
 
                             <TextBlock Text="Browser Integration" FontWeight="SemiBold" FontSize="14" Margin="0,10,0,0" />
                             <TextBlock Text="Lets a browser extension ask whether a folder with a given name already exists (exact match, folders only), read-only, against this index. Registers as a Chrome/Edge Native Messaging host scoped to one extension ID - no network port is opened, so no other webpage or extension can reach it."

@@ -110,6 +110,23 @@ public static class SearchIndexService
     public static event EventHandler? StatusChanged;
 
     public static bool IsScanning { get; private set; }
+
+    /// The directory the walk is enumerating right now, or null when not scanning - the walk is
+    /// single-threaded and strictly depth-first (see ScanDirectory), so a plain field is enough;
+    /// only ever read by the UI's polling/event-driven refresh, which tolerates a stale read by a
+    /// few hundred ms the same way EntryCount already does.
+    public static string? CurrentScanPath { get; private set; }
+
+    /// True only while the backfill thread is actively hashing a page of files right now (between
+    /// starting that page's Parallel.ForEach and finishing its write) - never true at the same time
+    /// as IsScanning, since BackfillLoop pauses itself entirely whenever a scan is running. Lets the
+    /// UI show "Hashing..." distinctly from "Indexing..." instead of one ambiguous "working" state.
+    public static bool IsHashing { get; private set; }
+
+    /// How many files the backfill has hashed so far in its current sweep - resets to 0 each time a
+    /// full sweep (every collision-sized file) completes. Purely a UI progress number.
+    public static long HashedThisSweepCount { get; private set; }
+
     public static int EntryCount { get; private set; }
     public static DateTimeOffset? LastScanUtc { get; private set; }
     public static IReadOnlyList<string> Roots => RootsStore.Load();
@@ -182,6 +199,7 @@ public static class SearchIndexService
         _started = true;
 
         EnsureSchema();
+        RefreshExcludedPathsCache();
         _ftsReady = ReadMeta("FtsBuilt") == "1";
 
         LastScanUtc = ReadMeta("LastScanUtc") is { } raw && long.TryParse(raw, out var ticks)
@@ -220,6 +238,19 @@ public static class SearchIndexService
         job.Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         WriteQueue.Add(job);
         job.Completion.Task.Wait(cancellationToken);
+    }
+
+    /// Same as EnqueueAndWait but a real async wait rather than a blocking Task.Wait - EnqueueAndWait
+    /// is only ever safe to call from a background thread (every existing use is inside a Task.Run),
+    /// since .Wait() on the UI thread freezes the whole app's message loop until the writer works
+    /// through however much of the queue is already ahead of this job (which can be a long backlog
+    /// during an active scan or hash sweep). Anything reachable from a UI-thread event handler -
+    /// AddExcludedPathAsync/RemoveExcludedPathAsync - must use this instead.
+    private static Task EnqueueAndWaitAsync(WriteJob job)
+    {
+        job.Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        WriteQueue.Add(job);
+        return job.Completion.Task;
     }
 
     private abstract class WriteJob
@@ -471,22 +502,28 @@ public static class SearchIndexService
     // ================================================================= full rescan
 
     /// Full rescan of every configured root, replacing anything that's changed and dropping rows for
-    /// anything no longer on disk. Supersedes (cancels) any rescan already in flight.
-    public static Task RebuildAsync(CancellationToken cancellationToken) => RebuildRootsAsync(RootsStore.Load(), cancellationToken);
+    /// anything no longer on disk. Supersedes (cancels) any rescan already in flight. Wipes the
+    /// entire index first (see wipeAllFirst on RebuildRootsAsync) - a full rebuild is the guarantee
+    /// that a folder excluded after it was indexed (Control Centre > "Exclude from indexing and
+    /// hashing") can never survive as a stale row, even though AddExcludedPath already deletes its
+    /// rows immediately too.
+    public static Task RebuildAsync(CancellationToken cancellationToken) => RebuildRootsAsync(RootsStore.Load(), wipeAllFirst: true, cancellationToken);
 
-    /// Rescans just one configured root, leaving every other root's index untouched.
-    public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, cancellationToken);
+    /// Rescans just one configured root, leaving every other root's index untouched - deliberately
+    /// does NOT wipe the whole database first (that would nuke every other root's data for a
+    /// single-folder re-index).
+    public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, wipeAllFirst: false, cancellationToken);
 
     private const string TraceSource = "SearchIndexService.RebuildRootsAsync";
 
-    private static async Task RebuildRootsAsync(List<string> roots, CancellationToken cancellationToken)
+    private static async Task RebuildRootsAsync(List<string> roots, bool wipeAllFirst, CancellationToken cancellationToken)
     {
         if (roots.Count == 0)
         {
             return;
         }
 
-        LoggingService.LogInfo(TraceSource, $"Starting: roots=[{string.Join(", ", roots)}]");
+        LoggingService.LogInfo(TraceSource, $"Starting: roots=[{string.Join(", ", roots)}], wipeAllFirst={wipeAllFirst}");
 
         _scanCts?.Cancel();
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -495,6 +532,7 @@ public static class SearchIndexService
         IsScanning = true;
         _scanProgressCount = 0;
         EntryCount = 0;
+        CurrentScanPath = null;
         _lastProgressNotifyUtc = DateTime.MinValue;
         StatusChanged?.Invoke(null, EventArgs.Empty);
 
@@ -502,6 +540,11 @@ public static class SearchIndexService
         {
             await Task.Run(() =>
             {
+                if (wipeAllFirst)
+                {
+                    EnqueueAndWait(new ClearAllEntriesJob(), cts.Token);
+                }
+
                 var generation = DateTimeOffset.UtcNow.Ticks;
 
                 foreach (var root in roots)
@@ -558,6 +601,7 @@ public static class SearchIndexService
         finally
         {
             IsScanning = false;
+            CurrentScanPath = null;
 
             try
             {
@@ -615,6 +659,7 @@ public static class SearchIndexService
     private static void ScanDirectory(string directory, string rootPath, long generation, ScanSink sink, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        CurrentScanPath = directory;
 
         List<string> entries;
         try
@@ -766,6 +811,8 @@ public static class SearchIndexService
         {
             try
             {
+                IsHashing = false;
+
                 if (RootsStore.Load().Count == 0)
                 {
                     Thread.Sleep(TimeSpan.FromMinutes(5));
@@ -820,6 +867,7 @@ public static class SearchIndexService
                     cursorRowid = 0;
                     collidingSizes = null;
                     writtenThisSweep = 0;
+                    HashedThisSweepCount = 0;
                     Thread.Sleep(TimeSpan.FromMinutes(30));
                     continue;
                 }
@@ -837,6 +885,8 @@ public static class SearchIndexService
                     continue;
                 }
 
+                IsHashing = true;
+                StatusChanged?.Invoke(null, EventArgs.Empty);
                 var hashed = new ConcurrentBag<(string Path, string Hash)>();
                 Parallel.ForEach(
                     toHash,
@@ -858,6 +908,8 @@ public static class SearchIndexService
                     writtenThisSweep += chunk.Length;
                 }
 
+                HashedThisSweepCount = writtenThisSweep;
+                IsHashing = false;
                 StatusChanged?.Invoke(null, EventArgs.Empty);
                 Thread.Sleep(50);
             }
@@ -1139,7 +1191,128 @@ public static class SearchIndexService
             }
         }
 
+        return IsUnderUserExcludedPath(path);
+    }
+
+    // ----- user-configured excluded paths (Control Centre "Exclude from indexing and hashing") -----
+
+    /// Read from ExcludedPaths (a SQLite table, not JsonFileStore like Roots - the user explicitly
+    /// wanted these tracked in the database) into memory once at Start() and refreshed after every
+    /// Add/RemoveExcludedPath, since IsExcludedFromIndex is called for every single file/folder the
+    /// walk and watcher touch - a per-file SQL query there would be far too hot a path.
+    private static volatile string[] _excludedPathsCache = Array.Empty<string>();
+
+    public static IReadOnlyList<string> ExcludedPaths => _excludedPathsCache;
+
+    private static bool IsUnderUserExcludedPath(string path)
+    {
+        foreach (var excluded in _excludedPathsCache)
+        {
+            if (path.Equals(excluded, StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(excluded + "\\", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    private static void RefreshExcludedPathsCache()
+    {
+        try
+        {
+            using var connection = OpenConnection();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "SELECT Path FROM ExcludedPaths ORDER BY Path";
+            using var reader = cmd.ExecuteReader();
+
+            var list = new List<string>();
+            while (reader.Read())
+            {
+                list.Add(reader.GetString(0));
+            }
+
+            _excludedPathsCache = list.ToArray();
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.RefreshExcludedPathsCache", ex);
+        }
+    }
+
+    /// Excludes a folder (and everything under it - IsUnderUserExcludedPath is a prefix match) from
+    /// future indexing, watching, and hash backfill, and immediately deletes any rows already in the
+    /// index under it so it disappears from search right away rather than only after a rebuild.
+    /// A full "Rebuild now" wipes and re-walks from scratch anyway (see RebuildAsync), which is the
+    /// belt-and-suspenders guarantee that a stale entry can never survive indefinitely. Async and
+    /// safe to call from a UI-thread click handler - see EnqueueAndWaitAsync.
+    public static async Task AddExcludedPathAsync(string path)
+    {
+        var normalized = path.TrimEnd('\\', '/');
+        await EnqueueAndWaitAsync(new AddExcludedPathJob(normalized)).ConfigureAwait(true);
+        RefreshExcludedPathsCache();
+        RefreshEntryCount();
+        StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    public static async Task RemoveExcludedPathAsync(string path)
+    {
+        var normalized = path.TrimEnd('\\', '/');
+        await EnqueueAndWaitAsync(new RemoveExcludedPathJob(normalized)).ConfigureAwait(true);
+        RefreshExcludedPathsCache();
+        StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    private sealed class AddExcludedPathJob(string path) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var transaction = connection.BeginTransaction();
+
+            using (var insertCmd = connection.CreateCommand())
+            {
+                insertCmd.Transaction = transaction;
+                insertCmd.CommandText = "INSERT OR IGNORE INTO ExcludedPaths (Path, AddedUtcTicks) VALUES (@p, @t)";
+                insertCmd.Parameters.AddWithValue("@p", path);
+                insertCmd.Parameters.AddWithValue("@t", DateTimeOffset.UtcNow.Ticks);
+                insertCmd.ExecuteNonQuery();
+            }
+
+            // Same "delete self or anything nested under it" prefix pattern ApplyWatcherJob uses for
+            // a deleted directory - an excluded folder includes all its children.
+            using (var deleteCmd = connection.CreateCommand())
+            {
+                deleteCmd.Transaction = transaction;
+                deleteCmd.CommandText = "DELETE FROM Entries WHERE Path = @p OR Path LIKE @prefix ESCAPE '\\'";
+                deleteCmd.Parameters.AddWithValue("@p", path);
+                deleteCmd.Parameters.AddWithValue("@prefix", EscapeLike(path) + "\\%");
+                deleteCmd.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    private sealed class RemoveExcludedPathJob(string path) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM ExcludedPaths WHERE Path = @p";
+            cmd.Parameters.AddWithValue("@p", path);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private sealed class ClearAllEntriesJob : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Entries";
+            cmd.ExecuteNonQuery();
+        }
     }
 
     // ================================================================= search (reads)
@@ -1451,6 +1624,7 @@ public static class SearchIndexService
             CREATE INDEX IF NOT EXISTS IX_Entries_Name ON Entries(Name);
             CREATE INDEX IF NOT EXISTS IX_Entries_RootPath ON Entries(RootPath);
             CREATE TABLE IF NOT EXISTS Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS ExcludedPaths (Path TEXT PRIMARY KEY, AddedUtcTicks INTEGER NOT NULL);
             """;
         cmd.ExecuteNonQuery();
 
