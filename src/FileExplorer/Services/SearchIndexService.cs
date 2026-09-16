@@ -45,12 +45,23 @@ public static class SearchIndexService
     private const int WatcherFlushIntervalMs = 5000;
     private const int SqlCandidateLimit = 2000;
 
-    // Rows accumulated in the walk before a batch is posted to the writer.
-    private const int ScanBatchSize = 2000;
+    // Rows accumulated in the walk before a batch is posted to the writer. Bigger batches mean fewer,
+    // larger transactions - each transaction commit has fixed overhead (WAL frame flush, index
+    // maintenance setup) that a bigger batch amortizes across more rows. 50000 rows/batch x
+    // MaxQueuedWriteJobs=40 batches is ~2M rows in flight at the memory-bound worst case (backpressure
+    // fully engaged) - at the ~500 bytes/row EntryRow was measured at, that's the ~1GB ceiling this was
+    // sized against, not a number pulled from nowhere.
+    private const int ScanBatchSize = 50_000;
 
     // If the walk gets this far ahead of the writer, it pauses - bounds the memory a burst of queued
-    // batches can hold.
+    // batches can hold. Left as-is: raising ScanBatchSize already grew the in-flight-rows ceiling by
+    // 25x without touching this.
     private const int MaxQueuedWriteJobs = 40;
+
+    // How often the writer checkpoints the WAL back into the main db file while jobs are still
+    // flowing, so a long scan can't let the WAL grow unboundedly - see WriterLoop. Passive, not
+    // TRUNCATE: never blocks on readers/writers, just flushes whatever it safely can.
+    private static readonly TimeSpan WriterCheckpointInterval = TimeSpan.FromMinutes(2);
 
     // Watcher changes coalesced per flush, and a hard cap on the pending queue (a whole system drive
     // as a root can still produce a burst faster than we apply it - past the cap we drop and let the
@@ -285,6 +296,7 @@ public static class SearchIndexService
         {
             var jobsSinceCount = 0;
             var lastCountUtc = DateTime.MinValue;
+            var lastCheckpointUtc = DateTime.UtcNow;
 
             foreach (var job in WriteQueue.GetConsumingEnumerable())
             {
@@ -314,6 +326,27 @@ public static class SearchIndexService
                     }
                     catch (SqliteException)
                     {
+                    }
+                }
+
+                // Runs regardless of IsScanning - unlike the count refresh above, this is exactly
+                // for the case a scan is long enough to matter: CheckpointJob (enqueued only in
+                // RebuildRootsAsync's finally block) never runs until the whole rebuild finishes, so
+                // without this the WAL grows unboundedly for the entire scan (confirmed: 407MB and
+                // still climbing during one multi-hour single-root re-index). PASSIVE never blocks on
+                // readers/writers - it just flushes whatever it safely can right now.
+                if (DateTime.UtcNow - lastCheckpointUtc >= WriterCheckpointInterval)
+                {
+                    lastCheckpointUtc = DateTime.UtcNow;
+                    try
+                    {
+                        using var cmd = connection.CreateCommand();
+                        cmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE)";
+                        cmd.ExecuteNonQuery();
+                    }
+                    catch (SqliteException ex)
+                    {
+                        LoggingService.LogWarning("SearchIndexService.WriterLoop: periodic checkpoint failed", ex);
                     }
                 }
             }
@@ -750,7 +783,14 @@ public static class SearchIndexService
             // previous pass computed while the size is unchanged (see CreateUpsertCommand).
             sink.Add(new EntryRow(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, generation));
 
-            if (stat.IsDirectory)
+            // The junction/symlink itself still gets indexed above (so it's findable by name,
+            // consistent with copy/move/sync never excluding a link either) - but never descend into
+            // one. Same reasoning copy/move/sync already use: descending would either duplicate
+            // whatever the link points to (if it targets a location under a DIFFERENT configured
+            // root - e.g. this app's own S:\ root containing junctions into T:/U:/V:/W:/X:, each also
+            // separately configured, so every file under a junction was walked and written twice) or
+            // recurse forever (a self-referential or circular junction - no cycle guard existed here).
+            if (stat.IsDirectory && !stat.Attrs.HasFlag(FileAttributes.ReparsePoint))
             {
                 ScanDirectory(entry, rootPath, generation, sink, cancellationToken);
             }
