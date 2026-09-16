@@ -128,6 +128,12 @@ public static class SearchIndexService
     public static long HashedThisSweepCount { get; private set; }
 
     public static int EntryCount { get; private set; }
+
+    /// Write jobs waiting for the single writer thread to get to them - mostly of interest while
+    /// IsScanning, when a deep backlog here means the walk is paused on backpressure (see ScanSink.
+    /// Flush) even though CurrentScanPath/EntryCount aren't moving. BlockingCollection.Count is O(1).
+    public static int PendingWriteJobs => WriteQueue.Count;
+
     public static DateTimeOffset? LastScanUtc { get; private set; }
     public static IReadOnlyList<string> Roots => RootsStore.Load();
 
@@ -511,7 +517,16 @@ public static class SearchIndexService
 
     /// Rescans just one configured root, leaving every other root's index untouched - deliberately
     /// does NOT wipe the whole database first (that would nuke every other root's data for a
-    /// single-folder re-index).
+    /// single-folder re-index). Still gets a from-scratch walk for its own rows: RebuildRootsAsync
+    /// deletes this root's existing rows (a single indexed-by-RootPath delete) right before scanning
+    /// it, so every row the walk finds is a plain INSERT rather than an UPDATE via ON CONFLICT. A
+    /// re-index of an already-indexed root was measured taking 20x longer than the initial scan of
+    /// the same root (81 minutes vs under 4) purely from SQLite's ON CONFLICT DO UPDATE path being
+    /// far more expensive than a fresh INSERT at this row count - and the walker fully stalls (no
+    /// progress-bar movement at all) while the writer works through that backlog, since the walker
+    /// blocks on write-queue backpressure and nothing else advances CurrentScanPath/EntryCount while
+    /// it's blocked. Same MD5-hash-loss tradeoff RebuildAsync's full wipe already has: any hash this
+    /// root's files had is gone, and the backfill re-hashes collision-sized files under it from disk.
     public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, wipeAllFirst: false, cancellationToken);
 
     private const string TraceSource = "SearchIndexService.RebuildRootsAsync";
@@ -565,6 +580,15 @@ public static class SearchIndexService
                         {
                             LoggingService.LogWarning($"SearchIndexService.RebuildRootsAsync: {root} took longer than {PerEntryStatTimeoutSeconds}s to stat - skipping it this pass", new TimeoutException());
                             continue;
+                        }
+
+                        // wipeAllFirst already emptied the whole table, so this root has nothing to
+                        // delete yet - skip the redundant round trip. For a standalone per-root
+                        // re-index this is what turns every row the walk finds back into a plain
+                        // INSERT instead of an UPDATE via ON CONFLICT (see RebuildRootAsync).
+                        if (!wipeAllFirst)
+                        {
+                            EnqueueAndWait(new DeleteRootEntriesJob(root), cts.Token);
                         }
 
                         var sink = new ScanSink();
@@ -647,8 +671,21 @@ public static class SearchIndexService
             var rows = _buffer.ToArray();
             _buffer.Clear();
 
+            // The walker (and therefore EntryCount/CurrentScanPath - both only ever touched from this
+            // thread) is fully paused for as long as this loop spins. Without a heartbeat here, a
+            // writer that falls behind (a slow drive, a burst of ON CONFLICT updates) makes the UI
+            // look completely frozen for however long the backlog takes to drain, even though the
+            // writer is actively working through it the whole time.
+            var lastHeartbeatUtc = DateTime.MinValue;
             while (WriteQueue.Count > MaxQueuedWriteJobs)
             {
+                var now = DateTime.UtcNow;
+                if ((now - lastHeartbeatUtc).TotalMilliseconds >= 300)
+                {
+                    lastHeartbeatUtc = now;
+                    StatusChanged?.Invoke(null, EventArgs.Empty);
+                }
+
                 Thread.Sleep(25);
             }
 
@@ -1311,6 +1348,20 @@ public static class SearchIndexService
         {
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Entries";
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// Deletes every row already indexed for one root, right before RebuildRootsAsync rescans it -
+    /// so the walk that follows only ever does fresh INSERTs, never an UPDATE via ON CONFLICT. Uses
+    /// IX_Entries_RootPath, so this is a single indexed delete rather than a per-row operation.
+    private sealed class DeleteRootEntriesJob(string root) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Entries WHERE RootPath = @root";
+            cmd.Parameters.AddWithValue("@root", root);
             cmd.ExecuteNonQuery();
         }
     }

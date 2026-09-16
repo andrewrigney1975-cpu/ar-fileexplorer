@@ -249,8 +249,17 @@ public sealed partial class ControlCentreDialog : UserControl
         // IsScanning always wins the label even though the two can't actually overlap (BackfillLoop
         // pauses itself entirely while a scan runs) - this ordering just makes that priority explicit
         // rather than relying on the mutual-exclusion holding forever.
+        // A deep write-queue backlog means the walker is paused on backpressure - EntryCount and
+        // CurrentScanPath both genuinely stop moving until the writer catches up, however long that
+        // takes. Surfacing the queue depth here is what keeps the label moving during that stretch,
+        // instead of looking identically frozen whether progress has stalled or the app has hung.
+        var pendingWrites = SearchIndexService.PendingWriteJobs;
+        var backlogSuffix = SearchIndexService.IsScanning && pendingWrites > 0
+            ? $" Writer catching up ({pendingWrites:N0} batches queued)..."
+            : string.Empty;
+
         SearchIndexStatusText.Text = SearchIndexService.IsScanning
-            ? $"Indexing... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk."
+            ? $"Indexing... {SearchIndexService.EntryCount:N0} entries so far, {dbSizeDisplay} on disk.{backlogSuffix}"
             : SearchIndexService.IsHashing
                 ? $"Hashing... {SearchIndexService.HashedThisSweepCount:N0} files hashed so far this pass, {dbSizeDisplay} on disk."
                 : SearchIndexService.LastScanUtc is { } lastScan
