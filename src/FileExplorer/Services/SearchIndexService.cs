@@ -43,7 +43,17 @@ public static class SearchIndexService
 {
     private const int RescanIntervalHours = 24;
     private const int WatcherFlushIntervalMs = 5000;
-    private const int SqlCandidateLimit = 2000;
+    // Raw SQL candidates fetched before any app-side fuzzy scoring/ranking happens - a hard cap on
+    // how many rows come back from the FTS MATCH / LIKE query, ordered by name length (see
+    // SearchAsync) so a truncation drops the least-plausible matches first rather than an arbitrary
+    // slice. Confirmed 2026-09-16: a folder named "STELLA-CARDO" was correctly indexed but never
+    // reachable from search - 2,088 total rows matched that substring across the library (mostly
+    // long filenames merely containing it), SQLite returned its first 2000 in undefined order with
+    // no ranking, and the 12-character folder name that was actually wanted didn't happen to be in
+    // that slice. Raising the cap and ordering by name length doesn't eliminate the class of bug for
+    // an even more common term, but makes the short/likely-intended match survive truncation instead
+    // of losing to an arbitrary rowid-order draw.
+    private const int SqlCandidateLimit = 10_000;
 
     // Rows accumulated in the walk before a batch is posted to the writer. Bigger batches mean fewer,
     // larger transactions - each transaction commit has fixed overhead (WAL frame flush, index
@@ -1566,7 +1576,7 @@ public static class SearchIndexService
                 {
                     candidates.Clear();
                     using var cmd = connection.CreateCommand();
-                    cmd.CommandText = "SELECT Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks FROM Entries WHERE Name LIKE @pattern ESCAPE '\\'" + scopeClause + " LIMIT @limit";
+                    cmd.CommandText = "SELECT Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks FROM Entries WHERE Name LIKE @pattern ESCAPE '\\'" + scopeClause + " ORDER BY LENGTH(Name) LIMIT @limit";
                     cmd.Parameters.AddWithValue("@pattern", "%" + EscapeLike(query) + "%");
                     AddScopeParameters(cmd);
                     cmd.Parameters.AddWithValue("@limit", SqlCandidateLimit);
@@ -1586,7 +1596,7 @@ public static class SearchIndexService
                         using var cmd = connection.CreateCommand();
                         cmd.CommandText = "SELECT e.Path, e.Name, e.DirectoryPath, e.IsDirectory, e.SizeBytes, e.ModifiedTicks " +
                                           "FROM EntriesFts f JOIN Entries e ON e.rowid = f.rowid " +
-                                          "WHERE f.Name MATCH @q" + scopeClause + " LIMIT @limit";
+                                          "WHERE f.Name MATCH @q" + scopeClause + " ORDER BY LENGTH(e.Name) LIMIT @limit";
                         cmd.Parameters.AddWithValue("@q", "\"" + trimmed.Replace("\"", "\"\"") + "\"");
                         AddScopeParameters(cmd);
                         cmd.Parameters.AddWithValue("@limit", SqlCandidateLimit);
