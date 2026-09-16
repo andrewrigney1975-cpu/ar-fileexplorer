@@ -1752,6 +1752,9 @@ public sealed partial class PaneView : UserControl
 
             if (settings.EnableSearchIndex)
             {
+                menu.Items.Add(NewMenuItem("Index From Here...", string.Empty, async () =>
+                    await SearchIndexService.RebuildFolderAsync(folder.FullPath, CancellationToken.None)));
+
                 menu.Items.Add(NewMenuItem("Exclude from indexing and hashing", string.Empty, async () =>
                     await SearchIndexService.AddExcludedPathAsync(folder.FullPath)));
             }

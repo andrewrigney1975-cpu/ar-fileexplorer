@@ -562,6 +562,105 @@ public static class SearchIndexService
     /// root's files had is gone, and the backfill re-hashes collision-sized files under it from disk.
     public static Task RebuildRootAsync(string root, CancellationToken cancellationToken) => RebuildRootsAsync(new List<string> { root }, wipeAllFirst: false, cancellationToken);
 
+    /// Rescans one folder - any folder, not necessarily a configured root - and everything nested
+    /// under it, leaving the rest of the index untouched. "Index From Here..." on the folder context
+    /// menu. Same delete-then-insert approach RebuildRootAsync uses for a whole root: deletes every
+    /// row at or under this folder first (DeleteFolderEntriesJob, one indexed-by-Path delete rather
+    /// than per-row), so the walk that follows is all fresh INSERTs. New rows are tagged with
+    /// whichever configured root actually contains this folder (longest matching prefix in the roots
+    /// list) so they stay grouped with that root exactly like a root-level scan's rows do
+    /// (GetRootEntryCounts, the exclusion cache, CleanupRootJob's generation tracking on a later
+    /// root-level rescan) - or, if the folder isn't under any configured root at all, tagged with the
+    /// folder's own path. That second case is a one-off: nothing watches or periodically rescans it,
+    /// and it won't show up in Control Centre's per-root list, and the next full "Rebuild now" wipes
+    /// it along with everything else and never recreates it, since it was never added to RootsStore.
+    /// Supersedes (cancels) any rescan already in flight, same as RebuildAsync/RebuildRootAsync -
+    /// there is only ever one scan running at a time, sharing the single writer connection.
+    public static Task RebuildFolderAsync(string folder, CancellationToken cancellationToken)
+    {
+        var normalizedFolder = folder.TrimEnd('\\', '/');
+
+        var owningRoot = RootsStore.Load().FirstOrDefault(r =>
+        {
+            var normalizedRoot = r.TrimEnd('\\', '/');
+            return string.Equals(normalizedRoot, normalizedFolder, StringComparison.OrdinalIgnoreCase) ||
+                   normalizedFolder.StartsWith(normalizedRoot + "\\", StringComparison.OrdinalIgnoreCase);
+        }) ?? normalizedFolder;
+
+        return RebuildFolderCoreAsync(normalizedFolder, owningRoot, cancellationToken);
+    }
+
+    private const string FolderTraceSource = "SearchIndexService.RebuildFolderAsync";
+
+    private static async Task RebuildFolderCoreAsync(string folder, string rootTag, CancellationToken cancellationToken)
+    {
+        LoggingService.LogInfo(FolderTraceSource, $"Starting: folder='{folder}', rootTag='{rootTag}'");
+
+        _scanCts?.Cancel();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _scanCts = cts;
+
+        IsScanning = true;
+        _scanProgressCount = 0;
+        EntryCount = 0;
+        CurrentScanPath = null;
+        _lastProgressNotifyUtc = DateTime.MinValue;
+        StatusChanged?.Invoke(null, EventArgs.Empty);
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                if (!Directory.Exists(folder))
+                {
+                    LoggingService.LogWarning(FolderTraceSource, new DirectoryNotFoundException(folder));
+                    return;
+                }
+
+                if (!TryRunWithTimeout(() => Directory.GetLastWriteTimeUtc(folder), TimeSpan.FromSeconds(PerEntryStatTimeoutSeconds), out var folderModified))
+                {
+                    LoggingService.LogWarning($"SearchIndexService.RebuildFolderAsync: {folder} took longer than {PerEntryStatTimeoutSeconds}s to stat - aborting", new TimeoutException());
+                    return;
+                }
+
+                EnqueueAndWait(new DeleteFolderEntriesJob(folder), cts.Token);
+
+                var generation = DateTimeOffset.UtcNow.Ticks;
+                var sink = new ScanSink();
+                sink.Add(new EntryRow(folder, Path.GetFileName(folder), Path.GetDirectoryName(folder) ?? folder, true, 0, folderModified, null, rootTag, generation));
+                ScanDirectory(folder, rootTag, generation, sink, cts.Token);
+                sink.Flush();
+
+                LoggingService.LogInfo(FolderTraceSource, $"Done: {_scanProgressCount} entries so far");
+            }, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            LoggingService.LogInfo(FolderTraceSource, "Cancelled (superseded by a newer rebuild request)");
+        }
+        catch (Exception ex)
+        {
+            LoggingService.LogWarning(FolderTraceSource, ex);
+        }
+        finally
+        {
+            IsScanning = false;
+            CurrentScanPath = null;
+
+            try
+            {
+                RefreshEntryCount();
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogWarning("SearchIndexService.RebuildFolderAsync: RefreshEntryCount in finally", ex);
+            }
+
+            Enqueue(new CheckpointJob());
+            StatusChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
     private const string TraceSource = "SearchIndexService.RebuildRootsAsync";
 
     private static async Task RebuildRootsAsync(List<string> roots, bool wipeAllFirst, CancellationToken cancellationToken)
@@ -1402,6 +1501,23 @@ public static class SearchIndexService
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "DELETE FROM Entries WHERE RootPath = @root";
             cmd.Parameters.AddWithValue("@root", root);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// Same idea as DeleteRootEntriesJob, but for an arbitrary folder rather than a whole configured
+    /// root - "Index From Here...", right before RebuildFolderAsync rescans it. Same Path-prefix
+    /// pattern AddExcludedPathJob and GetIndexedFilesUnder already use for "this path and everything
+    /// nested under it" (no RootPath index to lean on here, since the folder isn't necessarily a
+    /// root itself).
+    private sealed class DeleteFolderEntriesJob(string folder) : WriteJob
+    {
+        public override void Run(SqliteConnection connection)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM Entries WHERE Path = @p OR Path LIKE @prefix ESCAPE '\\'";
+            cmd.Parameters.AddWithValue("@p", folder);
+            cmd.Parameters.AddWithValue("@prefix", EscapeLike(folder) + "\\\\%");
             cmd.ExecuteNonQuery();
         }
     }
