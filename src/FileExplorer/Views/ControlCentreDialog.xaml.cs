@@ -47,6 +47,7 @@ public sealed partial class ControlCentreDialog : UserControl
             LoadAboutTileImages();
             PopulateKeyboardShortcuts();
             RefreshSearchIndex();
+            LoadHashScheduleIntoUi();
 
             SyncTaskService.Changed += OnSyncTasksChanged;
             SettingsService.Changed += OnSettingsChanged;
@@ -361,6 +362,44 @@ public sealed partial class ControlCentreDialog : UserControl
         SearchIndexService.PauseBackfill(
             SearchIndexService.BackfillPausedUntilUtc is null ? TimeSpan.FromHours(6) : TimeSpan.Zero);
         RefreshSearchIndex();
+    }
+
+    /// True while LoadHashScheduleIntoUi is pushing saved values into the controls, so their
+    /// Toggled/TimeChanged handlers below don't immediately treat that as a user edit and write the
+    /// same value straight back out (or fire a save mid-load with only some of the three fields set).
+    private bool _suppressHashScheduleEvents;
+
+    private void LoadHashScheduleIntoUi()
+    {
+        var schedule = SearchIndexService.BackfillSchedule;
+        _suppressHashScheduleEvents = true;
+        try
+        {
+            HashScheduleToggle.IsOn = schedule.Enabled;
+            HashScheduleStartPicker.Time = schedule.Start.ToTimeSpan();
+            HashScheduleEndPicker.Time = schedule.End.ToTimeSpan();
+        }
+        finally
+        {
+            _suppressHashScheduleEvents = false;
+        }
+    }
+
+    private void HashScheduleToggle_Toggled(object sender, RoutedEventArgs e) => SaveHashSchedule();
+
+    private void HashScheduleTime_Changed(object sender, TimePickerValueChangedEventArgs e) => SaveHashSchedule();
+
+    private void SaveHashSchedule()
+    {
+        if (_suppressHashScheduleEvents)
+        {
+            return;
+        }
+
+        SearchIndexService.BackfillSchedule = new HashBackfillSchedule(
+            HashScheduleToggle.IsOn,
+            TimeOnly.FromTimeSpan(HashScheduleStartPicker.Time),
+            TimeOnly.FromTimeSpan(HashScheduleEndPicker.Time));
     }
 
     private void ShowExcludedPaths_Click(object sender, RoutedEventArgs e) => RefreshExcludedPaths();

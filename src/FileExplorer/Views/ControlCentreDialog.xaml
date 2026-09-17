@@ -180,6 +180,18 @@
                                 </Button>
                             </StackPanel>
 
+                            <StackPanel Spacing="6">
+                                <ToggleSwitch x:Name="HashScheduleToggle" Header="Restrict hashing to a daily time window (local time, every day)"
+                                              OnContent="On" OffContent="Off" Toggled="HashScheduleToggle_Toggled" />
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TimePicker x:Name="HashScheduleStartPicker" Header="Start" ClockIdentifier="24HourClock" TimeChanged="HashScheduleTime_Changed" />
+                                    <TextBlock Text="to" Opacity="0.7" VerticalAlignment="Bottom" Margin="0,0,0,8" />
+                                    <TimePicker x:Name="HashScheduleEndPicker" Header="End" ClockIdentifier="24HourClock" TimeChanged="HashScheduleTime_Changed" />
+                                </StackPanel>
+                                <TextBlock Text="Hashing (the expensive part of duplicate detection) only runs inside this window; an end time earlier than the start wraps past midnight, e.g. 22:00 to 04:00. Indexing and search are unaffected - only the MD5 backfill is paused outside it, on top of the manual pause button above."
+                                           Opacity="0.6" FontSize="11" TextWrapping="Wrap" />
+                            </StackPanel>
+
                             <Border x:Name="HashBucketCard" Padding="12" CornerRadius="6"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                                 <StackPanel Spacing="4">

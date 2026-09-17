@@ -12,6 +12,12 @@ public sealed record SearchIndexEntry(string Path, string Name, string Directory
 /// yet) or "" (hashing was attempted and the file was unreadable) - means "hash it from disk".
 public sealed record IndexedFile(string Path, long SizeBytes, string? Md5Hash);
 
+/// The daily local-time window the hash backfill is allowed to run in, every day of the week.
+/// Start &gt; End means the window wraps past midnight (e.g. 22:00-04:00). Enabled = false means the
+/// backfill ignores the window entirely and runs whenever it otherwise would (subject to the
+/// existing manual PauseBackfill override).
+public sealed record HashBackfillSchedule(bool Enabled, TimeOnly Start, TimeOnly End);
+
 /// Background, opt-in, persistent filename index powering "Search Everywhere" (command palette
 /// entry + standalone dialog) - a substring search across every file/folder under whichever roots
 /// the user has added via Control Centre > Search Index, backed by SQLite instead of a live
@@ -102,6 +108,13 @@ public static class SearchIndexService
 
     private static readonly JsonFileStore<List<string>> RootsStore = new("search-index-roots.json", () => new List<string>());
 
+    /// Default hashing window, chosen so the (very expensive, CPU/IO-heavy) backfill runs overnight
+    /// rather than competing with interactive use during the day.
+    private static readonly HashBackfillSchedule DefaultHashBackfillSchedule = new(true, new TimeOnly(22, 0), new TimeOnly(4, 0));
+
+    private static readonly JsonFileStore<HashBackfillSchedule> ScheduleStore =
+        new("hash-backfill-schedule.json", () => DefaultHashBackfillSchedule);
+
     private static readonly object WatcherLock = new();
     private static readonly Dictionary<string, FileSystemWatcher> Watchers = new(StringComparer.OrdinalIgnoreCase);
 
@@ -121,10 +134,12 @@ public static class SearchIndexService
 
     private sealed record PendingChange(string Path, string? OldPath, WatcherChangeTypes ChangeType);
 
-    /// A resolved row ready to write - the stat has already happened, off the writer thread.
+    /// A resolved row ready to write - the stat has already happened, off the writer thread. No
+    /// hash field: hashes live in the separate FileHashes table (keyed by DirectoryPath+Name), not
+    /// on the row itself - see the "hash backfill" region below.
     private readonly record struct EntryRow(
         string Path, string Name, string Directory, bool IsDirectory,
-        long Size, DateTime ModifiedUtc, string? Md5, string RootPath, long Generation);
+        long Size, DateTime ModifiedUtc, string RootPath, long Generation);
 
     /// Raised whenever scan progress, root list, or entry count changes, so Control Centre's Search
     /// Index section can refresh its status text without polling.
@@ -212,6 +227,33 @@ public static class SearchIndexService
         }
 
         StatusChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// The configured daily hashing window (local time), applied on top of PauseBackfill - see
+    /// HashBackfillSchedule. Persisted via JsonFileStore, same pattern as every other setting.
+    public static HashBackfillSchedule BackfillSchedule
+    {
+        get => ScheduleStore.Load();
+        set
+        {
+            ScheduleStore.Save(value);
+            StatusChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    /// True when <paramref name="nowLocal"/> falls inside the schedule's window, or the schedule is
+    /// disabled (no restriction). Handles the overnight wrap where Start &gt; End (e.g. 22:00-04:00):
+    /// the window is then "from Start to midnight" OR "from midnight to End".
+    public static bool IsWithinBackfillWindow(TimeOnly nowLocal, HashBackfillSchedule schedule)
+    {
+        if (!schedule.Enabled || schedule.Start == schedule.End)
+        {
+            return true;
+        }
+
+        return schedule.Start < schedule.End
+            ? nowLocal >= schedule.Start && nowLocal < schedule.End
+            : nowLocal >= schedule.Start || nowLocal < schedule.End;
     }
 
     /// Safe to call more than once (e.g. re-enabling the feature mid-session in Preferences after
@@ -371,7 +413,7 @@ public static class SearchIndexService
             using var cmd = CreateUpsertCommand(connection, transaction);
             foreach (var r in rows)
             {
-                UpsertEntry(cmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, r.Md5, r.RootPath, r.Generation);
+                UpsertEntry(cmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, r.RootPath, r.Generation);
             }
 
             transaction.Commit();
@@ -408,7 +450,7 @@ public static class SearchIndexService
                     // Generation -1 is the sentinel for watcher-driven single-row updates - a full
                     // rescan's stale-row cleanup deletes by generation, so a -1 row just gets
                     // re-upserted with a real generation on the next walk.
-                    UpsertEntry(upsertCmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, null, r.RootPath, -1);
+                    UpsertEntry(upsertCmd, r.Path, r.Name, r.Directory, r.IsDirectory, r.Size, r.ModifiedUtc, r.RootPath, -1);
                 }
             }
 
@@ -444,25 +486,85 @@ public static class SearchIndexService
         }
     }
 
-    private sealed class WriteHashesJob(IReadOnlyList<(string Path, string Hash)> hashes) : WriteJob
+    /// Writes finished hashes into FileHashes, keyed by (DirectoryPath, Name) rather than the full
+    /// Entries row - this is what lets a hash survive a delete-then-reinsert of its Entries row
+    /// (any full/root/folder re-index) instead of being lost with it. SizeBytes/ModifiedTicks are
+    /// stored alongside the hash so a later read can tell "still describes the same file contents"
+    /// from "file changed since this was computed, re-hash it" without touching Entries at all.
+    private sealed class WriteHashesJob(IReadOnlyList<(string DirectoryPath, string Name, long SizeBytes, long ModifiedTicks, string Hash)> hashes) : WriteJob
     {
         public override void Run(SqliteConnection connection)
         {
             using var transaction = connection.BeginTransaction();
             using var cmd = connection.CreateCommand();
             cmd.Transaction = transaction;
-            cmd.CommandText = "UPDATE Entries SET Md5Hash = @h WHERE Path = @p AND Md5Hash IS NULL";
-            var ph = cmd.Parameters.Add("@h", SqliteType.Text);
-            var pp = cmd.Parameters.Add("@p", SqliteType.Text);
+            cmd.CommandText = """
+                INSERT INTO FileHashes (DirectoryPath, Name, SizeBytes, ModifiedTicks, Md5Hash, HashedUtcTicks)
+                VALUES (@dir, @name, @size, @modified, @hash, @now)
+                ON CONFLICT(DirectoryPath, Name) DO UPDATE SET
+                    SizeBytes = excluded.SizeBytes, ModifiedTicks = excluded.ModifiedTicks,
+                    Md5Hash = excluded.Md5Hash, HashedUtcTicks = excluded.HashedUtcTicks;
+                """;
+            var pDir = cmd.Parameters.Add("@dir", SqliteType.Text);
+            var pName = cmd.Parameters.Add("@name", SqliteType.Text);
+            var pSize = cmd.Parameters.Add("@size", SqliteType.Integer);
+            var pModified = cmd.Parameters.Add("@modified", SqliteType.Integer);
+            var pHash = cmd.Parameters.Add("@hash", SqliteType.Text);
+            var pNow = cmd.Parameters.Add("@now", SqliteType.Integer);
+            var now = DateTimeOffset.UtcNow.Ticks;
 
-            foreach (var (path, hash) in hashes)
+            foreach (var (dir, name, size, modified, hash) in hashes)
             {
-                ph.Value = hash;
-                pp.Value = path;
+                pDir.Value = dir;
+                pName.Value = name;
+                pSize.Value = size;
+                pModified.Value = modified;
+                pHash.Value = hash;
+                pNow.Value = now;
                 cmd.ExecuteNonQuery();
             }
 
             transaction.Commit();
+        }
+    }
+
+    /// Deletes FileHashes rows whose (DirectoryPath, Name) no longer matches any indexed Entries
+    /// row - a file that was deleted/moved/renamed off disk, or whose folder was excluded/removed.
+    /// Only rows older than the grace period are removed, so a temporarily-excluded root or a scan
+    /// still in flight can't cause an expensive hash to be thrown away prematurely. Bounded chunks,
+    /// same reasoning as CleanupRootJob.
+    private sealed class OrphanHashCleanupJob : WriteJob
+    {
+        private static readonly TimeSpan GracePeriod = TimeSpan.FromDays(30);
+
+        public override void Run(SqliteConnection connection)
+        {
+            var cutoffTicks = DateTime.UtcNow.Subtract(GracePeriod).Ticks;
+            var removed = 0;
+            while (true)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = """
+                    DELETE FROM FileHashes WHERE rowid IN (
+                        SELECT fh.rowid FROM FileHashes fh
+                        LEFT JOIN Entries e ON e.DirectoryPath = fh.DirectoryPath AND e.Name = fh.Name
+                        WHERE e.Path IS NULL AND fh.HashedUtcTicks < @cutoff
+                        LIMIT 5000
+                    )
+                    """;
+                cmd.Parameters.AddWithValue("@cutoff", cutoffTicks);
+                var chunk = cmd.ExecuteNonQuery();
+                removed += chunk;
+                if (chunk < 5000)
+                {
+                    break;
+                }
+            }
+
+            if (removed > 0)
+            {
+                LoggingService.LogInfo("SearchIndexService.OrphanHashCleanupJob", $"Removed {removed} orphaned hash(es)");
+            }
         }
     }
 
@@ -637,7 +739,7 @@ public static class SearchIndexService
 
                 var generation = DateTimeOffset.UtcNow.Ticks;
                 var sink = new ScanSink();
-                sink.Add(new EntryRow(folder, Path.GetFileName(folder), Path.GetDirectoryName(folder) ?? folder, true, 0, folderModified, null, rootTag, generation));
+                sink.Add(new EntryRow(folder, Path.GetFileName(folder), Path.GetDirectoryName(folder) ?? folder, true, 0, folderModified, rootTag, generation));
                 ScanDirectory(folder, rootTag, generation, sink, cts.Token);
                 sink.Flush();
 
@@ -734,7 +836,7 @@ public static class SearchIndexService
                         }
 
                         var sink = new ScanSink();
-                        sink.Add(new EntryRow(root, root, Path.GetDirectoryName(root) ?? root, true, 0, rootModified, null, root, generation));
+                        sink.Add(new EntryRow(root, root, Path.GetDirectoryName(root) ?? root, true, 0, rootModified, root, generation));
                         ScanDirectory(root, root, generation, sink, cts.Token);
                         sink.Flush();
 
@@ -887,10 +989,10 @@ public static class SearchIndexService
                 continue;
             }
 
-            // Null hash: the walk never reads file contents. The backfill fills Md5Hash in afterwards
-            // and only for files whose size collides with another file. The upsert keeps any hash a
-            // previous pass computed while the size is unchanged (see CreateUpsertCommand).
-            sink.Add(new EntryRow(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, generation));
+            // The walk never reads file contents or touches hashes at all - the backfill (and its
+            // separate FileHashes table) fills those in afterwards, only for files whose size
+            // collides with another file.
+            sink.Add(new EntryRow(entry, Path.GetFileName(entry), directory, stat.IsDirectory, stat.Size, stat.Modified, rootPath, generation));
 
             // The junction/symlink itself still gets indexed above (so it's findable by name,
             // consistent with copy/move/sync never excluding a link either) - but never descend into
@@ -974,12 +1076,13 @@ public static class SearchIndexService
 
     // ================================================================= hash backfill
 
-    /// Fills in Md5Hash, after the walk, for files that have none AND share their exact byte size
-    /// with another indexed file - the only files whose hash duplicate detection can ever need (a
-    /// size-unique file can't have a duplicate). Runs on its own orchestrator thread and hashes each
-    /// page's files with a small Parallel.ForEach (file open/read on a network root is round-trip
-    /// bound, so N at once is N times the throughput); only the finished hash batches are posted to
-    /// the single DB writer. No file-size limit. Pauses while a full scan is running.
+    /// Fills in FileHashes, after the walk, for files that have no fresh hash yet AND share their
+    /// exact byte size with another indexed file - the only files whose hash duplicate detection can
+    /// ever need (a size-unique file can't have a duplicate). Runs on its own orchestrator thread and
+    /// hashes each page's files with a small Parallel.ForEach (file open/read on a network root is
+    /// round-trip bound, so N at once is N times the throughput); only the finished hash batches are
+    /// posted to the single DB writer. No file-size limit. Pauses while a full scan is running, while
+    /// manually paused (PauseBackfill), or outside the configured daily window (BackfillSchedule).
     private static void BackfillLoop()
     {
         Thread.Sleep(TimeSpan.FromSeconds(15));
@@ -992,6 +1095,7 @@ public static class SearchIndexService
         HashSet<long>? collidingSizes = null;
         var writtenThisSweep = 0L;
         var loggedPause = false;
+        var loggedOutsideWindow = false;
 
         while (true)
         {
@@ -1024,6 +1128,22 @@ public static class SearchIndexService
                     continue;
                 }
 
+                var schedule = BackfillSchedule;
+                if (!IsWithinBackfillWindow(TimeOnly.FromDateTime(DateTime.Now), schedule))
+                {
+                    if (!loggedOutsideWindow)
+                    {
+                        LoggingService.LogInfo("SearchIndexService.BackfillLoop", $"Outside hashing window ({schedule.Start}-{schedule.End} local) - idling");
+                        loggedOutsideWindow = true;
+                    }
+
+                    // No need to compute the exact time until the window opens - it can be many
+                    // hours away (a daytime-excluded window) and a 5-minute poll costs nothing.
+                    Thread.Sleep(TimeSpan.FromMinutes(5));
+                    continue;
+                }
+
+                loggedOutsideWindow = false;
                 loggedPause = false;
 
                 collidingSizes ??= LoadCollidingSizes();
@@ -1034,7 +1154,7 @@ public static class SearchIndexService
                     continue;
                 }
 
-                List<(long Rowid, string Path, long Size)> page;
+                List<(long Rowid, string Path, long Size, string DirectoryPath, string Name, long ModifiedTicks)> page;
                 using (var connection = OpenConnection())
                 {
                     page = ReadUnhashedPage(connection, cursorSize, cursorRowid, HashBackfillPageSize);
@@ -1048,6 +1168,7 @@ public static class SearchIndexService
                         StatusChanged?.Invoke(null, EventArgs.Empty);
                     }
 
+                    Enqueue(new OrphanHashCleanupJob());
                     Enqueue(new CheckpointJob());
                     cursorSize = 0;
                     cursorRowid = 0;
@@ -1063,7 +1184,6 @@ public static class SearchIndexService
 
                 var toHash = page
                     .Where(p => collidingSizes.Contains(p.Size) && !IsExcludedFromIndex(p.Path))
-                    .Select(p => p.Path)
                     .ToList();
 
                 if (toHash.Count == 0)
@@ -1073,19 +1193,19 @@ public static class SearchIndexService
 
                 IsHashing = true;
                 StatusChanged?.Invoke(null, EventArgs.Empty);
-                var hashed = new ConcurrentBag<(string Path, string Hash)>();
+                var hashed = new ConcurrentBag<(string DirectoryPath, string Name, long SizeBytes, long ModifiedTicks, string Hash)>();
                 Parallel.ForEach(
                     toHash,
                     new ParallelOptions { MaxDegreeOfParallelism = HashBackfillParallelism },
-                    path =>
+                    item =>
                     {
                         if (IsScanning || BackfillPausedUntilUtc is not null)
                         {
                             return;
                         }
 
-                        var hash = TryComputeMd5(path);
-                        hashed.Add((path, hash is { Length: 32 } ? hash : HashUnavailable));
+                        var hash = TryComputeMd5(item.Path);
+                        hashed.Add((item.DirectoryPath, item.Name, item.Size, item.ModifiedTicks, hash is { Length: 32 } ? hash : HashUnavailable));
                     });
 
                 foreach (var chunk in hashed.Chunk(HashBackfillWriteBatch))
@@ -1152,18 +1272,25 @@ public static class SearchIndexService
         return sizes;
     }
 
-    private static List<(long Rowid, string Path, long Size)> ReadUnhashedPage(SqliteConnection connection, long afterSize, long afterRowid, int limit)
+    private static List<(long Rowid, string Path, long Size, string DirectoryPath, string Name, long ModifiedTicks)> ReadUnhashedPage(SqliteConnection connection, long afterSize, long afterRowid, int limit)
     {
-        var page = new List<(long, string, long)>();
+        var page = new List<(long, string, long, string, string, long)>();
 
         using var cmd = connection.CreateCommand();
         // Keyset pagination over (SizeBytes, rowid) - smallest files first, each row visited once
-        // per sweep. Rides IX_Entries_SizeHash (SizeBytes leading).
+        // per sweep. Rides IX_Entries_SizeBytes. "Needs hashing" now means: no FileHashes row for
+        // this (DirectoryPath, Name) yet, or the one that's there was computed for a different size
+        // or mtime (the file's content has since changed) - a stored "" (HashUnavailable, tried and
+        // failed) with a matching size/mtime is deliberately excluded, same as before, so a locked
+        // file isn't retried every single sweep.
         cmd.CommandText = """
-            SELECT rowid, Path, SizeBytes FROM Entries
-            WHERE Md5Hash IS NULL AND SizeBytes > 0
-              AND (SizeBytes > @sz OR (SizeBytes = @sz AND rowid > @rid))
-            ORDER BY SizeBytes, rowid
+            SELECT e.rowid, e.Path, e.SizeBytes, e.DirectoryPath, e.Name, e.ModifiedTicks
+            FROM Entries e
+            LEFT JOIN FileHashes fh ON fh.DirectoryPath = e.DirectoryPath AND fh.Name = e.Name
+            WHERE e.SizeBytes > 0
+              AND (fh.Md5Hash IS NULL OR fh.SizeBytes != e.SizeBytes OR fh.ModifiedTicks != e.ModifiedTicks)
+              AND (e.SizeBytes > @sz OR (e.SizeBytes = @sz AND e.rowid > @rid))
+            ORDER BY e.SizeBytes, e.rowid
             LIMIT @limit
             """;
         cmd.Parameters.AddWithValue("@sz", afterSize);
@@ -1173,7 +1300,7 @@ public static class SearchIndexService
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            page.Add((reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2)));
+            page.Add((reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2), reader.GetString(3), reader.GetString(4), reader.GetInt64(5)));
         }
 
         return page;
@@ -1328,7 +1455,7 @@ public static class SearchIndexService
             return null;
         }
 
-        return new EntryRow(path, Path.GetFileName(path), Path.GetDirectoryName(path) ?? path, stat.IsDirectory, stat.Size, stat.Modified, null, rootPath, -1);
+        return new EntryRow(path, Path.GetFileName(path), Path.GetDirectoryName(path) ?? path, stat.IsDirectory, stat.Size, stat.Modified, rootPath, -1);
     }
 
     // ================================================================= exclusions
@@ -1731,17 +1858,18 @@ public static class SearchIndexService
             cmd.CommandText = """
                 SELECT
                     CASE
-                        WHEN SizeBytes < 1048576 THEN 0
-                        WHEN SizeBytes < 10485760 THEN 1
-                        WHEN SizeBytes < 104857600 THEN 2
-                        WHEN SizeBytes < 1073741824 THEN 3
+                        WHEN e.SizeBytes < 1048576 THEN 0
+                        WHEN e.SizeBytes < 10485760 THEN 1
+                        WHEN e.SizeBytes < 104857600 THEN 2
+                        WHEN e.SizeBytes < 1073741824 THEN 3
                         ELSE 4
                     END AS Bucket,
-                    SUM(CASE WHEN Md5Hash IS NOT NULL THEN 1 ELSE 0 END) AS Hashed,
-                    SUM(CASE WHEN Md5Hash IS NULL THEN 1 ELSE 0 END) AS Unhashed,
-                    SUM(CASE WHEN Md5Hash IS NULL THEN SizeBytes ELSE 0 END) AS UnhashedBytes
-                FROM Entries
-                WHERE IsDirectory = 0 AND SizeBytes > 0
+                    SUM(CASE WHEN fh.Md5Hash IS NOT NULL AND fh.SizeBytes = e.SizeBytes AND fh.ModifiedTicks = e.ModifiedTicks THEN 1 ELSE 0 END) AS Hashed,
+                    SUM(CASE WHEN fh.Md5Hash IS NULL OR fh.SizeBytes != e.SizeBytes OR fh.ModifiedTicks != e.ModifiedTicks THEN 1 ELSE 0 END) AS Unhashed,
+                    SUM(CASE WHEN fh.Md5Hash IS NULL OR fh.SizeBytes != e.SizeBytes OR fh.ModifiedTicks != e.ModifiedTicks THEN e.SizeBytes ELSE 0 END) AS UnhashedBytes
+                FROM Entries e
+                LEFT JOIN FileHashes fh ON fh.DirectoryPath = e.DirectoryPath AND fh.Name = e.Name
+                WHERE e.IsDirectory = 0 AND e.SizeBytes > 0
                 GROUP BY Bucket
                 """;
 
@@ -1794,17 +1922,30 @@ public static class SearchIndexService
         {
             using var connection = OpenConnection();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT Path, SizeBytes, Md5Hash FROM Entries WHERE IsDirectory = 0 AND (Path = @p OR Path LIKE @prefix ESCAPE '\\')";
+            cmd.CommandText = """
+                SELECT e.Path, e.SizeBytes, fh.Md5Hash, fh.SizeBytes, fh.ModifiedTicks, e.ModifiedTicks
+                FROM Entries e
+                LEFT JOIN FileHashes fh ON fh.DirectoryPath = e.DirectoryPath AND fh.Name = e.Name
+                WHERE e.IsDirectory = 0 AND (e.Path = @p OR e.Path LIKE @prefix ESCAPE '\')
+                """;
             cmd.Parameters.AddWithValue("@p", path.TrimEnd('\\'));
             cmd.Parameters.AddWithValue("@prefix", EscapeLike(path.TrimEnd('\\')) + "\\\\%");
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                result.Add(new IndexedFile(
-                    reader.GetString(0),
-                    reader.GetInt64(1),
-                    reader.IsDBNull(2) ? null : reader.GetString(2)));
+                var size = reader.GetInt64(1);
+
+                // A hash is only trustworthy here if it was computed for this exact size/mtime -
+                // otherwise the file's content has changed since, and this reports it as unhashed
+                // (null) so duplicate detection falls back to hashing it fresh from disk.
+                string? hash = null;
+                if (!reader.IsDBNull(2) && reader.GetInt64(3) == size && reader.GetInt64(4) == reader.GetInt64(5))
+                {
+                    hash = reader.GetString(2);
+                }
+
+                result.Add(new IndexedFile(reader.GetString(0), size, hash));
             }
         }
         catch (SqliteException ex)
@@ -1868,11 +2009,21 @@ public static class SearchIndexService
             CREATE INDEX IF NOT EXISTS IX_Entries_RootPath ON Entries(RootPath);
             CREATE TABLE IF NOT EXISTS Meta (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS ExcludedPaths (Path TEXT PRIMARY KEY, AddedUtcTicks INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS FileHashes (
+                DirectoryPath TEXT NOT NULL,
+                Name TEXT NOT NULL,
+                SizeBytes INTEGER NOT NULL,
+                ModifiedTicks INTEGER NOT NULL,
+                Md5Hash TEXT NOT NULL,
+                HashedUtcTicks INTEGER NOT NULL,
+                PRIMARY KEY (DirectoryPath, Name)
+            );
             """;
         cmd.ExecuteNonQuery();
 
-        // Migration for databases created before the Md5Hash column existed. MUST run before the
-        // IX_Entries_SizeHash index, which references Md5Hash.
+        // Migration for databases created before the Md5Hash column existed on Entries. Left in
+        // place even now that nothing writes to it any more, purely so the one-time FileHashes
+        // migration just below has a column to read from on an upgrade from that era.
         try
         {
             using var alter = connection.CreateCommand();
@@ -1884,10 +2035,48 @@ public static class SearchIndexService
         }
 
         using var indexCmd = connection.CreateCommand();
-        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_Entries_SizeHash ON Entries(SizeBytes, Md5Hash);";
+        indexCmd.CommandText = "CREATE INDEX IF NOT EXISTS IX_Entries_SizeBytes ON Entries(SizeBytes);";
         indexCmd.ExecuteNonQuery();
 
+        MigrateHashesIntoFileHashesTable(connection);
         EnsureFtsSchema(connection);
+    }
+
+    /// One-time migration (guarded by a Meta flag, same idiom as the FtsBuilt flag) that copies
+    /// every hash already sitting in Entries.Md5Hash - each one very expensive to have computed -
+    /// into the new FileHashes table before anything starts relying on FileHashes alone. Safe to
+    /// run every launch: the Meta flag makes every launch after the first a no-op.
+    private static void MigrateHashesIntoFileHashesTable(SqliteConnection connection)
+    {
+        using (var check = connection.CreateCommand())
+        {
+            check.CommandText = "SELECT Value FROM Meta WHERE Key = 'FileHashesMigrated'";
+            if (check.ExecuteScalar() as string == "1")
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            using var migrate = connection.CreateCommand();
+            migrate.CommandText = """
+                INSERT INTO FileHashes (DirectoryPath, Name, SizeBytes, ModifiedTicks, Md5Hash, HashedUtcTicks)
+                SELECT DirectoryPath, Name, SizeBytes, ModifiedTicks, Md5Hash, @now
+                FROM Entries
+                WHERE Md5Hash IS NOT NULL
+                ON CONFLICT(DirectoryPath, Name) DO NOTHING;
+                """;
+            migrate.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.Ticks);
+            var migrated = migrate.ExecuteNonQuery();
+            LoggingService.LogInfo("SearchIndexService.MigrateHashesIntoFileHashesTable", $"Migrated {migrated} existing hash(es) into FileHashes");
+        }
+        catch (SqliteException ex)
+        {
+            LoggingService.LogWarning("SearchIndexService.MigrateHashesIntoFileHashesTable", ex);
+        }
+
+        WriteMeta(connection, "FileHashesMigrated", "1");
     }
 
     /// External-content FTS5 table over Entries.Name with the trigram tokenizer, plus the triggers
@@ -1932,20 +2121,12 @@ public static class SearchIndexService
         var cmd = connection.CreateCommand();
         cmd.Transaction = transaction;
         cmd.CommandText = """
-            INSERT INTO Entries (Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks, RootPath, ScanGeneration, Md5Hash)
-            VALUES (@path, @name, @dir, @isDir, @size, @modified, @root, @gen, @md5)
+            INSERT INTO Entries (Path, Name, DirectoryPath, IsDirectory, SizeBytes, ModifiedTicks, RootPath, ScanGeneration)
+            VALUES (@path, @name, @dir, @isDir, @size, @modified, @root, @gen)
             ON CONFLICT(Path) DO UPDATE SET
                 Name = excluded.Name, DirectoryPath = excluded.DirectoryPath, IsDirectory = excluded.IsDirectory,
                 SizeBytes = excluded.SizeBytes, ModifiedTicks = excluded.ModifiedTicks, RootPath = excluded.RootPath,
-                ScanGeneration = excluded.ScanGeneration,
-                -- A caller-supplied hash always wins. Otherwise keep the stored hash while the size
-                -- is unchanged; a resized file's old hash is stale, so clear it and let the backfill
-                -- recompute if the new size still collides with something.
-                Md5Hash = CASE
-                    WHEN excluded.Md5Hash IS NOT NULL THEN excluded.Md5Hash
-                    WHEN Entries.SizeBytes = excluded.SizeBytes THEN Entries.Md5Hash
-                    ELSE NULL
-                END;
+                ScanGeneration = excluded.ScanGeneration;
             """;
         cmd.Parameters.Add("@path", SqliteType.Text);
         cmd.Parameters.Add("@name", SqliteType.Text);
@@ -1955,11 +2136,10 @@ public static class SearchIndexService
         cmd.Parameters.Add("@modified", SqliteType.Integer);
         cmd.Parameters.Add("@root", SqliteType.Text);
         cmd.Parameters.Add("@gen", SqliteType.Integer);
-        cmd.Parameters.Add("@md5", SqliteType.Text);
         return cmd;
     }
 
-    private static void UpsertEntry(SqliteCommand cmd, string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string? md5Hash, string root, long generation)
+    private static void UpsertEntry(SqliteCommand cmd, string path, string name, string directory, bool isDirectory, long size, DateTime modifiedUtc, string root, long generation)
     {
         cmd.Parameters["@path"].Value = path;
         cmd.Parameters["@name"].Value = name;
@@ -1969,7 +2149,6 @@ public static class SearchIndexService
         cmd.Parameters["@modified"].Value = modifiedUtc.Ticks;
         cmd.Parameters["@root"].Value = root;
         cmd.Parameters["@gen"].Value = generation;
-        cmd.Parameters["@md5"].Value = (object?)md5Hash ?? DBNull.Value;
         cmd.ExecuteNonQuery();
     }
 
