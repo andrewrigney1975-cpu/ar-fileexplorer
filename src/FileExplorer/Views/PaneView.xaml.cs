@@ -292,12 +292,69 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // A pending click-to-rename (see ScheduleClickToRename) is only valid for as long as its
+        // item stays the sole selection - e.g. a keyboard arrow-key nav landing mid-timer shouldn't
+        // still pop the rename box over whatever used to be selected.
+        if (_clickToRenameCandidate is not null &&
+            (ItemsList.SelectedItems.Count != 1 || !ReferenceEquals(ItemsList.SelectedItems[0], _clickToRenameCandidate)))
+        {
+            CancelPendingClickToRename();
+        }
+
         if (ViewModel is not null)
         {
             ViewModel.SelectedItems = ItemsList.SelectedItems.OfType<FileSystemItem>().ToList();
         }
 
         Activated?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// Explorer-style "click an already-selected item to rename it": a single click that lands on
+    /// the item that was already the sole selection (not the click that just selected it) arms a
+    /// short timer; BeginRename fires only if nothing cancels it first. A second click landing
+    /// before the timer elapses - the real double-click case, which should navigate/open instead -
+    /// cancels it via ItemsList_PointerPressed below, since WinUI's gesture recognizer never raises
+    /// a second Tapped for that click (only DoubleTapped), so canceling on every new press is
+    /// simpler and more robust than trying to key off DoubleTapped itself.
+    private void ItemsList_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        var item = _pointerPressedItem;
+        if (item is null || !_pointerPressedWasSoleSelection || IsControlPressed() || IsShiftPressed())
+        {
+            return;
+        }
+
+        if (FindItemUnderPoint(e.GetPosition(ItemsList)) is not { } tappedItem || !ReferenceEquals(tappedItem, item))
+        {
+            return;
+        }
+
+        ScheduleClickToRename(item);
+    }
+
+    private DispatcherTimer? _clickToRenameTimer;
+    private FileSystemItem? _clickToRenameCandidate;
+
+    private void ScheduleClickToRename(FileSystemItem item)
+    {
+        CancelPendingClickToRename();
+
+        _clickToRenameCandidate = item;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        timer.Tick += (_, _) =>
+        {
+            CancelPendingClickToRename();
+            BeginRename(item);
+        };
+        _clickToRenameTimer = timer;
+        timer.Start();
+    }
+
+    private void CancelPendingClickToRename()
+    {
+        _clickToRenameTimer?.Stop();
+        _clickToRenameTimer = null;
+        _clickToRenameCandidate = null;
     }
 
     private void PathBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -538,6 +595,12 @@ public sealed partial class PaneView : UserControl
     private static bool IsControlPressed()
     {
         var state = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
+        return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+    }
+
+    private static bool IsShiftPressed()
+    {
+        var state = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
         return (state & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
     }
 
@@ -1449,19 +1512,33 @@ public sealed partial class PaneView : UserControl
 
     private Windows.Foundation.Point? _marqueeStart;
     private bool _marqueeActive;
+    private FileSystemItem? _pointerPressedItem;
+    private bool _pointerPressedWasSoleSelection;
 
     /// Starts a drag-rectangle multi-select when the pointer goes down on empty space (not on an
     /// item - that's the native ListView click/drag-reorder path). No Ctrl/Shift-additive support
     /// yet: a marquee always replaces the current selection, matching Explorer's default drag.
     private void ItemsList_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        // Any new press - including the second click of what turns into a double-click, or the
+        // start of a drag - cancels a still-pending click-to-rename from an earlier click. See
+        // ItemsList_Tapped/ScheduleClickToRename.
+        CancelPendingClickToRename();
+
         var point = e.GetCurrentPoint(ItemsList);
+
+        var containerHit = FindContainerUnderPoint(point.Position);
+        _pointerPressedItem = containerHit?.Content as FileSystemItem;
+        _pointerPressedWasSoleSelection = _pointerPressedItem is not null
+            && ItemsList.SelectedItems.Count == 1
+            && ReferenceEquals(ItemsList.SelectedItems[0], _pointerPressedItem);
+
         if (!point.Properties.IsLeftButtonPressed)
         {
             return;
         }
 
-        if (FindContainerUnderPoint(point.Position) is not null)
+        if (containerHit is not null)
         {
             return;
         }
@@ -1621,6 +1698,10 @@ public sealed partial class PaneView : UserControl
 
     private void ItemsList_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
+        // Covers the keyboard/touch-and-hold path to opening a context menu, which doesn't go
+        // through ItemsList_PointerPressed's own cancellation.
+        CancelPendingClickToRename();
+
         if (ViewModel is null)
         {
             return;
@@ -1677,7 +1758,13 @@ public sealed partial class PaneView : UserControl
         menu.Items.Add(NewMenuItem("Cut", "", () => SetClipboardFromSelection(selection, isCut: true)));
         menu.Items.Add(NewMenuItem("Copy", "", () => SetClipboardFromSelection(selection, isCut: false)));
 
-        if (selection.Count >= 1)
+        if (selection.Count == 1)
+        {
+            // Same inline editor F2 uses for a single item - the pattern/regex/GUID dialog
+            // (BatchRenameAsync) below is for a multi-selection only.
+            menu.Items.Add(NewMenuItem("Rename", "", () => BeginRename(selection[0])));
+        }
+        else if (selection.Count > 1)
         {
             menu.Items.Add(NewMenuItem("Rename...", "", async () => await BatchRenameAsync(selection)));
         }
