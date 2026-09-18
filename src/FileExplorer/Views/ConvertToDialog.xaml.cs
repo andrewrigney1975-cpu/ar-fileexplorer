@@ -17,7 +17,9 @@ public sealed partial class ConvertToDialog : ContentDialog
         _selection = selectionPaths;
 
         FormatCombo.ItemsSource = ImageConversionService.Targets;
-        FormatCombo.SelectedIndex = 0;
+        FormatCombo.SelectedIndex = ImageConversionService.Targets
+            .ToList()
+            .FindIndex(t => string.Equals(t.Extension, ".jpg", StringComparison.OrdinalIgnoreCase));
 
         DepthPanel.Visibility = selectionPaths.Any(Directory.Exists) ? Visibility.Visible : Visibility.Collapsed;
         DepthDirect.Checked += (_, _) => UpdateCount();

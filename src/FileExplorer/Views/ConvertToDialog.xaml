@@ -17,22 +17,22 @@
         <StackPanel x:Name="QualityPanel" Spacing="2">
             <Grid>
                 <TextBlock Text="Quality" FontWeight="SemiBold" FontSize="12" />
-                <TextBlock x:Name="QualityValue" Text="85" FontSize="12" Opacity="0.7" HorizontalAlignment="Right" />
+                <TextBlock x:Name="QualityValue" Text="95" FontSize="12" Opacity="0.7" HorizontalAlignment="Right" />
             </Grid>
-            <Slider x:Name="QualitySlider" Minimum="10" Maximum="100" Value="85" StepFrequency="1"
+            <Slider x:Name="QualitySlider" Minimum="10" Maximum="100" Value="95" StepFrequency="1"
                     ValueChanged="QualitySlider_ValueChanged" />
         </StackPanel>
 
         <StackPanel x:Name="DepthPanel" Spacing="4">
             <TextBlock Text="Folders" FontWeight="SemiBold" FontSize="12" />
-            <RadioButton x:Name="DepthDirect" Content="Direct children only" GroupName="Depth" IsChecked="True" />
-            <RadioButton x:Name="DepthRecurse" Content="All files (recurse subfolders)" GroupName="Depth" />
+            <RadioButton x:Name="DepthDirect" Content="Direct children only" GroupName="Depth" />
+            <RadioButton x:Name="DepthRecurse" Content="All files (recurse subfolders)" GroupName="Depth" IsChecked="True" />
         </StackPanel>
 
         <StackPanel Spacing="4">
             <TextBlock Text="After converting each file" FontWeight="SemiBold" FontSize="12" />
-            <RadioButton x:Name="PostKeep" Content="Keep the original" GroupName="Post" IsChecked="True" />
-            <RadioButton x:Name="PostDelete" Content="Move the original to the Recycle Bin" GroupName="Post" />
+            <RadioButton x:Name="PostKeep" Content="Keep the original" GroupName="Post" />
+            <RadioButton x:Name="PostDelete" Content="Move the original to the Recycle Bin" GroupName="Post" IsChecked="True" />
             <RadioButton x:Name="PostMove" Content="Move the original into an &quot;Originals&quot; folder" GroupName="Post" />
         </StackPanel>
 
