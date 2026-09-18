@@ -2219,10 +2219,46 @@ public sealed partial class PaneView : UserControl
             Directory.CreateDirectory(candidate);
             UndoService.Instance.Push(new CreateFolderUndo(candidate));
             ViewModel.Refresh(candidate);
+            await RenameAfterCreateAsync(candidate);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             LoggingService.LogWarning("PaneView.NewFolder", ex);
+        }
+    }
+
+    /// Pops the same inline rename editor BeginRename/F2 use, pre-armed and ready to type over,
+    /// right after a brand-new folder lands - Explorer does this for every "New folder", not just
+    /// on a subsequent F2. ViewModel.Refresh(path) (called by every caller just before this) is
+    /// fire-and-forget (`_ = LoadAsync(...)`), and the reload + reselect + ListView container
+    /// realization for the new item all happen asynchronously across a few frames of virtualized
+    /// layout - so this polls briefly for the item to actually exist in Items and have a realized
+    /// container before opening the popup, rather than assuming either is already true the instant
+    /// Refresh() returns.
+    private async Task RenameAfterCreateAsync(string path)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            var item = ViewModel.Items.FirstOrDefault(i => string.Equals(i.FullPath, path, StringComparison.OrdinalIgnoreCase));
+            if (item is not null)
+            {
+                ItemsList.SelectedItem = item;
+                ItemsList.ScrollIntoView(item);
+                ItemsList.UpdateLayout();
+
+                if (ItemsList.ContainerFromItem(item) is not null)
+                {
+                    BeginRename(item);
+                    return;
+                }
+            }
+
+            await Task.Delay(20);
         }
     }
 
@@ -2253,6 +2289,7 @@ public sealed partial class PaneView : UserControl
             RemotePathService.TryParse(candidateFullPath, out _, out _, out var finalRemotePath);
             await session.CreateDirectoryAsync(finalRemotePath, CancellationToken.None);
             ViewModel.Refresh(candidateFullPath);
+            await RenameAfterCreateAsync(candidateFullPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -2281,8 +2318,10 @@ public sealed partial class PaneView : UserControl
                 name = $"New folder ({i})";
             }
 
+            var newFolderPath = EncryptedFolderPathService.Combine(basePath, name);
             await EncryptedFolderSession.NewFolderAsync(containerPath, relativePath, name, CancellationToken.None);
-            ViewModel.Refresh(EncryptedFolderPathService.Combine(basePath, name));
+            ViewModel.Refresh(newFolderPath);
+            await RenameAfterCreateAsync(newFolderPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
