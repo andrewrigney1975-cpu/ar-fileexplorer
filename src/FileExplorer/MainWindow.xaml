@@ -17,6 +17,7 @@
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:NullToVisibilityConverter x:Key="NullToVis" />
             <conv:UsedPercentToBrushConverter x:Key="UsedPercentToBrush" />
+            <conv:SavedSearchKindToGlyphConverter x:Key="SavedSearchKindToGlyph" />
 
             <!-- One glyph tile in the "Set Workspace Icon" picker. -->
             <DataTemplate x:Key="IconCatalogItemTemplate">
@@ -66,6 +67,7 @@
             <KeyboardAccelerator Key="F8" Invoked="ChecksumAccelerator_Invoked" />
             <KeyboardAccelerator Key="F9" Invoked="SearchEverywhereAccelerator_Invoked" />
             <KeyboardAccelerator Modifiers="Menu" Key="F9" Invoked="SearchFromHereAccelerator_Invoked" />
+            <KeyboardAccelerator Modifiers="Control" Key="F9" Invoked="AdvancedSearchAccelerator_Invoked" />
             <KeyboardAccelerator Key="F10" Invoked="ControlCentreAccelerator_Invoked" />
             <KeyboardAccelerator Modifiers="Control" Key="Tab" Invoked="NextTabAccelerator_Invoked" />
             <KeyboardAccelerator Modifiers="Control,Shift" Key="Tab" Invoked="PreviousTabAccelerator_Invoked" />
@@ -461,13 +463,21 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE721;" FontSize="14" FontFamily="Segoe Fluent Icons"
+                                    <FontIcon Glyph="{Binding Kind, Converter={StaticResource SavedSearchKindToGlyph}}"
+                                              FontSize="14" FontFamily="Segoe Fluent Icons"
                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                                 <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}"
+                                        Click="RenameSavedSearchButton_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Rename saved search"
+                                        ToolTipService.ToolTip="Rename">
+                                    <FontIcon Glyph="&#xE8AC;" FontSize="10" />
+                                </Button>
+                                <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}"
                                         Click="RemoveSavedSearchButton_Click" Tag="{Binding}"
                                         AutomationProperties.Name="Remove saved search"
                                         ToolTipService.ToolTip="Remove">

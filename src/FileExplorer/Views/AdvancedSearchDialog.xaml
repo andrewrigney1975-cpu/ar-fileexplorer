@@ -1,0 +1,114 @@
+<UserControl
+    x:Class="FileExplorer.Views.AdvancedSearchDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls">
+
+    <Grid Width="1100" HorizontalAlignment="Left" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="620" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: saved SQL queries -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Button Grid.Row="0" Content="+ New Query" HorizontalAlignment="Stretch" Margin="0,0,0,8" Click="NewQuery_Click" />
+
+                <ListView Grid.Row="1" x:Name="SavedQueriesList" SelectionMode="Single"
+                          AutomationProperties.Name="Saved SQL queries list" SelectionChanged="SavedQueriesList_SelectionChanged">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
+                                        Click="RenameQuery_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Rename query" ToolTipService.ToolTip="Rename">
+                                    <FontIcon Glyph="&#xE8AC;" FontSize="12" />
+                                </Button>
+                                <Button Grid.Column="2" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
+                                        Click="DeleteQuery_Click" Tag="{Binding}"
+                                        AutomationProperties.Name="Delete query" ToolTipService.ToolTip="Delete">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
+            <!-- Right: editor + results -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="160" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBox Grid.Row="0" x:Name="NameBox" PlaceholderText="Query name" Margin="0,0,0,8"
+                         AutomationProperties.Name="Query name" />
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ScrollViewer Grid.Column="0" x:Name="LineNumberScroll"
+                                  VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                                  IsTabStop="False" IsHitTestVisible="False"
+                                  Background="{ThemeResource ControlFillColorDefaultBrush}">
+                        <TextBlock x:Name="LineNumbersText" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                                   TextAlignment="Right" Padding="8,8,6,8" Opacity="0.5" />
+                    </ScrollViewer>
+
+                    <TextBox Grid.Column="1" x:Name="CodeBox" AcceptsReturn="True" TextWrapping="NoWrap"
+                             FontFamily="Cascadia Mono, Consolas" FontSize="12" Padding="8,8,8,8"
+                             AutomationProperties.Name="SQL query"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             TextChanged="CodeBox_TextChanged" Loaded="CodeBox_Loaded" KeyDown="CodeBox_KeyDown" />
+                </Grid>
+
+                <TextBlock Grid.Row="2" x:Name="ValidationText" Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{ThemeResource SystemFillColorCriticalBrush}" Visibility="Collapsed" />
+
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,8,0,8" VerticalAlignment="Center">
+                    <Button x:Name="RunButton" Content="Run" Click="Run_Click" />
+                    <Button Content="Save" Click="Save_Click" />
+                    <Button Content="Save As..." Click="SaveAs_Click" />
+                    <ProgressRing x:Name="RunningRing" IsActive="False" Width="18" Height="18" />
+                    <TextBlock x:Name="StatusText" VerticalAlignment="Center" Opacity="0.75" FontSize="12" />
+                </StackPanel>
+
+                <Grid Grid.Row="4">
+                    <controls:DataGrid x:Name="ResultsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                        AutomationProperties.Name="Query results"
+                                        SelectionMode="Single" GridLinesVisibility="Horizontal"
+                                        DoubleTapped="ResultsGrid_DoubleTapped" />
+                    <StackPanel x:Name="EmptyStatePanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Text="Run a SELECT query to see results here." Opacity="0.6" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <Button Grid.Row="1" x:Name="CloseButtonElement" Content="Close" Width="120" HorizontalAlignment="Right" Click="Close_Click" />
+    </Grid>
+</UserControl>

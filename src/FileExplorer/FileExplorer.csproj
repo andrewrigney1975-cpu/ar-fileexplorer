@@ -52,6 +52,10 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!-- Advanced Search's results grid: raw SQL can return arbitrary columns (aggregates, joins),
+         which the fixed name/size/date row template used elsewhere can't represent, so results
+         are rendered with an auto-generated-column DataGrid instead. -->
+    <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.DataGrid" Version="7.1.2" />
   </ItemGroup>
 
   <ItemGroup>

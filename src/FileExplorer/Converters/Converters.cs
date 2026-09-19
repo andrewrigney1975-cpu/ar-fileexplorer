@@ -33,6 +33,16 @@ public sealed partial class NullToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+/// Rail glyph for a SavedSearch row: pin for a path-filter search, database for an Advanced
+/// Search SQL query.
+public sealed partial class SavedSearchKindToGlyphConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is FileExplorer.Models.SavedSearchKind.Sql ? "" : "";
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
 public sealed partial class ActivePaneHighlightConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)

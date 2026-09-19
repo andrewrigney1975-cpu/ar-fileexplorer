@@ -177,6 +177,11 @@ public static class SearchIndexService
     private static string DbPath => Path.Combine(DbDirectory, "search-index.db");
     private static string HashPausePath => Path.Combine(DbDirectory, "hash-pause-until.txt");
 
+    /// search-index.db's path, exposed for AdvancedSearchQueryService to open its own read-only
+    /// connection against the same file (Advanced Search SQL queries never go through the writer
+    /// thread/queue below).
+    public static string IndexDbPath => DbPath;
+
     /// When this returns a value, the MD5 hash backfill idles until then (the walk, watcher and
     /// search are unaffected). File-backed so a pause survives an app restart - the backfill thread
     /// otherwise starts unconditionally with the process and has no other off switch.

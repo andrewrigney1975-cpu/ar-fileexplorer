@@ -875,7 +875,7 @@ public sealed partial class MainWindow : Window
         }
 
         var name = string.IsNullOrWhiteSpace(nameBox.Text) ? pane.SearchText : nameBox.Text.Trim();
-        SavedSearchService.Add(new SavedSearch(name, pane.CurrentPath, pane.SearchText));
+        SavedSearchService.Add(name, SavedSearchKind.PathFilter, pane.CurrentPath, pane.SearchText, sql: null);
         PopulateSavedSearches();
     }
 
@@ -891,15 +891,22 @@ public sealed partial class MainWindow : Window
 
     private void RunSavedSearch(SavedSearch search)
     {
+        if (search.Kind == SavedSearchKind.Sql)
+        {
+            _ = OpenAdvancedSearchAsync(search);
+            return;
+        }
+
         var pane = _viewModel.SelectedTab?.ActivePane;
-        if (pane is null || !Directory.Exists(search.RootPath))
+        if (pane is null || search.RootPath is null || !Directory.Exists(search.RootPath))
         {
             return;
         }
 
         pane.NavigateTo(search.RootPath);
         pane.IsRecursiveSearch = true;
-        pane.SearchText = search.Query;
+        pane.SearchText = search.Query ?? string.Empty;
+        SavedSearchService.TouchLastRun(search.Id);
     }
 
     private void RemoveSavedSearchButton_Click(object sender, RoutedEventArgs e)
@@ -909,6 +916,43 @@ public sealed partial class MainWindow : Window
             SavedSearchService.Remove(search);
             PopulateSavedSearches();
         }
+    }
+
+    // Mirrors ScriptManagerDialog.RenameScript_Click's inline-flyout pattern.
+    private void RenameSavedSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SavedSearch search } button)
+        {
+            return;
+        }
+
+        var nameBox = new TextBox { Text = search.Name, SelectionStart = 0, SelectionLength = search.Name.Length, Width = 220 };
+        var confirmButton = new Button { Content = "Rename", HorizontalAlignment = HorizontalAlignment.Right };
+        var flyout = new Flyout { Placement = FlyoutPlacementMode.Bottom };
+
+        void Confirm()
+        {
+            var newName = nameBox.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(newName) && !string.Equals(newName, search.Name, StringComparison.Ordinal))
+            {
+                SavedSearchService.Rename(search.Id, newName);
+                PopulateSavedSearches();
+            }
+
+            flyout.Hide();
+        }
+
+        confirmButton.Click += (_, _) => Confirm();
+        nameBox.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter)
+            {
+                Confirm();
+            }
+        };
+
+        flyout.Content = new StackPanel { Spacing = 8, Width = 240, Children = { nameBox, confirmButton } };
+        flyout.ShowAt(button);
     }
 
     // ----- Network locations (left rail) -----
@@ -2305,6 +2349,8 @@ public sealed partial class MainWindow : Window
             {
                 commands.Add(new PaletteCommand("Search From Here...", $"Same search, limited to {pane.CurrentPath} and its subfolders (Alt+F9)", () => _ = OpenSearchEverywhereAsync(pane.CurrentPath)));
             }
+
+            commands.Add(new PaletteCommand("Advanced Search...", "Run a raw read-only SQL query against the search index (Ctrl+F9)", () => _ = OpenAdvancedSearchAsync()));
         }
 
         if (settings.EnableTerminal)
@@ -2453,6 +2499,54 @@ public sealed partial class MainWindow : Window
         args.Handled = true;
         var pane = _viewModel.SelectedTab?.ActivePane;
         _ = OpenSearchEverywhereAsync(pane?.CurrentPath);
+    }
+
+    /// Ctrl+F9 "Advanced Search" - raw read-only SQL against search-index.db, with its own saved
+    /// query list (SavedSearchKind.Sql) shown alongside path-filter saved searches in the rail.
+    private async Task OpenAdvancedSearchAsync(SavedSearch? initialQuery = null)
+    {
+        if (!SettingsService.Current.EnableSearchIndex)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Advanced Search",
+            XamlRoot = Content.XamlRoot,
+        };
+
+        var advanced = new AdvancedSearchDialog
+        {
+            InitialQuery = initialQuery,
+            RequestClose = () => dialog.Hide(),
+            NavigateToResult = (targetPath, selectPath) =>
+            {
+                dialog.Hide();
+                if (selectPath is not null)
+                {
+                    var fileTab = _viewModel.AddNamedTab(targetPath, "Search Results");
+                    fileTab.LeftPane.Refresh(selectPath);
+                    return;
+                }
+
+                var parentPath = System.IO.Path.GetDirectoryName(targetPath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+                _viewModel.AddNamedTab(targetPath, string.IsNullOrEmpty(parentPath) ? targetPath : parentPath, "Search Results");
+            },
+        };
+        dialog.Content = advanced;
+
+        dialog.Resources["ContentDialogMaxWidth"] = 1150d;
+        dialog.Resources["ContentDialogMaxHeight"] = 780d;
+
+        await dialog.ShowAsync();
+        PopulateSavedSearches();
+    }
+
+    private void AdvancedSearchAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        _ = OpenAdvancedSearchAsync();
     }
 
     private void DiskSpaceAnalyserButton_Click(object sender, RoutedEventArgs e) => _ = OpenDiskSpaceAnalyserAsync();
