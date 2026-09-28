@@ -47,6 +47,8 @@ public sealed partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         PopulateDriveTree();
+        DriveChangeService.Start(WinRT.Interop.WindowNative.GetWindowHandle(this), DispatcherQueue);
+        DriveChangeService.Changed += (_, _) => SyncDriveTreeRoots();
         PopulateSavedSearches();
         PopulateNetworkLocations();
         PopulateRemoteConnections();
@@ -500,40 +502,121 @@ public sealed partial class MainWindow : Window
 
         foreach (var drive in _fileSystemService.GetReadyDrives())
         {
-            var label = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
-
-            double? usedPercent = null;
-            string? usageText = null;
-            try
-            {
-                var used = drive.TotalSize - drive.TotalFreeSpace;
-                usedPercent = drive.TotalSize > 0 ? used * 100.0 / drive.TotalSize : 0;
-                usageText = $"{FormatBytes(used)} of {FormatBytes(drive.TotalSize)} used ({usedPercent:F0}%)";
-            }
-            catch (IOException)
-            {
-                // usage unavailable (e.g. some removable media) - bar stays hidden
-            }
-
-            var node = new TreeViewNode
-            {
-                Content = new FolderNode
-                {
-                    Name = label,
-                    FullPath = drive.RootDirectory.FullName,
-                    IsDrive = true,
-                    IsNetwork = drive.DriveType == DriveType.Network,
-                    UsedPercent = usedPercent,
-                    UsageText = usageText,
-                },
-                HasUnrealizedChildren = _fileSystemService.HasSubdirectories(drive.RootDirectory.FullName),
-            };
-            DriveTree.RootNodes.Add(node);
+            DriveTree.RootNodes.Add(CreateDriveNode(drive));
         }
 
         // Deferred a layout pass: on first launch this runs inside the constructor, before the
         // TreeView has realized any containers, and a same-frame IsExpanded=true doesn't render.
         DispatcherQueue.TryEnqueue(RestoreTreeExpansion);
+    }
+
+    /// Reconciles the drive tree's root nodes with the drives now present (a USB stick plugged in
+    /// or pulled, see DriveChangeService) without rebuilding - drives that are still there keep
+    /// their expanded subtrees and the tree keeps its scroll position.
+    private void SyncDriveTreeRoots()
+    {
+        var drives = _fileSystemService.GetReadyDrives();
+        var present = new HashSet<string>(drives.Select(d => d.RootDirectory.FullName), StringComparer.OrdinalIgnoreCase);
+
+        var removed = new List<string>();
+        for (var i = DriveTree.RootNodes.Count - 1; i >= 0; i--)
+        {
+            if (DriveTree.RootNodes[i].Content is FolderNode { IsDrive: true } folder && !present.Contains(folder.FullPath))
+            {
+                removed.Add(folder.FullPath);
+                DriveTree.RootNodes.RemoveAt(i);
+            }
+        }
+
+        if (removed.Count > 0)
+        {
+            LeavePanesOnRemovedDrives(removed);
+        }
+
+        var added = false;
+        foreach (var drive in drives)
+        {
+            var root = drive.RootDirectory.FullName;
+            var existing = DriveTree.RootNodes
+                .Select(n => n.Content as FolderNode)
+                .Any(f => f is not null && string.Equals(f.FullPath, root, StringComparison.OrdinalIgnoreCase));
+            if (existing)
+            {
+                continue;
+            }
+
+            // Keep drive-letter order: insert before the first root that sorts after this one.
+            var index = 0;
+            while (index < DriveTree.RootNodes.Count
+                   && DriveTree.RootNodes[index].Content is FolderNode f
+                   && string.Compare(f.FullPath, root, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                index++;
+            }
+
+            DriveTree.RootNodes.Insert(index, CreateDriveNode(drive));
+            added = true;
+        }
+
+        if (added)
+        {
+            // Re-expands whatever was open on a re-inserted stick last time it was attached.
+            DispatcherQueue.TryEnqueue(RestoreTreeExpansion);
+        }
+    }
+
+    /// A drive was pulled while a pane was showing it: switch to the Home tab so the user isn't left
+    /// looking at a vanished folder. Other workspaces keep their (now dead) path so they come back
+    /// as they were if the drive is re-inserted; Home's own right pane is reset to the system drive,
+    /// since that's the pane being switched to.
+    private void LeavePanesOnRemovedDrives(IReadOnlyList<string> removedRoots)
+    {
+        bool OnRemoved(PaneViewModel pane) => removedRoots.Any(root => IsSelfOrAncestorPath(root, pane.CurrentPath));
+
+        var affected = _viewModel.Tabs.Any(t => OnRemoved(t.LeftPane) || OnRemoved(t.RightPane));
+        if (!affected || _viewModel.Tabs.FirstOrDefault(t => t.IsHome) is not { } home)
+        {
+            return;
+        }
+
+        if (OnRemoved(home.RightPane))
+        {
+            home.RightPane.NavigateTo(System.IO.Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\");
+        }
+
+        _viewModel.SelectedTab = home;
+    }
+
+    private TreeViewNode CreateDriveNode(DriveInfo drive)
+    {
+        var label = string.IsNullOrEmpty(drive.VolumeLabel) ? drive.Name : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+
+        double? usedPercent = null;
+        string? usageText = null;
+        try
+        {
+            var used = drive.TotalSize - drive.TotalFreeSpace;
+            usedPercent = drive.TotalSize > 0 ? used * 100.0 / drive.TotalSize : 0;
+            usageText = $"{FormatBytes(used)} of {FormatBytes(drive.TotalSize)} used ({usedPercent:F0}%)";
+        }
+        catch (IOException)
+        {
+            // usage unavailable (e.g. some removable media) - bar stays hidden
+        }
+
+        return new TreeViewNode
+        {
+            Content = new FolderNode
+            {
+                Name = label,
+                FullPath = drive.RootDirectory.FullName,
+                IsDrive = true,
+                IsNetwork = drive.DriveType == DriveType.Network,
+                UsedPercent = usedPercent,
+                UsageText = usageText,
+            },
+            HasUnrealizedChildren = _fileSystemService.HasSubdirectories(drive.RootDirectory.FullName),
+        };
     }
 
     private bool _restoringTree;

@@ -16,8 +16,17 @@ public sealed partial class DrivePickerView : UserControl
     public DrivePickerView()
     {
         InitializeComponent();
-        Loaded += (_, _) => Populate();
+        Loaded += (_, _) =>
+        {
+            // -= first: WinUI can raise Loaded twice without an Unloaded between (tab re-templating).
+            DriveChangeService.Changed -= DriveChangeService_Changed;
+            DriveChangeService.Changed += DriveChangeService_Changed;
+            Populate();
+        };
+        Unloaded += (_, _) => DriveChangeService.Changed -= DriveChangeService_Changed;
     }
+
+    private void DriveChangeService_Changed(object? sender, EventArgs e) => Populate();
 
     /// Re-reads drive usage - call when the app regains focus so free-space figures stay current.
     public void Refresh() => Populate();
