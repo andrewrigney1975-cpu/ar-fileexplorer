@@ -252,6 +252,131 @@ public static class ThumbnailCacheService
         }
     }
 
+    /// "Rebuild Thumbnails": throws away a folder's thumbnail cache - its on-disk cache file, its
+    /// in-memory index, any decoded bitmaps of its children, plus the folder's own entry in its
+    /// parent's cache - then regenerates thumbnails for every image and subfolder directly inside
+    /// it (not recursively) and writes a fresh cache file.
+    public static async Task RebuildFolderAsync(string folder, CancellationToken cancellationToken = default)
+    {
+        folder = Path.TrimEndingDirectorySeparator(folder);
+        var parent = Path.GetDirectoryName(folder);
+
+        InvalidateFolder(folder);
+        if (parent is not null)
+        {
+            InvalidateEntry(parent, Path.GetFileName(folder));
+        }
+
+        try
+        {
+            var path = Path.Combine(folder, CacheFileName);
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, System.IO.FileAttributes.Normal);
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning($"ThumbnailCacheService.RebuildFolderAsync: {folder}", ex);
+        }
+
+        List<(string Path, DateTimeOffset Modified, bool IsDirectory)> targets;
+        try
+        {
+            targets = await Task.Run(() =>
+            {
+                var dir = new DirectoryInfo(folder);
+                var subfolders = dir.EnumerateDirectories()
+                    .Where(d => !d.Attributes.HasFlag(System.IO.FileAttributes.Hidden))
+                    .Select(d => (d.FullName, new DateTimeOffset(d.LastWriteTimeUtc), true));
+                var images = dir.EnumerateFiles()
+                    .Where(f => IconHelper.IsPreviewableImage(f.Extension))
+                    .Select(f => (f.FullName, new DateTimeOffset(f.LastWriteTimeUtc), false));
+                return subfolders.Concat(images).ToList();
+            }, cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LoggingService.LogWarning($"ThumbnailCacheService.RebuildFolderAsync: {folder}", ex);
+            return;
+        }
+
+        // GetPngBytesAsync is throttled by GenerationLimiter, so firing them all at once still only
+        // generates MaxConcurrentGenerations at a time, and each result lands in the folder's
+        // (debounced-flush) index exactly as a normal browse would.
+        await Task.WhenAll(targets.Select(async t =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await GetPngBytesAsync(t.Path, t.Modified, t.IsDirectory);
+        }));
+
+        if (parent is not null && Directory.Exists(folder))
+        {
+            await GetPngBytesAsync(folder, new DateTimeOffset(Directory.GetLastWriteTimeUtc(folder)), isDirectory: true);
+        }
+    }
+
+    /// Drops everything cached in memory for folder's children and cancels its pending flush, so
+    /// nothing stale gets written back over a freshly deleted cache file.
+    private static void InvalidateFolder(string folder)
+    {
+        lock (Sync)
+        {
+            if (FlushTimers.Remove(folder, out var timer))
+            {
+                timer.Dispose();
+            }
+
+            FolderIndexes.Remove(folder);
+            if (FolderIndexNodes.Remove(folder, out var node))
+            {
+                FolderIndexOrder.Remove(node);
+            }
+
+            var staleKeys = MemoryCache.Keys
+                .Where(key => string.Equals(
+                    Path.GetDirectoryName(key[..key.LastIndexOf('|')]), folder, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var key in staleKeys)
+            {
+                RemoveMemoryCacheEntryLocked(key);
+            }
+        }
+    }
+
+    /// Removes one child's entry (in memory and, via the next flush, on disk) from folder's cache.
+    private static void InvalidateEntry(string folder, string name)
+    {
+        var index = LoadFolderIndex(folder);
+        var fullPath = Path.Combine(folder, name);
+        bool removed;
+        lock (Sync)
+        {
+            removed = index.Remove(name);
+
+            var prefix = fullPath + "|";
+            foreach (var key in MemoryCache.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                RemoveMemoryCacheEntryLocked(key);
+            }
+        }
+
+        if (removed)
+        {
+            ScheduleFlush(folder, index);
+        }
+    }
+
+    private static void RemoveMemoryCacheEntryLocked(string key)
+    {
+        MemoryCache.Remove(key);
+        if (MemoryCacheNodes.Remove(key, out var node))
+        {
+            MemoryCacheOrder.Remove(node);
+        }
+    }
+
     /// Marks memoryKey as most-recently-used and, on first insertion, evicts the least-recently-used
     /// entries until the cache is back within MaxMemoryCacheEntries. Caller must hold Sync.
     private static void TouchMemoryCacheLocked(string memoryKey)
@@ -507,6 +632,14 @@ public static class ThumbnailCacheService
 
         try
         {
+            // File.Create (FileMode.Create) is refused with "access denied" on an existing Hidden
+            // file - which this cache file always is after its first save - so every rewrite used
+            // to fail and a folder's cache stayed frozen at whatever its first flush held.
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, File.GetAttributes(path) & ~System.IO.FileAttributes.Hidden);
+            }
+
             using (var stream = File.Create(path))
             using (var writer = new BinaryWriter(stream))
             {

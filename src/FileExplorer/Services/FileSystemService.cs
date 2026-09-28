@@ -36,6 +36,11 @@ public sealed class FileSystemService : IFileSystemService
         };
     }
 
+    /// Drops a folder's cached listing so the next visit builds fresh FileSystemItems - e.g. after
+    /// "Rebuild Thumbnails", whose cached items would otherwise keep their old thumbnail state.
+    public static void InvalidateListing(string path) =>
+        _listingCache.TryRemove(Path.TrimEndingDirectorySeparator(path), out _);
+
     /// Local branch serves from the in-memory listing cache when fresh, otherwise wraps the
     /// existing synchronous GetItems (unchanged) in Task.Run and repopulates the cache; remote
     /// branch lists via whichever session is already open for that connection - see

@@ -924,6 +924,29 @@ public sealed partial class PaneView : UserControl
         ViewModel.Refresh(zipPath);
     }
 
+    /// Deletes each folder's thumbnail cache and regenerates it, then reloads the pane so the
+    /// visible items (including the folders' own derived thumbnails) pick up the new bitmaps.
+    private async Task RebuildThumbnailsAsync(IReadOnlyList<string> folders)
+    {
+        foreach (var folder in folders)
+        {
+            try
+            {
+                await ThumbnailCacheService.RebuildFolderAsync(folder);
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogWarning($"Rebuild Thumbnails: {folder}", ex);
+            }
+            finally
+            {
+                FileSystemService.InvalidateListing(folder);
+            }
+        }
+
+        ViewModel?.Refresh();
+    }
+
     /// Extracts .zip/.rar/.7z/.tar/.gz/.tgz/.bz2/.xz - SharpCompress auto-detects the actual format
     /// from content (so e.g. "backup.tgz" or "logs.tar.gz" work the same as a plain .tar).
     private async Task ExtractZipsAsync(IReadOnlyList<FileSystemItem> items)
@@ -1783,6 +1806,12 @@ public sealed partial class PaneView : UserControl
         {
             menu.Items.Add(NewMenuItem("Convert To...", "",
                 () => ConvertRequested?.Invoke(this, selection.Select(s => s.FullPath).ToList())));
+        }
+
+        if (selection.Count > 0 && selection.All(item => item.IsDirectory))
+        {
+            menu.Items.Add(NewMenuItem("Rebuild Thumbnails", "",
+                async () => await RebuildThumbnailsAsync(selection.Select(s => s.FullPath).ToList())));
         }
         }
         if (selection.Count == 1 && selection[0].IsDirectory && !isRestrictedScheme)
