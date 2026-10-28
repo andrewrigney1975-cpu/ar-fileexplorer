@@ -124,7 +124,13 @@ public sealed partial class MainWindow : Window
             {
                 if (job.Status == FileOperationStatus.Completed)
                 {
-                    NotificationService.Show("Sync complete", $"Sync task '{job.SyncTaskName}' has completed.");
+                    // A sync that had to skip some files still completes, but often runs unattended -
+                    // the toast is the only place the user would ever learn files were left behind.
+                    NotificationService.Show(
+                        "Sync complete",
+                        string.IsNullOrEmpty(job.ErrorMessage)
+                            ? $"Sync task '{job.SyncTaskName}' has completed."
+                            : $"Sync task '{job.SyncTaskName}' has completed, but {char.ToLowerInvariant(job.ErrorMessage[0])}{job.ErrorMessage[1..]}.");
                 }
                 else if (job.Status == FileOperationStatus.Failed)
                 {

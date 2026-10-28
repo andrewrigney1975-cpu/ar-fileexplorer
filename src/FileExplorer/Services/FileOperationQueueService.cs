@@ -112,12 +112,16 @@ public sealed class FileOperationQueueService
         {
             if (job.Kind == FileDropOperation.Sync)
             {
-                await RunFolderSyncAsync(job, token).ConfigureAwait(false);
+                var (syncFailed, syncTotal) = await RunFolderSyncAsync(job, token).ConfigureAwait(false);
+                var syncSkippedMessage = syncFailed == 0
+                    ? null
+                    : $"{syncFailed} of {syncTotal} file{(syncTotal == 1 ? "" : "s")} couldn't be synced and {(syncFailed == 1 ? "was" : "were")} skipped (see app.log)";
 
                 _dispatcher.TryEnqueue(() =>
                 {
                     job.ProgressPercent = 100;
-                    job.Status = FileOperationStatus.Completed;
+                    job.ErrorMessage = syncSkippedMessage;
+                    job.Status = syncFailed > 0 && syncFailed == syncTotal ? FileOperationStatus.Failed : FileOperationStatus.Completed;
                 });
                 return;
             }
@@ -880,7 +884,8 @@ public sealed class FileOperationQueueService
 
     /// One-way, copy-only folder sync: copies anything in source that's missing from the target or
     /// newer than what's there. Never deletes or overwrites-away target-only files.
-    private async Task RunFolderSyncAsync(FileOperationJob job, CancellationToken token)
+    /// Returns how many of the out-of-date files couldn't be copied (and were skipped), out of how many were attempted.
+    private async Task<(int Failed, int Total)> RunFolderSyncAsync(FileOperationJob job, CancellationToken token)
     {
         var source = job.SourcePaths[0];
         var target = job.DestinationFolder;
@@ -962,13 +967,23 @@ public sealed class FileOperationQueueService
             }
 
             toCopy.Add((file, destination));
-            totalBytes += sourceInfo.Length;
+
+            // A file deleted since the scan throws here - still queued, so the copy below logs and
+            // counts it as skipped like any other failure rather than it aborting the whole sync.
+            try
+            {
+                totalBytes += sourceInfo.Length;
+            }
+            catch (IOException)
+            {
+            }
         }
 
         _dispatcher.TryEnqueue(() => job.BytesTotal = totalBytes);
 
         long bytesDoneTotal = 0;
         var progressLock = new object();
+        var failedCount = 0;
 
         await Parallel.ForEachAsync(
             toCopy,
@@ -977,36 +992,49 @@ public sealed class FileOperationQueueService
             {
                 _dispatcher.TryEnqueue(() => job.CurrentFileName = Path.GetRelativePath(source, file.Source));
 
-                Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
-
-                // A stale target file must be removed first: ResilientFileCopy treats an existing
-                // destination as a partial/resumable copy from a previous attempt, and blindly
-                // resuming into old content here would corrupt the file instead of replacing it.
-                if (File.Exists(file.Destination))
+                // One file that can't be synced (locked, access denied, vanished since the scan)
+                // must not abort the rest of the sync - it's logged, skipped, and counted instead,
+                // and simply gets picked up again on the next run since it's still out of date.
+                try
                 {
-                    File.Delete(file.Destination);
-                }
+                    Directory.CreateDirectory(Path.GetDirectoryName(file.Destination)!);
 
-                await ResilientFileCopy.CopyFileAsync(
-                    file.Source,
-                    file.Destination,
-                    delta =>
+                    // A stale target file must be removed first: ResilientFileCopy treats an existing
+                    // destination as a partial/resumable copy from a previous attempt, and blindly
+                    // resuming into old content here would corrupt the file instead of replacing it.
+                    if (File.Exists(file.Destination))
                     {
-                        long done;
-                        lock (progressLock)
-                        {
-                            bytesDoneTotal += delta;
-                            done = bytesDoneTotal;
-                        }
+                        File.Delete(file.Destination);
+                    }
 
-                        _dispatcher.TryEnqueue(() =>
+                    await ResilientFileCopy.CopyFileAsync(
+                        file.Source,
+                        file.Destination,
+                        delta =>
                         {
-                            job.BytesDone = done;
-                            job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
-                        });
-                    },
-                    ct).ConfigureAwait(false);
+                            long done;
+                            lock (progressLock)
+                            {
+                                bytesDoneTotal += delta;
+                                done = bytesDoneTotal;
+                            }
+
+                            _dispatcher.TryEnqueue(() =>
+                            {
+                                job.BytesDone = done;
+                                job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
+                            });
+                        },
+                        ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    LoggingService.LogWarning($"FileOperationQueueService.RunFolderSyncAsync (skipped): {file.Source} -> {file.Destination}", ex);
+                    Interlocked.Increment(ref failedCount);
+                }
             }).ConfigureAwait(false);
+
+        return (failedCount, toCopy.Count);
     }
 
     /// destination is already collision-resolved (unique, or the prior occupant already cleared for
