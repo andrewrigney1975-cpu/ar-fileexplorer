@@ -41,6 +41,7 @@ public sealed partial class FileOperationJob : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanCancel))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     public partial FileOperationStatus Status { get; set; } = FileOperationStatus.Queued;
 
     [ObservableProperty]
@@ -56,7 +57,12 @@ public sealed partial class FileOperationJob : ObservableObject
     public partial long BytesTotal { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     public partial string? ErrorMessage { get; set; }
+
+    /// What the Operations flyout shows - the status plus the reason, so a Failed job (or a
+    /// Completed one that had to skip some items) says why instead of just the bare status.
+    public string StatusText => string.IsNullOrEmpty(ErrorMessage) ? Status.ToString() : $"{Status} - {ErrorMessage}";
 
     public bool CanCancel => Status is FileOperationStatus.Queued or FileOperationStatus.Running;
 }

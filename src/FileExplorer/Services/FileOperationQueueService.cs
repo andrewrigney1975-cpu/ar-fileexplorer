@@ -167,17 +167,35 @@ public sealed class FileOperationQueueService
             var resolved = await ResolveTopLevelCollisionsAsync(job.SourcePaths, job.DestinationFolder, token).ConfigureAwait(false);
             var allSameDrive = job.SourcePaths.All(p => FileOperationService.SameDrive(p, job.DestinationFolder));
 
+            // One item that can't be moved/copied (locked, access denied, vanished mid-batch) must
+            // not abort the rest of a large selection - it's logged, skipped, and counted instead.
+            var failedCount = 0;
+
             if (job.Kind == FileDropOperation.Move && allSameDrive)
             {
                 // Same-volume move is an atomic filesystem rename - already optimal, no streaming needed.
                 var moved = new List<(string Source, string Destination)>();
-                foreach (var (source, destination) in resolved)
+                for (var i = 0; i < resolved.Count; i++)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (MoveByRename(source, destination))
+                    var (source, destination) = resolved[i];
+                    _dispatcher.TryEnqueue(() => job.CurrentFileName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar)));
+
+                    try
                     {
-                        moved.Add((source, destination));
+                        if (MoveByRename(source, destination))
+                        {
+                            moved.Add((source, destination));
+                        }
                     }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        LoggingService.LogWarning($"FileOperationQueueService.RunJobAsync (skipped): {source} -> {destination}", ex);
+                        failedCount++;
+                    }
+
+                    var percent = (i + 1) * 100.0 / resolved.Count;
+                    _dispatcher.TryEnqueue(() => job.ProgressPercent = percent);
                 }
 
                 if (moved.Count > 0)
@@ -190,9 +208,18 @@ public sealed class FileOperationQueueService
                 var plan = BuildCopyPlan(resolved);
                 _dispatcher.TryEnqueue(() => job.BytesTotal = plan.TotalBytes);
 
+                // A directory that can't be created just makes the files under it fail below, where
+                // they're counted and their top-level item is kept at the source.
                 foreach (var dir in plan.DirectoriesToCreate)
                 {
-                    Directory.CreateDirectory(dir);
+                    try
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        LoggingService.LogWarning($"FileOperationQueueService.RunJobAsync (couldn't create folder): {dir}", ex);
+                    }
                 }
 
                 // Best-effort: a link that fails to recreate (e.g. a dangling target, or a
@@ -206,6 +233,7 @@ public sealed class FileOperationQueueService
 
                 long bytesDoneTotal = 0;
                 var progressLock = new object();
+                var failedFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
 
                 await Parallel.ForEachAsync(
                     plan.Files,
@@ -214,37 +242,56 @@ public sealed class FileOperationQueueService
                     {
                         _dispatcher.TryEnqueue(() => job.CurrentFileName = Path.GetFileName(file.Source));
 
-                        await ResilientFileCopy.CopyFileAsync(
-                            file.Source,
-                            file.Destination,
-                            delta =>
-                            {
-                                long done;
-                                lock (progressLock)
+                        try
+                        {
+                            await ResilientFileCopy.CopyFileAsync(
+                                file.Source,
+                                file.Destination,
+                                delta =>
                                 {
-                                    bytesDoneTotal += delta;
-                                    done = bytesDoneTotal;
-                                }
+                                    long done;
+                                    lock (progressLock)
+                                    {
+                                        bytesDoneTotal += delta;
+                                        done = bytesDoneTotal;
+                                    }
 
-                                _dispatcher.TryEnqueue(() =>
-                                {
-                                    job.BytesDone = done;
-                                    job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
-                                });
-                            },
-                            ct).ConfigureAwait(false);
+                                    _dispatcher.TryEnqueue(() =>
+                                    {
+                                        job.BytesDone = done;
+                                        job.ProgressPercent = job.BytesTotal > 0 ? Math.Min(100, done * 100.0 / job.BytesTotal) : 100;
+                                    });
+                                },
+                                ct).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                        {
+                            LoggingService.LogWarning($"FileOperationQueueService.RunJobAsync (skipped): {file.Source} -> {file.Destination}", ex);
+                            failedFiles.Add(file.Source);
+                        }
                     }).ConfigureAwait(false);
+
+                // A top-level item counts as failed if any file inside it failed to copy.
+                var failedTopLevel = plan.TopLevel
+                    .Where(top => failedFiles.Any(f => IsSameOrUnder(f, top.Source)))
+                    .ToHashSet();
+                failedCount = failedTopLevel.Count;
 
                 if (job.Kind == FileDropOperation.Move)
                 {
-                    // Only delete sources that were actually copied - a Skip'd collision must leave
-                    // its original untouched rather than vanishing without ever reaching the destination.
-                    foreach (var (source, _) in plan.TopLevel)
+                    // Only delete sources that were fully copied - a Skip'd collision, or an item with
+                    // any file that failed to copy, must leave its original untouched rather than
+                    // vanishing without ever (completely) reaching the destination.
+                    var completed = plan.TopLevel.Where(top => !failedTopLevel.Contains(top)).ToList();
+                    foreach (var (source, _) in completed)
                     {
                         DeleteSource(source);
                     }
 
-                    UndoService.Instance.Push(new MoveUndo(plan.TopLevel, job.DestinationWasCreatedForThisJob ? job.DestinationFolder : null));
+                    if (completed.Count > 0)
+                    {
+                        UndoService.Instance.Push(new MoveUndo(completed, job.DestinationWasCreatedForThisJob ? job.DestinationFolder : null));
+                    }
                 }
                 else
                 {
@@ -252,10 +299,16 @@ public sealed class FileOperationQueueService
                 }
             }
 
+            var verb = job.Kind == FileDropOperation.Move ? "moved" : "copied";
+            var skippedMessage = failedCount == 0
+                ? null
+                : $"{failedCount} of {resolved.Count} item{(resolved.Count == 1 ? "" : "s")} couldn't be {verb} and {(failedCount == 1 ? "was" : "were")} skipped (see app.log)";
+
             _dispatcher.TryEnqueue(() =>
             {
                 job.ProgressPercent = 100;
-                job.Status = FileOperationStatus.Completed;
+                job.ErrorMessage = skippedMessage;
+                job.Status = failedCount > 0 && failedCount == resolved.Count ? FileOperationStatus.Failed : FileOperationStatus.Completed;
             });
         }
         catch (OperationCanceledException)
@@ -264,8 +317,8 @@ public sealed class FileOperationQueueService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // job.ErrorMessage isn't bound anywhere in the Operations flyout XAML (only Status is) -
-            // without this the user sees just "Failed" with no reason why.
+            // job.ErrorMessage is shown in the Operations flyout via StatusText - without it the
+            // user sees just "Failed" with no reason why.
             LoggingService.LogWarning($"FileOperationQueueService.RunJobAsync: {job.Title}", ex);
             _dispatcher.TryEnqueue(() =>
             {
@@ -730,15 +783,23 @@ public sealed class FileOperationQueueService
         var resolved = new List<(string Source, string Destination)>();
         CollisionAction? appliedToAll = null;
 
+        // Destinations already handed out earlier in this batch. Nothing has moved yet while this
+        // loop runs, so the disk alone can't tell us that two same-named sources (e.g. from
+        // different folders) would land on the same path - without this, "Rename + apply to all"
+        // gave each of them the same "name (2).ext" and the second move threw, aborting the job.
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var source in sourcePaths)
         {
             token.ThrowIfCancellationRequested();
 
             var name = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
             var destination = Path.Combine(destinationFolder, name);
+            var existsOnDisk = File.Exists(destination) || Directory.Exists(destination);
 
-            if (!File.Exists(destination) && !Directory.Exists(destination))
+            if (!existsOnDisk && !claimed.Contains(destination))
             {
+                claimed.Add(destination);
                 resolved.Add((source, destination));
                 continue;
             }
@@ -754,7 +815,7 @@ public sealed class FileOperationQueueService
             else
             {
                 var resolution = await FileCollisionService.ResolveAsync(
-                    name, FileOperationService.MakeUniqueDestination(destination), allowApplyToAll: true, _dispatcher, _getXamlRoot).ConfigureAwait(false);
+                    name, FileOperationService.MakeUniqueDestination(destination, claimed), allowApplyToAll: true, _dispatcher, _getXamlRoot).ConfigureAwait(false);
 
                 action = resolution.Action;
                 renameTo = resolution.RenameTo;
@@ -763,6 +824,14 @@ public sealed class FileOperationQueueService
                 {
                     appliedToAll = action;
                 }
+            }
+
+            // Overwrite can only replace what's on disk now - if the clash is with another item of
+            // this same batch, overwriting it would just throw on the second move, so rename instead.
+            if (action == CollisionAction.Overwrite && claimed.Contains(destination))
+            {
+                action = CollisionAction.Rename;
+                renameTo = null;
             }
 
             switch (action)
@@ -775,11 +844,14 @@ public sealed class FileOperationQueueService
 
                 case CollisionAction.Rename:
                     var renamed = !string.IsNullOrWhiteSpace(renameTo) ? Path.Combine(destinationFolder, renameTo) : destination;
-                    resolved.Add((source, FileOperationService.MakeUniqueDestination(renamed)));
+                    var unique = FileOperationService.MakeUniqueDestination(renamed, claimed);
+                    claimed.Add(unique);
+                    resolved.Add((source, unique));
                     continue;
 
                 case CollisionAction.Overwrite:
                     DeleteToRecycleBin(destination);
+                    claimed.Add(destination);
                     resolved.Add((source, destination));
                     continue;
             }
@@ -960,6 +1032,13 @@ public sealed class FileOperationQueueService
         }
 
         return true;
+    }
+
+    private static bool IsSameOrUnder(string path, string root)
+    {
+        var trimmedRoot = root.TrimEnd(Path.DirectorySeparatorChar);
+        return string.Equals(path, trimmedRoot, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(trimmedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void DeleteSource(string source)

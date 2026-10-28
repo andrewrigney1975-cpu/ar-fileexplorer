@@ -83,9 +83,15 @@ public static class FileOperationService
     }
 
     /// Appends " (2)", " (3)", ... to avoid overwriting an existing file or folder at the destination.
-    public static string MakeUniqueDestination(string destination)
+    public static string MakeUniqueDestination(string destination) => MakeUniqueDestination(destination, reserved: null);
+
+    /// Same as above, but also treats every path in `reserved` as taken - for batch operations that
+    /// resolve all destinations up front, before any item has actually landed on disk.
+    public static string MakeUniqueDestination(string destination, ISet<string>? reserved)
     {
-        if (!File.Exists(destination) && !Directory.Exists(destination))
+        bool IsTaken(string path) => File.Exists(path) || Directory.Exists(path) || reserved?.Contains(path) == true;
+
+        if (!IsTaken(destination))
         {
             return destination;
         }
@@ -97,7 +103,7 @@ public static class FileOperationService
         for (int i = 2; ; i++)
         {
             var candidate = Path.Combine(dir, $"{name} ({i}){ext}");
-            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            if (!IsTaken(candidate))
             {
                 return candidate;
             }
