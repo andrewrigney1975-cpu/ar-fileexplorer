@@ -165,6 +165,17 @@ public sealed partial class MainWindow : Window
         {
             SearchIndexService.Start();
         }
+
+        // Keeps the browser extensions' Native Messaging manifests pointing at this exe (and
+        // migrates a pre-multi-extension setup) - best-effort, never worth failing startup over.
+        try
+        {
+            BrowserIntegrationService.RefreshRegistration();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException)
+        {
+            LoggingService.LogWarning("MainWindow: BrowserIntegrationService.RefreshRegistration", ex);
+        }
     }
 
     private const int PrewarmFolderCount = 8;

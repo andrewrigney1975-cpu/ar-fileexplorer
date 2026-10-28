@@ -292,14 +292,29 @@ public sealed partial class ControlCentreDialog : UserControl
         RefreshBrowserIntegrationStatus();
     }
 
+    private sealed record BrowserExtensionRow(string Id, string DisplayName);
+
     private void RefreshBrowserIntegrationStatus()
     {
+        var extensions = BrowserIntegrationService.Extensions;
+
+        // Only reassigned when the list actually changed - this runs on every search-index status
+        // tick (see RefreshSearchIndex), and rebuilding the ListView each time would make it flash.
+        var rows = extensions.Select(e => new BrowserExtensionRow(e.Id, e.Label ?? "Unnamed extension")).ToList();
+        if (BrowserExtensionsList.ItemsSource is not List<BrowserExtensionRow> current || !current.SequenceEqual(rows))
+        {
+            BrowserExtensionsList.ItemsSource = rows;
+        }
+
+        BrowserExtensionsEmptyText.Visibility = extensions.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UnregisterBrowserIntegrationButton.IsEnabled = extensions.Count > 0 || BrowserIntegrationService.IsRegistered;
+
         BrowserIntegrationStatusText.Text = BrowserIntegrationService.IsRegistered
-            ? "Registered for Chrome/Edge."
+            ? $"Registered for Chrome/Edge - {extensions.Count} extension{(extensions.Count == 1 ? "" : "s")} allowed."
             : "Not registered.";
     }
 
-    private void RegisterBrowserIntegration_Click(object sender, RoutedEventArgs e)
+    private void AddBrowserExtension_Click(object sender, RoutedEventArgs e)
     {
         var extensionId = BrowserExtensionIdBox.Text.Trim();
         if (string.IsNullOrEmpty(extensionId))
@@ -307,8 +322,27 @@ public sealed partial class ControlCentreDialog : UserControl
             return;
         }
 
-        BrowserIntegrationService.Register(extensionId);
+        if (BrowserIntegrationService.NormalizeExtensionId(extensionId) is null)
+        {
+            BrowserExtensionErrorText.Text = "That isn't a valid Chrome/Edge extension ID - it should be 32 letters (a-p), as shown under the extension's name in chrome://extensions with Developer mode on.";
+            BrowserExtensionErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        BrowserExtensionErrorText.Visibility = Visibility.Collapsed;
+        BrowserIntegrationService.AddExtension(extensionId, BrowserExtensionLabelBox.Text);
+        BrowserExtensionIdBox.Text = string.Empty;
+        BrowserExtensionLabelBox.Text = string.Empty;
         RefreshBrowserIntegrationStatus();
+    }
+
+    private void RemoveBrowserExtension_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string id })
+        {
+            BrowserIntegrationService.RemoveExtension(id);
+            RefreshBrowserIntegrationStatus();
+        }
     }
 
     private void UnregisterBrowserIntegration_Click(object sender, RoutedEventArgs e)

@@ -238,14 +238,44 @@
                                        TextTrimming="CharacterEllipsis" Visibility="Collapsed" />
 
                             <TextBlock Text="Browser Integration" FontWeight="SemiBold" FontSize="14" Margin="0,10,0,0" />
-                            <TextBlock Text="Lets a browser extension ask whether a folder with a given name already exists (exact match, folders only), read-only, against this index. Registers as a Chrome/Edge Native Messaging host scoped to one extension ID - no network port is opened, so no other webpage or extension can reach it."
+                            <TextBlock Text="Lets browser extensions ask whether a folder with a given name already exists (exact match, folders only), read-only, against this index. Registers as a Chrome/Edge Native Messaging host scoped to just the extension IDs listed below - no network port is opened, so no other webpage or extension can reach it."
                                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
-                            <TextBox x:Name="BrowserExtensionIdBox" Header="Chrome/Edge extension ID" PlaceholderText="32-character ID from chrome://extensions (Developer mode)" Width="420" HorizontalAlignment="Left" />
+
+                            <ListView x:Name="BrowserExtensionsList" SelectionMode="None"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled"
+                                      AutomationProperties.Name="Registered browser extensions list">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnSpacing="8" Padding="0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Id}" Opacity="0.6" FontSize="12" FontFamily="Consolas" IsTextSelectionEnabled="True" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Style="{StaticResource ToolbarIconButtonStyle}" Padding="4"
+                                                    Click="RemoveBrowserExtension_Click" Tag="{Binding Id}"
+                                                    AutomationProperties.Name="Remove extension" ToolTipService.ToolTip="Stop allowing this extension">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <TextBlock x:Name="BrowserExtensionsEmptyText" Text="No extensions registered yet" Opacity="0.6" FontSize="12" />
+
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="Register" Click="RegisterBrowserIntegration_Click" />
-                                <Button Content="Unregister" Click="UnregisterBrowserIntegration_Click" />
+                                <TextBox x:Name="BrowserExtensionIdBox" Header="Chrome/Edge extension ID" PlaceholderText="32-character ID from chrome://extensions (Developer mode)" Width="300" />
+                                <TextBox x:Name="BrowserExtensionLabelBox" Header="Label (optional)" PlaceholderText="e.g. Folder checker" Width="180" />
+                                <Button Content="Add extension" Click="AddBrowserExtension_Click" VerticalAlignment="Bottom" />
                             </StackPanel>
-                            <TextBlock x:Name="BrowserIntegrationStatusText" Opacity="0.7" FontSize="12" />
+                            <TextBlock x:Name="BrowserExtensionErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="UnregisterBrowserIntegrationButton" Content="Remove all and unregister" Click="UnregisterBrowserIntegration_Click" />
+                            </StackPanel>
+                            <TextBlock x:Name="BrowserIntegrationStatusText" Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
                         </StackPanel>
                     </Grid>
                     <Grid x:Name="PreferencesPanel" Visibility="Collapsed">
