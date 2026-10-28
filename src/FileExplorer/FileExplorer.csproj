@@ -44,7 +44,7 @@
          latter's ImageMagick natives carry a long list of memory-safety CVEs and this app parses
          arbitrary user images. AVIF/HEIC source decode still routes through the existing
          AvifImageService/libheif path. -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.2.0" />
     <PackageReference Include="SharpCompress" Version="0.50.4" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="FluentFTP" Version="54.2.0" />
